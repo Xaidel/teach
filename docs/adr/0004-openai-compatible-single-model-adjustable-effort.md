@@ -1,0 +1,3 @@
+# OpenAI-compatible API, single model family, adjustable reasoning effort per task
+
+Considered locking to a single AI vendor's SDK (e.g. Anthropic) across the AI Teacher Engine, Stage 2 Code Reviewer, and Exercise Generator. Rejected in favor of building the AI Teacher Engine against an OpenAI-compatible API contract, so the underlying provider/model is swappable without rewriting the integration layer. Task differentiation (cheap/fast hints vs. expensive/careful code review and exercise generation) is achieved by dialing reasoning effort per call on a single model family, not by routing different tasks to different vendors or model families.

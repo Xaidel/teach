@@ -1,0 +1,3 @@
+# Docker containers for sandbox execution
+
+Considered Firecracker/gVisor micro-VM isolation (stronger boundary, matches "assume submitted code is malicious" in Section 15) and WASM (sandboxed by construction, but with real gaps for Go and Python). Chose plain Docker containers, one pinned image per language (Rust/cargo, Go, Python), with resource limits enforced via standard container runtime flags (`--memory`, `--pids-limit`, `--network none`, read-only/tmpfs rootfs) per Section 5.1. All three v1 languages support Docker natively and well, and the operational cost of Firecracker/gVisor isn't justified until this is a real multi-tenant product — revisit if/when learner code execution is exposed to untrusted multi-tenant traffic.
