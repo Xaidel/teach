@@ -1,6 +1,6 @@
 ---
 name: run-reviewer
-description: 'Run the reviewer side of a two-agent PR loop for an issue: detect the current step from the PR thread, then review, re-review, or sign off — including sweep batch PRs. Requires the implement and code-review skills. Optional "step N round M" override.'
+description: 'Run the reviewer side of a two-agent PR loop for an issue: detect the current step from the PR thread, then review, re-review, or sign off — including sweep batch PRs. Requires the implement and two-axis-review skills. Optional "step N round M" override.'
 version: 1.2.0
 author: gyud-internal
 license: Apache-2.0
@@ -18,10 +18,10 @@ on the same PR; the two never read each other's chats.
 
 ## Prerequisites
 
-- The `implement` and `code-review` skills installed at
+- The `implement` and `two-axis-review` skills installed at
   `~/.agents/skills` (user-level) or `.agents/skills`
   (project-level). This skill delegates the review process by
-  reading `code-review`'s SKILL.md; if it is missing, stop and
+  reading `two-axis-review`'s SKILL.md; if it is missing, stop and
   report — do not improvise the process.
 - `gh` authenticated against the repo's remote.
 
@@ -147,7 +147,7 @@ generated-by: run-reviewer
 
 ### Step 2 — Round 1 review
 
-1. Read the `code-review` skill's SKILL.md and follow its process:
+1. Read the `two-axis-review` skill's SKILL.md and follow its process:
    the two-axis review (Standards + Spec) as parallel sub-agents,
    fixed point = merge-base with the base branch:
    `git fetch origin <base> && git diff $(git merge-base origin/<base> <head-branch>)...<head-branch>`
@@ -158,7 +158,7 @@ generated-by: run-reviewer
    for a sweep batch (resolve via `gh pr view --json headRefName`).
    The spec is issue #<X>, fetched per `docs/agents/issue-tracker.md`.
    For a sweep PR, the spec is the union of the batch's issues.
-2. On top of `code-review`: verify the PR's test plan was actually
+2. On top of `two-axis-review`: verify the PR's test plan was actually
    executed (check CI results; a missing gauntlet is itself a
    finding); ensure no regressions (full test suite must pass) and
    new behavior is covered by tests (unit minimum; integration/e2e

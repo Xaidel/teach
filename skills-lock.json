@@ -12,6 +12,31 @@
       "sourceType": "github",
       "skillPath": "skills/engineering/wayfinder/SKILL.md",
       "computedHash": "d6f094c4d06e575818049adf8206670d1412c6a8afd011fe59434d414f9f17ed"
+    },
+    "implement": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/implement/SKILL.md",
+      "computedHash": "6d3fd9e83b8f36e5213854779db49b256a457a7ebb4a503e53fa7dcff696adc3"
+    },
+    "two-axis-review": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/code-review/SKILL.md",
+      "computedHash": "9cf46653dd9c710ea1e6c22423caf31a794c88773bc94bdaa23140277f470442",
+      "note": "installed under the name 'two-axis-review' to avoid colliding with the built-in /code-review skill"
+    },
+    "tdd": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/tdd/SKILL.md",
+      "computedHash": "5e6b9c16b547113e90afbb946489d1c1384be5c2128f0159bd0bee57251ecf08"
+    },
+    "resolving-merge-conflicts": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/resolving-merge-conflicts/SKILL.md",
+      "computedHash": "c7c9ba81362a786aac05d2223123bf1bd2f8a99c3243a72882ede9c68bedfb24"
     }
   }
 }

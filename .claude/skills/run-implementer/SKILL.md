@@ -1,6 +1,6 @@
 ---
 name: run-implementer
-description: 'Run the implementer side of a two-agent PR loop for an issue: detect the current step from the PR thread and issue state, then execute it — implement, resolve review findings, merge, clean up, or run a follow-up sweep. Requires the implement and code-review skills. Optional "step N round M" override.'
+description: 'Run the implementer side of a two-agent PR loop for an issue: detect the current step from the PR thread and issue state, then execute it — implement, resolve review findings, merge, clean up, or run a follow-up sweep. Requires the implement and two-axis-review skills. Optional "step N round M" override.'
 version: 1.2.0
 author: gyud-internal
 license: Apache-2.0
@@ -19,7 +19,7 @@ other's chats.
 
 ## Prerequisites
 
-- The `implement` and `code-review` skills installed at
+- The `implement` and `two-axis-review` skills installed at
   `~/.agents/skills` (user-level) or `.agents/skills`
   (project-level). This skill delegates their processes by reading
   their SKILL.md files; if either is missing, stop and report — do
