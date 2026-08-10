@@ -89,8 +89,16 @@ Start new ADRs from [`template.md`](./template.md).
 | [ADR-0005](./0005-docker-sandbox-isolation.md) | Docker containers for sandbox execution | Accepted | Related to ADR-0001, ADR-0003 |
 | [ADR-0006](./0006-typescript-nextjs-stack.md) | TypeScript full-stack: Next.js + Node backend | **Superseded** by ADR-0009 | — |
 | [ADR-0007](./0007-postgres-storage.md) | Postgres for all persistent storage | Accepted | Related to ADR-0001, ADR-0003, ADR-0009 |
-| [ADR-0008](./0008-deterministic-prompt-shield.md) | Deterministic check for Prompt Shield leakage detection; injection detection left open | Accepted | Related to ADR-0004 |
+| [ADR-0008](./0008-deterministic-prompt-shield.md) | Deterministic check for Prompt Shield leakage detection; injection detection left open | Accepted | Related to ADR-0004; refined by ADR-0012 |
 | [ADR-0009](./0009-tanstack-start-single-app-stack.md) | TanStack Start (React), single deployable app — no separate Node backend | Accepted | Supersedes ADR-0006; related to ADR-0004, ADR-0005, ADR-0007 |
+| [ADR-0010](./0010-core-v1-persistence-schema.md) | Core v1 persistence schema: Concept Graph, Learner Model, Retrieval Queue, Exercise Store | Accepted | Related to ADR-0001, ADR-0003, ADR-0007 |
+| [ADR-0011](./0011-sandbox-orchestration-mechanics.md) | Sandbox orchestration mechanics | Accepted | Related to ADR-0003, ADR-0005, ADR-0009 |
+| [ADR-0012](./0012-prompt-shield-near-match-algorithm.md) | Prompt Shield near-match leakage algorithm | Accepted | Refines ADR-0008; related to ADR-0003 |
+| [ADR-0013](./0013-local-dev-deploy-environment.md) | Local dev/deploy environment: native app, composed Postgres, ad hoc sandbox | Accepted | Related to ADR-0001, ADR-0009, ADR-0011 |
+| [ADR-0014](./0014-single-learner-session-model.md) | Single-learner session model: query-based resolution, no session layer | Accepted | Related to ADR-0001, ADR-0010, ADR-0013 |
+| [ADR-0015](./0015-explanation-assessment-transfer-test-cadence.md) | Explanation Assessment / Transfer Test cadence: dual promotion gate and randomized recurring review shape | Accepted | Related to ADR-0010, ADR-0014 |
+| [ADR-0016](./0016-concept-graph-review-workflow.md) | Concept Graph review workflow: in-app structural review with a separate deterministic validation gate | Accepted | Related to ADR-0010, ADR-0003 |
+| [ADR-0017](./0017-stage2-rubric-storage.md) | Stage 2 evaluation rubric storage: nullable `evaluation_rubric` jsonb column on `exercises` | Accepted | Related to ADR-0010, ADR-0016 |
 
 Keep this table in the same change as any status or relationship update. Every ADR file
 appears here exactly once.

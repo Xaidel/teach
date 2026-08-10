@@ -70,5 +70,6 @@ Compare Teacher output against the Pre-Flight-verified reference solution determ
 ## Relationships and References
 
 - Related to: [ADR-0004](./0004-openai-compatible-single-model-adjustable-effort.md) — this decision's core driver (avoiding an added model call on a high-frequency path) directly extends ADR-0004's cost/effort-per-task reasoning.
+- Refined by: [ADR-0012](./0012-prompt-shield-near-match-algorithm.md) — fills the near-match algorithm gap this ADR left open (see Neutral/Risks above); this ADR's core decision (deterministic check, no LLM call) remains authoritative and unchanged.
 - Supporting evidence: [docs/INITIAL_PRD.md](../INITIAL_PRD.md) Section 5 (guardrail table — Prompt Shield Filter), user stories 36–37; [docs/SPEC.md](../SPEC.md) ("Prompt Shield" line; "Out of scope: LLM-based prompt-injection detection").
 - Owning implementation package: none yet — no code implements this as of this writing.

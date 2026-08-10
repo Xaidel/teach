@@ -79,5 +79,6 @@ Skip auth, billing, and tenant isolation entirely for v1, but give every learner
 ## Relationships and References
 
 - Related to: [ADR-0007](./0007-postgres-storage.md) — the Learner Model tables this ADR scopes by `learner_id` are the same tables ADR-0007 places in Postgres.
+- Related to: [ADR-0010](./0010-core-v1-persistence-schema.md) — the `learners` table and every `learner_id` foreign key in that ADR's schema implement this ADR's learner-scoping mandate.
 - Supporting evidence: [docs/SPEC.md](../SPEC.md) ("Multi-user readiness" and "Out of scope" sections cite this decision as already governing architecture).
 - Owning implementation package: none yet — the schema has not been implemented in code as of this writing. Link the migrations directory here once it exists.

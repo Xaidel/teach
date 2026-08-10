@@ -73,5 +73,6 @@ Build the sandbox, Concept Graph schema, and exercise generation/pre-flight pipe
 - Related to: [ADR-0005](./0005-docker-sandbox-isolation.md) — one pinned sandbox image per language is the concrete implementation of this ADR's per-language runtime abstraction requirement.
 - Related to: [ADR-0002](./0002-both-tracks-in-v1.md) — the shared integration-test seam both ADRs rely on must cover all three languages, not just both tracks.
 - Related to: [ADR-0001](./0001-single-user-mvp-multi-user-ready-data-model.md) — same "pay the abstraction cost now, before real content/data exists" reasoning, applied to language instead of learner scoping.
+- Related to: [ADR-0010](./0010-core-v1-persistence-schema.md) — the `concepts.language` column is how that ADR's schema stores the three v1 languages this ADR establishes.
 - Supporting evidence: [docs/INITIAL_PRD.md](../INITIAL_PRD.md) (target-audience framing, line 12; Rust-only worked examples); [docs/SPEC.md](../SPEC.md) ("Concept Graph authorship"; "Out of scope: Any language beyond Rust, Go, Python").
 - Owning implementation package: none yet — no code implements this as of this writing.
