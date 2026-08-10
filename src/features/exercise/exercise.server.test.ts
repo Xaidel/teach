@@ -87,6 +87,25 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
     await db.delete(submissions).where(eq(submissions.id, submission.id))
   })
 
+  it('rejects a malformed sandbox result before persisting it', async () => {
+    runRustSubmissionMock.mockResolvedValue({
+      passed: true,
+      tests: [{ name: 'handles_zero', status: 'not-a-status' }],
+    } as unknown as Awaited<ReturnType<typeof runRustSubmission>>)
+
+    const exercise = await getHardcodedExercise()
+    if (!exercise) throw new Error('expected the seeded exercise')
+    const learnerId = await getCurrentLearnerId()
+
+    await expect(
+      submitExercise({
+        exerciseId: exercise.id,
+        code: 'pub fn is_even(n: u32) -> bool { n % 2 == 0 }',
+        learnerId,
+      }),
+    ).rejects.toThrow()
+  })
+
   it('throws a stable error for an unknown exercise', async () => {
     await expect(
       submitExercise({

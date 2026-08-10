@@ -4,7 +4,7 @@ import { db } from '#/db/client.server'
 import { exercises, results, submissions } from '#/db/schema'
 import { runRustSubmission } from '#/lib/sandbox/runner.server'
 
-import { ExerciseError } from './exercise.schema'
+import { ExerciseError, SandboxResultSchema } from './exercise.schema'
 import type { Exercise, SandboxResult } from './exercise.schema'
 
 /** Slug of the single v1 walking-skeleton exercise. */
@@ -65,10 +65,12 @@ export async function submitExercise(input: {
 }): Promise<SandboxResult> {
   const exercise = await getExerciseById(input.exerciseId)
 
-  const sandboxResult = await runRustSubmission({
-    code: input.code,
-    testSource: exercise.testSource,
-  })
+  const sandboxResult = SandboxResultSchema.parse(
+    await runRustSubmission({
+      code: input.code,
+      testSource: exercise.testSource,
+    }),
+  )
 
   const [submission] = await db
     .insert(submissions)
