@@ -145,5 +145,6 @@ No code implements this yet as of this writing; there is no automated check to p
 - Related to: [ADR-0007](./0007-postgres-storage.md) — this ADR makes ADR-0007's storage technology and adjacency-table framing concrete as actual table definitions.
 - Related to: [ADR-0001](./0001-single-user-mvp-multi-user-ready-data-model.md) — the `learners` table and every `learner_id` foreign key in this schema implement ADR-0001's learner-scoping mandate.
 - Related to: [ADR-0003](./0003-multi-language-from-v1.md) — the per-language `concepts.language` column is how this schema stores the three v1 languages ADR-0003 establishes.
+- Related to: [ADR-0016](./0016-concept-graph-review-workflow.md), [ADR-0017](./0017-stage2-rubric-storage.md), [ADR-0019](./0019-generated-test-source-storage.md) — each adds a single column to a table this ADR defines (`concepts.status`, `exercises.evaluation_rubric`, `exercises.test_source` respectively) without reopening this ADR's schema otherwise.
 - Supporting evidence: [docs/SPEC.md](../SPEC.md) (Concept Graph, Learner Model, Explanation Assessment & Transfer Testing, Spaced Retrieval, and Pre-Flight Validation sections); wayfinder ticket #22 on map #21 (resolution session this ADR records).
 - Owning implementation package: none yet — no code implements this as of this writing.
