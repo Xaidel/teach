@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm'
+import { desc, eq, sql } from 'drizzle-orm'
 import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('#/lib/sandbox/runner.server', () => ({
@@ -64,6 +64,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       .select()
       .from(submissions)
       .where(eq(submissions.learnerId, learnerId))
+      .orderBy(desc(submissions.createdAt))
       .limit(1)
 
     expect(submission).toBeDefined()

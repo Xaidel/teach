@@ -8,8 +8,8 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core'
+import { uuidv7 } from 'uuidv7'
 
-import { uuidv7 } from '../lib/uuidv7'
 import type { SandboxTest } from '../lib/sandbox/types'
 
 /** The single learner the platform serves in v1 (ADR-0001, ADR-0014). */

@@ -63,10 +63,10 @@ Re-run `pnpm run sandbox:build` whenever anything under `sandbox/rust/` changes
 
 ## Test plan
 
-The suite spans pure unit tests (JUnit normalizer, UUIDv7), component tests
-(editor and result UI), sandbox integration tests against a real Docker daemon
-(skip when the daemon is down), Postgres-backed server-operation tests (skip
-when the database is unreachable), and a browser E2E journey.
+The suite spans pure unit tests (JUnit normalizer), component tests (editor
+and result UI), sandbox integration tests against a real Docker daemon (skip
+when the daemon is down), Postgres-backed server-operation tests (skip when
+the database is unreachable), and a browser E2E journey.
 
 ```sh
 pnpm run test:e2e
