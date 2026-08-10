@@ -27,5 +27,5 @@ The person using the platform. v1 is single-user (the platform's author), but ev
 _Avoid_: User, Student (product name uses "learner" throughout the PRD's Learner Model section)
 
 **Sandbox**:
-An ephemeral, per-submission Docker container (one pinned image per v1 language: Rust/cargo, Go, Python) enforcing the Section 5.1 resource limits, orchestrated by the Node backend and running on the local machine for v1.
+An ephemeral, per-submission Docker container (one pinned image per v1 language: Rust/cargo, Go, Python) enforcing the Section 5.1 resource limits, orchestrated by the TanStack Start backend and running on the local machine for v1.
 _Avoid_: Execution container, Isolated environment
