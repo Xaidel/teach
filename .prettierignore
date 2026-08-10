@@ -1,0 +1,17 @@
+.output/
+.tanstack/
+.agents/
+.claude/
+.hermes/
+node_modules/
+playwright-report/
+src/routeTree.gen.ts
+test-results/
+pnpm-lock.yaml
+AGENTS.md
+CONTEXT.md
+skills-lock.json
+arch_docs/
+docs/
+sandbox/
+drizzle/

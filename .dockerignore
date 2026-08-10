@@ -1,0 +1,16 @@
+.git
+.github
+.agents
+.output
+.tanstack
+arch_docs
+docs
+e2e
+node_modules
+playwright-report
+tests
+test-results
+.env
+.env.*
+!.env.example
+*.log
