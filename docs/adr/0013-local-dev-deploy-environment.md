@@ -96,5 +96,6 @@ Two further shapes were raised and rejected without changing the outcome:
 - Related to: [ADR-0009](./0009-tanstack-start-single-app-stack.md) — this ADR's local-machine/local-daemon framing is the starting point this ADR makes concrete.
 - Related to: [ADR-0011](./0011-sandbox-orchestration-mechanics.md) — the Sandbox Workspace host-path mechanic is the primary constraint driving the native-vs-containerized app decision here.
 - Related to: [ADR-0001](./0001-single-user-mvp-multi-user-ready-data-model.md) — the seeded single-learner row this ADR's `db:seed` script applies.
+- Amended by: [ADR-0018](./0018-per-language-dependency-set-mechanism.md) — broadens this ADR's `sandbox:build` rebuild trigger from "when a Dockerfile changes" to "when anything under `sandbox/<lang>/` changes"; this ADR's core (explicit build step, fresh-setup sequence, native app / composed Postgres, no CI/CD) remains authoritative and unchanged otherwise.
 - Supporting evidence: `arch_docs/adoption.md` (`.env.example`, `env.server.ts`, `pnpm` conventions), `arch_docs/development-workflow.md` (verification commands); wayfinder ticket [#26](../../issues/26) on map [#21](../../issues/21) (resolution session this ADR records).
 - Owning implementation package: none yet — no code implements this as of this writing.
