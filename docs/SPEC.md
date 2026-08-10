@@ -111,10 +111,10 @@ A learner-facing web app pairs an AI Teacher Engine with a real sandboxed compil
 
 ## Implementation Decisions
 
-- **Stack**: TypeScript full-stack — Next.js frontend, Node backend. (ADR-0006)
+- **Stack**: TypeScript full-stack — a single TanStack Start (React) application; API and Docker sandbox orchestration live in server functions and server-only feature modules within it, not a separate backend service. (ADR-0009, superseding ADR-0006)
 - **Storage**: Postgres for all persistent data — Concept Graph, Learner Model, Retrieval Queue — via Drizzle ORM. No graph database. (ADR-0007)
 - **Sandbox**: Docker containers, one pinned image per v1 language (Rust/cargo, Go, Python). Resource limits enforced via container runtime flags (`--memory`, `--pids-limit`, `--network none`, read-only/tmpfs rootfs), per the PRD's Section 5.1 defaults (512MB memory, 1 CPU, 64 PIDs, 10s timeout, network disabled, 1MB output cap, ephemeral filesystem). (ADR-0005)
-- **Deployment**: Runs on the local machine for v1 — the Node backend talks to the local Docker daemon. Orchestration code should not assume a local daemon specifically, so pointing it at a remote Docker host later is a config change, not a rewrite.
+- **Deployment**: Runs on the local machine for v1 — the TanStack Start server talks to the local Docker daemon. Orchestration code should not assume a local daemon specifically, so pointing it at a remote Docker host later is a config change, not a rewrite.
 - **AI integration**: A single client built against an OpenAI-compatible API contract, used by the AI Teacher Engine for explanations, hints, exercise generation, and Stage 2 review. One model family; reasoning effort is the per-task dial (low for hints, high for generation/review), not vendor or model routing. (ADR-0004)
 - **AI Teacher Engine responsibilities**: Owns generation (explanations, hints, exercises, feedback, misconception analysis, qualitative review, Concept Graph drafts). Never the pass/fail authority — Pre-Flight validation and Stage 1 execution are independent deterministic gates that run outside the Teacher Engine's control.
 - **Multi-user readiness**: Every learner-scoped table (attempts, hint usage, mastery state, retrieval queue entries) includes a learner identifier from the first migration, even though v1 runs with exactly one learner and no auth. (ADR-0001)
