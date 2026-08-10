@@ -70,5 +70,6 @@ Store the Concept Graph, Learner Model, and Retrieval Queue in one Postgres data
 - Related to: [ADR-0001](./0001-single-user-mvp-multi-user-ready-data-model.md) — the learner-scoped Learner Model and Retrieval Queue tables this ADR places in Postgres are the same tables ADR-0001 governs.
 - Related to: [ADR-0003](./0003-multi-language-from-v1.md) — the per-language Concept Graphs (Rust, Go, Python) this ADR stores all live in this one database.
 - Related to: [ADR-0009](./0009-tanstack-start-single-app-stack.md) — Drizzle ORM's pairing with Postgres matches the TypeScript/TanStack Start stack established there.
+- Related to: [ADR-0010](./0010-core-v1-persistence-schema.md) — the concrete table definitions realizing this ADR's storage technology and adjacency-table framing.
 - Supporting evidence: [docs/INITIAL_PRD.md](../INITIAL_PRD.md) Section 7 (Concept Graph) and user story 40; Section 23.1 (Retrieval Queue); [docs/SPEC.md](../SPEC.md) ("Storage" line).
 - Owning implementation package: none yet — no code implements this as of this writing.
