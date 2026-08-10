@@ -1,24 +1,38 @@
-/** Status of one normalized test entry. */
-export type SandboxTestStatus = 'passed' | 'failed' | 'skipped' | 'errored'
+import { z } from 'zod'
+
+/** Status of one normalized test entry (CONTEXT.md — Sandbox Result). */
+export const SandboxTestStatusSchema = z.enum([
+  'passed',
+  'failed',
+  'skipped',
+  'errored',
+])
+
+export type SandboxTestStatus = z.infer<typeof SandboxTestStatusSchema>
 
 /** One normalized test entry in a Sandbox Result (CONTEXT.md — Sandbox Result). */
-export type SandboxTest = {
-  name: string
-  status: SandboxTestStatus
-  message?: string
-  output?: string
-}
+export const SandboxTestSchema = z.object({
+  name: z.string(),
+  status: SandboxTestStatusSchema,
+  message: z.string().optional(),
+  output: z.string().optional(),
+})
+
+export type SandboxTest = z.infer<typeof SandboxTestSchema>
 
 /**
  * The normalized, language-independent pass/fail + diagnostics shape a
- * Sandbox run produces (CONTEXT.md — Sandbox Result).
+ * Sandbox run produces (CONTEXT.md — Sandbox Result). The single
+ * authoritative definition of the shape; validated at runtime where
+ * sandbox output enters persistence.
  */
-export type SandboxResult = {
-  passed: boolean
-  tests: SandboxTest[]
-  /** Result-level message, e.g. a compile failure or timeout. */
-  message?: string
-}
+export const SandboxResultSchema = z.object({
+  passed: z.boolean(),
+  tests: z.array(SandboxTestSchema),
+  message: z.string().optional(),
+})
+
+export type SandboxResult = z.infer<typeof SandboxResultSchema>
 
 /** The pinned per-language sandbox image (ADR-0011). */
 export const RUST_SANDBOX_IMAGE = 'teach-sandbox-rust:v1'

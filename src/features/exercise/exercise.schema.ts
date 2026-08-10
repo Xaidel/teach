@@ -1,27 +1,17 @@
 import { z } from 'zod'
 
 /**
- * One normalized test entry in a Sandbox Result (CONTEXT.md — Sandbox Result).
+ * The shared Sandbox Result shape is defined once in the sandbox lib
+ * (src/lib/sandbox/types.ts) and re-exported here for the feature surface
+ * (issue #39).
  */
-export const SandboxTestSchema = z.object({
-  name: z.string(),
-  status: z.enum(['passed', 'failed', 'skipped', 'errored']),
-  message: z.string().optional(),
-  output: z.string().optional(),
-})
-
-export type SandboxTest = z.infer<typeof SandboxTestSchema>
-
-/**
- * The normalized, language-independent shape a sandbox run produces.
- */
-export const SandboxResultSchema = z.object({
-  passed: z.boolean(),
-  tests: z.array(SandboxTestSchema),
-  message: z.string().optional(),
-})
-
-export type SandboxResult = z.infer<typeof SandboxResultSchema>
+export {
+  SandboxResultSchema,
+  SandboxTestSchema,
+  type SandboxResult,
+  type SandboxTest,
+  type SandboxTestStatus,
+} from '#/lib/sandbox/types'
 
 /** One exercise a learner can attempt, as exposed to routes and browser UI. */
 export const ExerciseSchema = z.object({
