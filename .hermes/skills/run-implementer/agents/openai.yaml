@@ -1,0 +1,5 @@
+interface:
+  display_name: "Run Implementer"
+  short_description: "Drive the implementer tab of the two-agent PR loop"
+policy:
+  allow_implicit_invocation: false

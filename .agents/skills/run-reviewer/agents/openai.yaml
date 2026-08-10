@@ -1,0 +1,5 @@
+interface:
+  display_name: "Run Reviewer"
+  short_description: "Drive the reviewer tab of the two-agent PR loop"
+policy:
+  allow_implicit_invocation: false
