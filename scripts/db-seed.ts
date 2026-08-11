@@ -5,17 +5,18 @@ import { count } from 'drizzle-orm'
 import { db } from '../src/db/client.server'
 import { exercises, learners } from '../src/db/schema'
 
-const HARDCODED_EXERCISE = {
-  slug: 'rust-is-even',
-  language: 'rust',
-  title: 'Is it even?',
-  prompt:
-    'Implement `is_even(n: u32) -> bool`, returning true when n is an even number and false otherwise. Handle zero.',
-  starterCode: `pub fn is_even(n: u32) -> bool {
+const HARDCODED_EXERCISES = [
+  {
+    slug: 'rust-is-even',
+    language: 'rust',
+    title: 'Is it even?',
+    prompt:
+      'Implement `is_even(n: u32) -> bool`, returning true when n is an even number and false otherwise. Handle zero.',
+    starterCode: `pub fn is_even(n: u32) -> bool {
     false
 }
 `,
-  testSource: `#[test]
+    testSource: `#[test]
 fn returns_true_for_even_numbers() {
     assert!(exercise::is_even(4), "4 is even");
 }
@@ -30,8 +31,70 @@ fn handles_zero() {
     assert!(exercise::is_even(0), "0 is even");
 }
 `,
-  status: 'verified',
+    status: 'verified',
+  },
+  {
+    slug: 'go-is-even',
+    language: 'go',
+    title: 'Is it even? (Go)',
+    prompt:
+      'Implement `IsEven(n uint32) bool`, returning true when n is an even number and false otherwise. Handle zero.',
+    starterCode: `package exercise
+
+func IsEven(n uint32) bool {
+	return false
 }
+`,
+    testSource: `package exercise
+
+import "testing"
+
+func TestIsEvenEvenNumbers(t *testing.T) {
+	if !IsEven(4) {
+		t.Error("4 is even")
+	}
+}
+
+func TestIsEvenOddNumbers(t *testing.T) {
+	if IsEven(7) {
+		t.Error("7 is odd")
+	}
+}
+
+func TestIsEvenZero(t *testing.T) {
+	if !IsEven(0) {
+		t.Error("0 is even")
+	}
+}
+`,
+    status: 'verified',
+  },
+  {
+    slug: 'python-is-even',
+    language: 'python',
+    title: 'Is it even? (Python)',
+    prompt:
+      'Implement `is_even(n: int) -> bool`, returning True when n is an even number and False otherwise. Handle zero.',
+    starterCode: `def is_even(n: int) -> bool:
+    return False
+`,
+    testSource: `from exercise import is_even
+
+
+def test_even_numbers():
+    assert is_even(4) is True, "4 is even"
+
+
+def test_odd_numbers():
+    assert is_even(7) is False, "7 is odd"
+
+
+def test_zero():
+    assert is_even(0) is True, "0 is even"
+`,
+    status: 'verified',
+  },
+] as const
 
 async function seedLearner(): Promise<void> {
   const rows = await db.select({ value: count() }).from(learners)
@@ -44,20 +107,22 @@ async function seedLearner(): Promise<void> {
   }
 }
 
-async function seedExercise(): Promise<void> {
+async function seedExercise(
+  exercise: (typeof HARDCODED_EXERCISES)[number],
+): Promise<void> {
   const existing = await db.query.exercises.findFirst({
-    where: (table, { eq }) => eq(table.slug, HARDCODED_EXERCISE.slug),
+    where: (table, { eq }) => eq(table.slug, exercise.slug),
   })
   if (existing) {
-    console.log(
-      `Exercise "${HARDCODED_EXERCISE.slug}" already present; skipping.`,
-    )
+    console.log(`Exercise "${exercise.slug}" already present; skipping.`)
     return
   }
-  await db.insert(exercises).values(HARDCODED_EXERCISE)
-  console.log(`Seeded exercise "${HARDCODED_EXERCISE.slug}".`)
+  await db.insert(exercises).values(exercise)
+  console.log(`Seeded exercise "${exercise.slug}".`)
 }
 
 await seedLearner()
-await seedExercise()
+for (const exercise of HARDCODED_EXERCISES) {
+  await seedExercise(exercise)
+}
 await db.$client.end()

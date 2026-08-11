@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { SANDBOX_LANGUAGES } from '#/lib/sandbox/types'
 import { SandboxResultSchema, type SandboxResult } from '#/lib/sandbox/types'
 
 /**
@@ -19,7 +20,7 @@ export {
 export const ExerciseSchema = z.object({
   id: z.string().min(1),
   slug: z.string().min(1),
-  language: z.string().min(1),
+  language: z.enum(SANDBOX_LANGUAGES),
   title: z.string().min(1),
   prompt: z.string().min(1),
   starterCode: z.string(),

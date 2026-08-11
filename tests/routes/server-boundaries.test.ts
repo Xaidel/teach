@@ -44,7 +44,7 @@ describe('client and server source boundaries', () => {
     )
 
     expect(exerciseRoute).toContain('ExercisePage')
-    expect(exerciseRoute).toContain('getHardcodedExerciseFn')
+    expect(exerciseRoute).toContain('getHardcodedExercisesFn')
     expect(exerciseRoute).not.toContain('<main')
   })
 })

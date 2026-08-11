@@ -4,10 +4,12 @@ An interactive, AI-driven learning platform that converts AI-generated code a
 learner doesn't fully understand into active, evaluated practice — pairing an
 AI Teacher with a real sandboxed compiler and a deterministic evaluation gate.
 
-This repository currently implements the **walking skeleton** (build ticket #1):
-one hardcoded Rust exercise, submitted through a TanStack Start server function,
-evaluated by `cargo nextest` in an isolated Docker sandbox, with the submission
-and its pass/fail result persisted in Postgres.
+This repository currently implements the **multi-language sandbox** (build
+tickets #1 and #2): one hardcoded exercise per language — Rust, Go, and Python
+— each submitted through a TanStack Start server function, evaluated by that
+language's real test toolchain (`cargo nextest`, `go test`, `pytest`) in an
+isolated Docker sandbox, with the submission and its pass/fail result
+persisted in Postgres.
 
 ## Stack
 
@@ -29,13 +31,13 @@ cp .env.example .env            # fill in DATABASE_URL and the AI placeholders
 docker compose up -d            # Postgres
 pnpm install --frozen-lockfile
 pnpm run db:migrate             # schema migrations
-pnpm run db:seed                # the single learner row + the hardcoded exercise
-pnpm run sandbox:build          # build teach-sandbox-rust:v1
+pnpm run db:seed                # the single learner row + the three hardcoded exercises
+pnpm run sandbox:build          # build teach-sandbox-{rust,go,python}:v1
 pnpm run dev                    # http://localhost:3000
 ```
 
-Re-run `pnpm run sandbox:build` whenever anything under `sandbox/rust/` changes
-(a Dockerfile or a skeleton manifest edit — see ADR-0018).
+Re-run `pnpm run sandbox:build` whenever anything under `sandbox/<lang>/`
+changes (a Dockerfile or a skeleton manifest edit — see ADR-0018).
 
 ## Scripts
 
@@ -46,27 +48,31 @@ Re-run `pnpm run sandbox:build` whenever anything under `sandbox/rust/` changes
 | `pnpm run test:e2e`      | Browser E2E through the built app (needs Postgres + Docker + sandbox image) |
 | `pnpm run db:generate`   | Generate a new Drizzle migration from `src/db/schema.ts`                    |
 | `pnpm run db:migrate`    | Apply pending migrations                                                    |
-| `pnpm run db:seed`       | Seed the learner row and the hardcoded exercise (idempotent)                |
-| `pnpm run sandbox:build` | Build the Rust sandbox image to `teach-sandbox-rust:v1`                     |
+| `pnpm run db:seed`       | Seed the learner row and the hardcoded exercises (idempotent)               |
+| `pnpm run sandbox:build` | Build all sandbox images to `teach-sandbox-{rust,go,python}:v1`             |
 
 ## Architecture
 
 - Routes stay thin; the exercise feature owns the UI, schemas, server functions,
   and server-only operations (`src/features/exercise/`).
 - Sandbox orchestration lives in plain TypeScript behind the server boundary
-  (`src/lib/sandbox/`): `dockerode` with typed `HostConfig` resource limits, a
-  bind-mounted per-run Sandbox Workspace, a watchdog enforcing the 10-second
-  timeout, and guaranteed container teardown.
+  (`src/lib/sandbox/`): `dockerode` with typed `HostConfig` resource limits
+  (identical for every language), a bind-mounted per-run Sandbox Workspace, a
+  watchdog enforcing the 10-second timeout, and guaranteed container teardown.
+  One runner (`runSandboxSubmission`) selects the pinned image and toolchain by
+  the exercise's language; one normalizer per language maps its native test
+  output to the shared Sandbox Result shape.
 - The current learner resolves once per request via `getCurrentLearnerId()`
   (`src/features/learners/`) and threads down as a plain parameter.
 - Decisions live in `docs/adr/`; the reusable template contract in `arch_docs/`.
 
 ## Test plan
 
-The suite spans pure unit tests (JUnit normalizer), component tests (editor
-and result UI), sandbox integration tests against a real Docker daemon (skip
-when the daemon is down), Postgres-backed server-operation tests (skip when
-the database is unreachable), and a browser E2E journey.
+The suite spans pure unit tests (JUnit and `go test -json` normalizers),
+component tests (editor and result UI), sandbox integration tests against a
+real Docker daemon (skip when the daemon is down), Postgres-backed
+server-operation tests (skip when the database is unreachable), and a browser
+E2E journey covering all three languages.
 
 ```sh
 pnpm run test:e2e
