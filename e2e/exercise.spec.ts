@@ -58,3 +58,43 @@ test('submits code and receives a pass/fail result end to end for each language'
     })
   }
 })
+
+test('escalates the manual Socratic hint ladder one level at a time', async ({
+  page,
+}) => {
+  await page.goto('/')
+
+  const article = page.getByRole('article', {
+    name: 'Is it even?',
+    exact: true,
+  })
+
+  await article.getByRole('button', { name: 'Submit for evaluation' }).click()
+  await expect(article.getByText(/Failed —/)).toBeVisible({
+    timeout: 120_000,
+  })
+
+  // A failed attempt always exposes the manual ladder controls, letting the
+  // learner choose their next level of help.
+  await expect(
+    article.getByText('Choose how much help you want next.'),
+  ).toBeVisible()
+
+  const hintButton = article.getByRole('button', {
+    name: /Get Level 0 hint|Request Level 1/,
+  })
+  await hintButton.click()
+
+  // The request resolves to either a served hint (when the AI Teacher
+  // Engine produced one) or a graceful failure message — the ladder never
+  // crashes the attempt.
+  await expect(
+    article
+      .getByText(/Your hint · Level (0|1)/)
+      .or(
+        article.getByText(
+          'The requested hint could not be generated. Try again.',
+        ),
+      ),
+  ).toBeVisible({ timeout: 60_000 })
+})

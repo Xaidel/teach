@@ -1,7 +1,7 @@
-import { eq, inArray } from 'drizzle-orm'
+import { and, asc, eq, inArray } from 'drizzle-orm'
 
 import { db } from '#/db/client.server'
-import { exercises, results, submissions } from '#/db/schema'
+import { exercises, results, submissionHints, submissions } from '#/db/schema'
 import { TeacherEngineError } from '#/lib/ai/client.server'
 import { generateHint } from '#/lib/ai/functions.server'
 import type { Hint } from '#/lib/ai/schemas'
@@ -9,7 +9,14 @@ import { runSandboxSubmission, SandboxError } from '#/lib/sandbox/runner.server'
 import { isSandboxLanguage } from '#/lib/sandbox/types'
 
 import { ExerciseError, parseSandboxResult } from './exercise.schema'
-import type { Exercise, SubmitExerciseOutput } from './exercise.schema'
+import type {
+  Exercise,
+  HintRequestAction,
+  RequestHintOutput,
+  SandboxResult,
+  SubmitExerciseOutput,
+} from './exercise.schema'
+import { resolveTargetLevel } from './hint-ladder'
 
 /** Slugs of the hardcoded v1 exercises, one per sandbox language (issue #2). */
 export const HARDCODED_EXERCISE_SLUGS = [
@@ -56,6 +63,61 @@ async function getExerciseById(exerciseId: string): Promise<ServerExercise> {
   }
 
   return { ...rowToExercise(row), testSource: row.testSource }
+}
+
+/** The context a hint request needs: the exercise, its failed result, prior hints. */
+type HintContext = {
+  exercise: Exercise
+  result: SandboxResult
+  priorHints: { level: number; content: string }[]
+}
+
+/**
+ * Loads the exercise, persisted result, and already-served hints for one
+ * submission, scoped to the calling learner so one learner can never request
+ * hints on another learner's attempt. Missing or foreign submissions surface
+ * as a stable escalation error.
+ */
+async function getHintContext(input: {
+  submissionId: string
+  learnerId: string
+}): Promise<HintContext> {
+  const rows = await db
+    .select({ exercise: exercises, result: results })
+    .from(submissions)
+    .innerJoin(exercises, eq(exercises.id, submissions.exerciseId))
+    .innerJoin(results, eq(results.submissionId, submissions.id))
+    .where(
+      and(
+        eq(submissions.id, input.submissionId),
+        eq(submissions.learnerId, input.learnerId),
+      ),
+    )
+    .limit(1)
+
+  const row = rows[0]
+  if (!row) {
+    throw new ExerciseError('HINT_ESCALATION_INVALID')
+  }
+
+  const priorHints = await db
+    .select({
+      level: submissionHints.hintLevel,
+      content: submissionHints.content,
+    })
+    .from(submissionHints)
+    .where(eq(submissionHints.submissionId, input.submissionId))
+    .orderBy(asc(submissionHints.hintLevel))
+
+  return {
+    exercise: rowToExercise(row.exercise),
+    result: {
+      passed: row.result.passed,
+      tests: row.result.tests,
+      ...(row.result.message === null ? {} : { message: row.result.message }),
+    },
+    priorHints,
+  }
 }
 
 /** Returns all seeded hardcoded exercises, or null before seeding. */
@@ -110,10 +172,11 @@ export async function submitExercise(input: {
     submissionId: submission.id,
     passed: sandboxResult.passed,
     tests: sandboxResult.tests,
+    message: sandboxResult.message ?? null,
   })
 
   if (sandboxResult.passed) {
-    return { result: sandboxResult, hint: null }
+    return { submissionId: submission.id, result: sandboxResult, hint: null }
   }
 
   let hint: Hint | null = null
@@ -132,5 +195,55 @@ export async function submitExercise(input: {
     }
   }
 
-  return { result: sandboxResult, hint }
+  if (hint) {
+    await db.insert(submissionHints).values({
+      submissionId: submission.id,
+      hintLevel: hint.level,
+      content: hint.content,
+    })
+  }
+
+  return { submissionId: submission.id, result: sandboxResult, hint }
+}
+
+/**
+ * Serves and records the next hint level for a persisted exercise attempt.
+ * Progression is derived and validated server-side from the hints already
+ * recorded against the attempt (issue #4): the next action climbs Levels
+ * 0-4 one at a time, and the full-solution action serves Level 5, only after
+ * Level 4 was served. Requests against a passed attempt, a level past the
+ * ladder, or a foreign submission are rejected.
+ */
+export async function requestHint(input: {
+  submissionId: string
+  action: HintRequestAction
+  learnerId: string
+}): Promise<RequestHintOutput> {
+  const context = await getHintContext(input)
+
+  if (context.result.passed) {
+    throw new ExerciseError('HINT_ESCALATION_INVALID')
+  }
+
+  const targetLevel = resolveTargetLevel(
+    context.priorHints.map((priorHint) => priorHint.level),
+    input.action,
+  )
+
+  const hint = await generateHint({
+    language: context.exercise.language,
+    exerciseTitle: context.exercise.title,
+    exercisePrompt: context.exercise.prompt,
+    sandboxResult: context.result,
+    targetLevel,
+    priorHints: context.priorHints,
+  })
+
+  await db.insert(submissionHints).values({
+    submissionId: input.submissionId,
+    hintLevel: hint.level,
+    content: hint.content,
+  })
+
+  return { hint }
 }
