@@ -1,6 +1,7 @@
 import { TeacherEngineError, callTeacherEngine } from './client.server'
 import { buildExplainConceptMessages } from './prompts/explain-concept.prompt'
 import { buildGenerateHintMessages } from './prompts/generate-hint.prompt'
+import { checkPromptShield } from './prompt-shield'
 import {
   ExplainConceptInputSchema,
   ExplainConceptOutputSchema,
@@ -24,11 +25,31 @@ const REASONING_EFFORT_HINT: ReasoningEffort = 'low'
 const REASONING_EFFORT_EXPLAIN: ReasoningEffort = 'low'
 
 /**
+ * The safe fallback served when the Prompt Shield blocks a hint: a generic,
+ * level-appropriate message that can never leak the reference solution. The
+ * hint level is preserved so the ladder's recorded level stays consistent
+ * with what was requested (issue #5, AC: safe fallback, not a broken UI
+ * state).
+ */
+function shieldedHintFallback(level: number): Hint {
+  return {
+    level,
+    content:
+      'I cannot safely share that hint at this level right now. Try re-reading the failure diagnostics and taking the smallest next step.',
+  }
+}
+
+/**
  * Generates one Socratic hint at a given escalation level for a Stage 1
  * failure (SPEC stories 18, 22-23). The AI Teacher Engine only produces the
  * hint text — pass/fail authority stays with the deterministic Stage 1 gate.
  * The returned hint's level must match the requested level; a mismatch is
  * invalid model output.
+ *
+ * The returned hint is checked by the Prompt Shield against the
+ * Pre-Flight-verified reference solution (ADR-0008, ADR-0012): when the
+ * model output would leak solution code above the current hint level, a
+ * generic safe fallback is served instead — the leak never renders.
  */
 export async function generateHint(input: GenerateHintInput): Promise<Hint> {
   const validated = GenerateHintInputSchema.parse(input)
@@ -44,6 +65,17 @@ export async function generateHint(input: GenerateHintInput): Promise<Hint> {
       'invalid_output',
       `The AI Teacher Engine returned hint level ${String(hint.level)} for requested level ${String(validated.targetLevel)}.`,
     )
+  }
+
+  if (
+    checkPromptShield({
+      content: hint.content,
+      referenceSolution: validated.referenceSolution,
+      language: validated.language,
+      hintLevel: hint.level,
+    }) === 'block'
+  ) {
+    return shieldedHintFallback(hint.level)
   }
 
   return hint

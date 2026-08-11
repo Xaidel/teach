@@ -16,7 +16,7 @@ vi.mock('#/lib/ai/functions.server', () => ({
 }))
 
 import { db } from '#/db/client.server'
-import { results, submissionHints, submissions } from '#/db/schema'
+import { exercises, results, submissionHints, submissions } from '#/db/schema'
 import { TeacherEngineError } from '#/lib/ai/client.server'
 import { generateHint } from '#/lib/ai/functions.server'
 import { runSandboxSubmission } from '#/lib/sandbox/runner.server'
@@ -266,6 +266,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       priorHints: [],
     })
     expect(hintInput?.exercisePrompt).toBeTruthy()
+    expect(hintInput?.referenceSolution).toContain('n % 2 == 0')
 
     const [servedHint] = await db
       .select()
@@ -464,6 +465,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
         { level: 1, content: 'Hint at level 1' },
       ],
     })
+    expect(escalationCall?.referenceSolution).toContain('n % 2 == 0')
 
     await deleteLatestSubmission(learnerId)
   })
@@ -713,5 +715,55 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
     expect(served.map((row) => row.hintLevel).sort()).toEqual([0, 1])
 
     await deleteLatestSubmission(learnerId)
+  })
+
+  it('skips hint generation when the exercise has no reference solution (issue #5, fail closed)', async () => {
+    runSandboxSubmissionMock.mockResolvedValue({
+      passed: false,
+      tests: [{ name: 'handles_zero', status: 'failed' }],
+    })
+    generateHintMock.mockResolvedValue({
+      level: 0,
+      content: 'This should never be called.',
+    })
+
+    const [inserted] = await db
+      .insert(exercises)
+      .values({
+        slug: 'test-no-reference-solution',
+        language: 'rust',
+        title: 'No reference solution',
+        prompt: 'Implement a function.',
+        starterCode: 'fn placeholder() {}',
+        testSource: '#[test]\nfn placeholder_works() { assert!(true); }\n',
+      })
+      .returning({ id: exercises.id })
+
+    if (!inserted) throw new Error('expected the inserted exercise')
+
+    try {
+      const learnerId = await getCurrentLearnerId()
+      const outcome = await submitExercise({
+        exerciseId: inserted.id,
+        code: 'fn placeholder() {}',
+        learnerId,
+      })
+
+      expect(outcome.result.passed).toBe(false)
+      expect(outcome.hint).toBeNull()
+      expect(generateHintMock).not.toHaveBeenCalled()
+
+      const escalation = await requestHint({
+        submissionId: outcome.submissionId,
+        action: 'next',
+        learnerId,
+      }).catch((error: unknown) => error)
+
+      expect(escalation).toMatchObject({ code: 'EXERCISE_NOT_HINTABLE' })
+
+      await deleteLatestSubmission(learnerId)
+    } finally {
+      await db.delete(exercises).where(eq(exercises.id, inserted.id))
+    }
   })
 })

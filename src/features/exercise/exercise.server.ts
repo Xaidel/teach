@@ -26,7 +26,10 @@ export const HARDCODED_EXERCISE_SLUGS = [
 ] as const
 
 /** Full exercise record available only on the server, including hidden tests. */
-type ServerExercise = Exercise & { testSource: string }
+type ServerExercise = Exercise & {
+  testSource: string
+  referenceSolution: string | null
+}
 
 type ExerciseRow = typeof exercises.$inferSelect
 
@@ -62,7 +65,11 @@ async function getExerciseById(exerciseId: string): Promise<ServerExercise> {
     throw new ExerciseError('EXERCISE_NOT_SUBMITTABLE')
   }
 
-  return { ...rowToExercise(row), testSource: row.testSource }
+  return {
+    ...rowToExercise(row),
+    testSource: row.testSource,
+    referenceSolution: row.referenceSolution,
+  }
 }
 
 /** The context a hint request needs: the exercise, its failed result, prior hints. */
@@ -70,6 +77,7 @@ type HintContext = {
   exercise: Exercise
   result: SandboxResult
   priorHints: { level: number; content: string }[]
+  referenceSolution: string | null
 }
 
 /**
@@ -117,6 +125,7 @@ async function getHintContext(input: {
       ...(row.result.message === null ? {} : { message: row.result.message }),
     },
     priorHints,
+    referenceSolution: row.exercise.referenceSolution,
   }
 }
 
@@ -180,18 +189,21 @@ export async function submitExercise(input: {
   }
 
   let hint: Hint | null = null
-  try {
-    hint = await generateHint({
-      language: exercise.language,
-      exerciseTitle: exercise.title,
-      exercisePrompt: exercise.prompt,
-      sandboxResult,
-      targetLevel: resolveTargetLevel([], 'next'),
-      priorHints: [],
-    })
-  } catch (error) {
-    if (!(error instanceof TeacherEngineError)) {
-      throw error
+  if (exercise.referenceSolution !== null) {
+    try {
+      hint = await generateHint({
+        language: exercise.language,
+        exerciseTitle: exercise.title,
+        exercisePrompt: exercise.prompt,
+        sandboxResult,
+        targetLevel: resolveTargetLevel([], 'next'),
+        priorHints: [],
+        referenceSolution: exercise.referenceSolution,
+      })
+    } catch (error) {
+      if (!(error instanceof TeacherEngineError)) {
+        throw error
+      }
     }
   }
 
@@ -233,6 +245,10 @@ export async function requestHint(input: {
     input.action,
   )
 
+  if (context.referenceSolution === null) {
+    throw new ExerciseError('EXERCISE_NOT_HINTABLE')
+  }
+
   const hint = await generateHint({
     language: context.exercise.language,
     exerciseTitle: context.exercise.title,
@@ -240,6 +256,7 @@ export async function requestHint(input: {
     sandboxResult: context.result,
     targetLevel,
     priorHints: context.priorHints,
+    referenceSolution: context.referenceSolution,
   })
 
   const inserted = await db

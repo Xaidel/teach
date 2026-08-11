@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { HINT_LADDER_MAX_LEVEL } from '#/lib/hint-levels'
-import { SandboxResultSchema } from '#/lib/sandbox/types'
+import { SANDBOX_LANGUAGES, SandboxResultSchema } from '#/lib/sandbox/types'
 
 /**
  * One Socratic hint at an escalation level (0: conceptual question through
@@ -23,14 +23,17 @@ export type Hint = z.infer<typeof HintSchema>
  * Stage 1 failure diagnostics. `priorHints` carries every hint already served
  * in this attempt so escalating levels never repeat or contradict each other
  * (SPEC Implementation Decisions — AI Teacher Engine interface contract).
+ * `referenceSolution` is the Pre-Flight-verified solution the Prompt Shield
+ * compares hint output against (ADR-0008, ADR-0012).
  */
 export const GenerateHintInputSchema = z.object({
-  language: z.string().min(1),
+  language: z.enum(SANDBOX_LANGUAGES),
   exerciseTitle: z.string().min(1),
   exercisePrompt: z.string().min(1),
   sandboxResult: SandboxResultSchema,
   targetLevel: z.number().int().min(0).max(HINT_LADDER_MAX_LEVEL),
   priorHints: z.array(HintSchema),
+  referenceSolution: z.string().min(1),
 })
 
 export type GenerateHintInput = z.infer<typeof GenerateHintInputSchema>

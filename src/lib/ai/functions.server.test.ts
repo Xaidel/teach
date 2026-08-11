@@ -30,6 +30,21 @@ const FAILED_RESULT: GenerateHintInput['sandboxResult'] = {
   ],
 }
 
+const RUST_REFERENCE = `pub fn is_even(n: u32) -> bool {
+    n % 2 == 0
+}
+`
+
+const HINT_INPUT: GenerateHintInput = {
+  language: 'rust',
+  exerciseTitle: 'Is it even?',
+  exercisePrompt: 'Implement is_even.',
+  sandboxResult: FAILED_RESULT,
+  targetLevel: 0,
+  priorHints: [],
+  referenceSolution: RUST_REFERENCE,
+}
+
 beforeEach(() => {
   callMock.mockReset()
 })
@@ -41,14 +56,7 @@ describe('generateHint', () => {
       content: 'What should is_even return when n is even?',
     })
 
-    const hint = await generateHint({
-      language: 'rust',
-      exerciseTitle: 'Is it even?',
-      exercisePrompt: 'Implement is_even.',
-      sandboxResult: FAILED_RESULT,
-      targetLevel: 0,
-      priorHints: [],
-    })
+    const hint = await generateHint(HINT_INPUT)
 
     expect(hint).toEqual({
       level: 0,
@@ -75,10 +83,7 @@ describe('generateHint', () => {
     })
 
     await generateHint({
-      language: 'rust',
-      exerciseTitle: 'Is it even?',
-      exercisePrompt: 'Implement is_even.',
-      sandboxResult: FAILED_RESULT,
+      ...HINT_INPUT,
       targetLevel: 1,
       priorHints: [{ level: 0, content: 'first hint' }],
     })
@@ -96,16 +101,81 @@ describe('generateHint', () => {
       content: 'Here is the full solution.',
     })
 
-    await expect(
-      generateHint({
-        language: 'rust',
-        exerciseTitle: 'Is it even?',
-        exercisePrompt: 'Implement is_even.',
-        sandboxResult: FAILED_RESULT,
-        targetLevel: 0,
-        priorHints: [],
-      }),
-    ).rejects.toMatchObject({ kind: 'invalid_output' })
+    await expect(generateHint(HINT_INPUT)).rejects.toMatchObject({
+      kind: 'invalid_output',
+    })
+  })
+
+  it('serves a safe fallback when the model output leaks the solution (issue #5)', async () => {
+    callMock.mockResolvedValue({
+      level: 0,
+      content: RUST_REFERENCE,
+    })
+
+    const hint = await generateHint(HINT_INPUT)
+
+    expect(hint.level).toBe(0)
+    expect(hint.content).not.toContain('n % 2 == 0')
+  })
+
+  it('serves a safe fallback for a leak embedded in prose', async () => {
+    callMock.mockResolvedValue({
+      level: 2,
+      content: 'Your function should return whether `n % 2 == 0` is true.',
+    })
+
+    const hint = await generateHint({
+      ...HINT_INPUT,
+      targetLevel: 2,
+    })
+
+    expect(hint.level).toBe(2)
+    expect(hint.content).not.toContain('n % 2 == 0')
+  })
+
+  it('passes a safe hint through unchanged', async () => {
+    callMock.mockResolvedValue({
+      level: 0,
+      content: 'What does the modulo operator do?',
+    })
+
+    const hint = await generateHint(HINT_INPUT)
+
+    expect(hint).toEqual({
+      level: 0,
+      content: 'What does the modulo operator do?',
+    })
+  })
+
+  it('never blocks a Level 5 hint (full solution is the point of the level)', async () => {
+    callMock.mockResolvedValue({
+      level: 5,
+      content: RUST_REFERENCE,
+    })
+
+    const hint = await generateHint({
+      ...HINT_INPUT,
+      targetLevel: 5,
+    })
+
+    expect(hint).toEqual({ level: 5, content: RUST_REFERENCE })
+  })
+
+  it('allows partial solution code at Level 4 up to the tolerance', async () => {
+    callMock.mockResolvedValue({
+      level: 4,
+      content: 'Consider whether `n % 2 == 0` is the condition you need.',
+    })
+
+    const hint = await generateHint({
+      ...HINT_INPUT,
+      targetLevel: 4,
+    })
+
+    expect(hint).toEqual({
+      level: 4,
+      content: 'Consider whether `n % 2 == 0` is the condition you need.',
+    })
   })
 })
 
