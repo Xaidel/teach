@@ -34,9 +34,7 @@ export const SubmitExerciseInputSchema = z.object({
 export type SubmitExerciseInput = z.infer<typeof SubmitExerciseInputSchema>
 
 /** Stable public exercise error codes. */
-export type ExerciseErrorCode =
-  | 'EXERCISE_NOT_FOUND'
-  | 'SANDBOX_RESULT_INVALID'
+export type ExerciseErrorCode = 'EXERCISE_NOT_FOUND' | 'SANDBOX_RESULT_INVALID'
 
 const EXERCISE_ERROR_MESSAGES: Record<ExerciseErrorCode, string> = {
   EXERCISE_NOT_FOUND: 'Exercise not found.',
