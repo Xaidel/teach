@@ -644,4 +644,74 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
 
     await deleteLatestSubmission(learnerId)
   })
+
+  it('fails gracefully when concurrent requests resolve the same hint level (issue #55)', async () => {
+    runSandboxSubmissionMock.mockResolvedValue({
+      passed: false,
+      tests: [{ name: 'handles_zero', status: 'failed' }],
+    })
+    generateHintMock.mockResolvedValue({
+      level: 0,
+      content: 'What should is_even return when n is even?',
+    })
+
+    const exercises = await getHardcodedExercises()
+    const rustExercise = exercises.find(
+      (exercise) => exercise.language === 'rust',
+    )
+    if (!rustExercise) throw new Error('expected the seeded rust exercise')
+    const learnerId = await getCurrentLearnerId()
+
+    const outcome = await submitExercise({
+      exerciseId: rustExercise.id,
+      code: 'pub fn is_even(n: u32) -> bool { n % 2 == 1 }',
+      learnerId,
+    })
+
+    let arrivals = 0
+    let releaseGate!: () => void
+    const gate = new Promise<void>((resolve) => {
+      releaseGate = resolve
+    })
+    generateHintMock.mockImplementation(({ targetLevel }) => {
+      arrivals += 1
+      return gate.then(() => ({
+        level: targetLevel,
+        content: `Hint at level ${String(targetLevel)}`,
+      }))
+    })
+
+    const first = requestHint({
+      submissionId: outcome.submissionId,
+      action: 'next',
+      learnerId,
+    })
+    const second = requestHint({
+      submissionId: outcome.submissionId,
+      action: 'next',
+      learnerId,
+    })
+
+    await vi.waitFor(() => expect(arrivals).toBe(2))
+    releaseGate()
+
+    const settled = await Promise.allSettled([first, second])
+    const fulfilled = settled.filter((entry) => entry.status === 'fulfilled')
+    const rejected = settled.filter((entry) => entry.status === 'rejected')
+    expect(fulfilled).toHaveLength(1)
+    expect(rejected).toHaveLength(1)
+    if (rejected[0]?.status === 'rejected') {
+      expect(rejected[0].reason).toMatchObject({
+        code: 'HINT_ESCALATION_INVALID',
+      })
+    }
+
+    const served = await db
+      .select({ hintLevel: submissionHints.hintLevel })
+      .from(submissionHints)
+      .where(eq(submissionHints.submissionId, outcome.submissionId))
+    expect(served.map((row) => row.hintLevel).sort()).toEqual([0, 1])
+
+    await deleteLatestSubmission(learnerId)
+  })
 })

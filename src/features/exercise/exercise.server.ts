@@ -212,7 +212,10 @@ export async function submitExercise(input: {
  * recorded against the attempt (issue #4): the next action climbs Levels
  * 0-4 one at a time, and the full-solution action serves Level 5, only after
  * Level 4 was served. Requests against a passed attempt, a level past the
- * ladder, or a foreign submission are rejected.
+ * ladder, or a foreign submission are rejected. Concurrent requests that
+ * resolve the same level (two parallel reads of the same prior-hints list)
+ * fail gracefully as `HINT_ESCALATION_INVALID` instead of surfacing a raw
+ * unique-violation on the `submission_hints_level_unique` index (issue #55).
  */
 export async function requestHint(input: {
   submissionId: string
@@ -239,11 +242,21 @@ export async function requestHint(input: {
     priorHints: context.priorHints,
   })
 
-  await db.insert(submissionHints).values({
-    submissionId: input.submissionId,
-    hintLevel: hint.level,
-    content: hint.content,
-  })
+  const inserted = await db
+    .insert(submissionHints)
+    .values({
+      submissionId: input.submissionId,
+      hintLevel: hint.level,
+      content: hint.content,
+    })
+    .onConflictDoNothing({
+      target: [submissionHints.submissionId, submissionHints.hintLevel],
+    })
+    .returning({ id: submissionHints.id })
+
+  if (inserted.length === 0) {
+    throw new ExerciseError('HINT_ESCALATION_INVALID')
+  }
 
   return { hint }
 }
