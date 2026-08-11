@@ -77,7 +77,10 @@ describe('ResultPanel', () => {
           ],
           message: 'error[E0308]: mismatched types',
         }}
-        hint={{ level: 0, text: 'What should is_even return when n is even?' }}
+        hint={{
+          level: 0,
+          content: 'What should is_even return when n is even?',
+        }}
       />,
     )
 

@@ -4,13 +4,14 @@ import { SandboxResultSchema } from '#/lib/sandbox/types'
 
 /**
  * One Socratic hint at an escalation level (0: conceptual question through
- * 5: full solution, SPEC stories 22-23). Parsed strictly — the model's
+ * 5: full solution, SPEC stories 22-23). The hint content is `content` per
+ * issue #23's contract (`{level, content}[]`). Parsed strictly — the model's
  * structured output is untrusted input.
  */
 export const HintSchema = z
   .object({
     level: z.number().int().min(0).max(5),
-    text: z.string().trim().min(1),
+    content: z.string().trim().min(1),
   })
   .strict()
 

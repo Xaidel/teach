@@ -53,7 +53,9 @@ export function ResultPanel({
             <Lightbulb aria-hidden="true" className="size-4" />
             Your hint · Level {hint.level}
           </p>
-          <p className="text-sm leading-relaxed text-foreground">{hint.text}</p>
+          <p className="text-sm leading-relaxed text-foreground">
+            {hint.content}
+          </p>
         </div>
       ) : null}
 

@@ -67,7 +67,7 @@ describe('callTeacherEngine', () => {
   it('returns the validated structured output', async () => {
     fetchMock.mockResolvedValue(
       chatCompletionResponse(
-        '{"level": 0, "text": "What does the test expect is_even(4) to return?"}',
+        '{"level": 0, "content": "What does the test expect is_even(4) to return?"}',
       ),
     )
 
@@ -80,7 +80,7 @@ describe('callTeacherEngine', () => {
 
     expect(hint).toEqual({
       level: 0,
-      text: 'What does the test expect is_even(4) to return?',
+      content: 'What does the test expect is_even(4) to return?',
     })
   })
 
@@ -89,7 +89,7 @@ describe('callTeacherEngine', () => {
     fetchMock.mockImplementation((input, init) => {
       captured = captureRequest(input, init)
       return Promise.resolve(
-        chatCompletionResponse('{"level": 0, "text": "Hmm"}'),
+        chatCompletionResponse('{"level": 0, "content": "Hmm"}'),
       )
     })
 
@@ -128,7 +128,7 @@ describe('callTeacherEngine', () => {
         outputSchema: HintSchema,
         messages: MESSAGES,
       }),
-    ).rejects.toMatchObject({ code: 'api_error' })
+    ).rejects.toMatchObject({ kind: 'api_error' })
   })
 
   it('maps a network failure to an api_error', async () => {
@@ -141,7 +141,7 @@ describe('callTeacherEngine', () => {
         outputSchema: HintSchema,
         messages: MESSAGES,
       }),
-    ).rejects.toMatchObject({ code: 'api_error' })
+    ).rejects.toMatchObject({ kind: 'api_error' })
   })
 
   it('maps a non-JSON response body to an invalid_output error', async () => {
@@ -154,12 +154,12 @@ describe('callTeacherEngine', () => {
         outputSchema: HintSchema,
         messages: MESSAGES,
       }),
-    ).rejects.toMatchObject({ code: 'invalid_output' })
+    ).rejects.toMatchObject({ kind: 'invalid_output' })
   })
 
   it('maps assistant content that fails schema validation to an invalid_output error', async () => {
     fetchMock.mockResolvedValue(
-      chatCompletionResponse('{"level": 9, "text": ""}'),
+      chatCompletionResponse('{"level": 9, "content": ""}'),
     )
 
     await expect(
@@ -169,7 +169,7 @@ describe('callTeacherEngine', () => {
         outputSchema: HintSchema,
         messages: MESSAGES,
       }),
-    ).rejects.toMatchObject({ code: 'invalid_output' })
+    ).rejects.toMatchObject({ kind: 'invalid_output' })
   })
 
   it('maps a payload without assistant content to an api_error', async () => {
@@ -184,6 +184,6 @@ describe('callTeacherEngine', () => {
         outputSchema: HintSchema,
         messages: MESSAGES,
       }),
-    ).rejects.toMatchObject({ code: 'api_error' })
+    ).rejects.toMatchObject({ kind: 'api_error' })
   })
 })

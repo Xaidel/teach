@@ -25,7 +25,7 @@ export function buildGenerateHintMessages(
     input.priorHints.length === 0
       ? 'None yet — this is the first hint in this attempt.'
       : input.priorHints
-          .map((hint) => `Level ${String(hint.level)}: ${hint.text}`)
+          .map((hint) => `Level ${String(hint.level)}: ${hint.content}`)
           .join('\n')
 
   const userPrompt = `Language: ${input.language}
@@ -40,7 +40,7 @@ Requested hint level: ${String(input.targetLevel)}
 Prior hints already served in this attempt:
 ${priorHints}
 
-Respond with a JSON object of the form {"level": <number>, "text": "<hint text>"}.`
+Respond with a JSON object of the form {"level": <number>, "content": "<hint content>"}.`
 
   return [
     { role: 'system', content: SYSTEM_PROMPT },

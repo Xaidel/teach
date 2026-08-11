@@ -3,7 +3,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('./client.server', () => ({
   callTeacherEngine: vi.fn(),
   TeacherEngineError: class extends Error {
-    readonly code = 'api_error' as const
+    readonly kind: string
+
+    constructor(kind: string, message: string) {
+      super(message)
+      this.kind = kind
+    }
   },
 }))
 
@@ -33,7 +38,7 @@ describe('generateHint', () => {
   it('calls the client with low reasoning effort and the hint schema', async () => {
     callMock.mockResolvedValue({
       level: 0,
-      text: 'What should is_even return when n is even?',
+      content: 'What should is_even return when n is even?',
     })
 
     const hint = await generateHint({
@@ -47,7 +52,7 @@ describe('generateHint', () => {
 
     expect(hint).toEqual({
       level: 0,
-      text: 'What should is_even return when n is even?',
+      content: 'What should is_even return when n is even?',
     })
 
     const call = callMock.mock.calls[0]?.[0]
@@ -66,7 +71,7 @@ describe('generateHint', () => {
   it('passes prior hints into the prompt so escalating levels do not repeat', async () => {
     callMock.mockResolvedValue({
       level: 1,
-      text: 'Look at the return type of is_even.',
+      content: 'Look at the return type of is_even.',
     })
 
     await generateHint({
@@ -75,7 +80,7 @@ describe('generateHint', () => {
       exercisePrompt: 'Implement is_even.',
       sandboxResult: FAILED_RESULT,
       targetLevel: 1,
-      priorHints: [{ level: 0, text: 'first hint' }],
+      priorHints: [{ level: 0, content: 'first hint' }],
     })
 
     const call = callMock.mock.calls[0]?.[0]
@@ -83,6 +88,24 @@ describe('generateHint', () => {
       (message) => message.role === 'user',
     )
     expect(userMessage?.content).toContain('Level 0: first hint')
+  })
+
+  it('rejects a hint whose level does not match the requested level', async () => {
+    callMock.mockResolvedValue({
+      level: 5,
+      content: 'Here is the full solution.',
+    })
+
+    await expect(
+      generateHint({
+        language: 'rust',
+        exerciseTitle: 'Is it even?',
+        exercisePrompt: 'Implement is_even.',
+        sandboxResult: FAILED_RESULT,
+        targetLevel: 0,
+        priorHints: [],
+      }),
+    ).rejects.toMatchObject({ kind: 'invalid_output' })
   })
 })
 

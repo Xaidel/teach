@@ -4,8 +4,8 @@ import { env } from '#/lib/env.server'
 
 import type { ChatMessage, ReasoningEffort } from './types'
 
-/** Stable AI Teacher Engine client error codes (issue #3, #23 contract). */
-export type TeacherEngineErrorCode = 'api_error' | 'invalid_output'
+/** Stable AI Teacher Engine client error kinds (issue #3, #23 contract). */
+export type TeacherEngineErrorKind = 'api_error' | 'invalid_output'
 
 /**
  * Error thrown by the AI Teacher Engine client on any failure — never
@@ -13,17 +13,17 @@ export type TeacherEngineErrorCode = 'api_error' | 'invalid_output'
  * policy is owned per-caller (issue #23 contract).
  */
 export class TeacherEngineError extends Error {
-  readonly code: TeacherEngineErrorCode
+  readonly kind: TeacherEngineErrorKind
 
   /** Creates a teacher engine client error. */
   constructor(
-    code: TeacherEngineErrorCode,
+    kind: TeacherEngineErrorKind,
     message: string,
     options?: { cause?: unknown },
   ) {
     super(message, options)
     this.name = 'TeacherEngineError'
-    this.code = code
+    this.kind = kind
   }
 }
 

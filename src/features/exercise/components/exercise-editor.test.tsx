@@ -79,7 +79,7 @@ describe('ExerciseEditor', () => {
         passed: false,
         tests: [{ name: 'handles_zero', status: 'failed' }],
       },
-      hint: { level: 0, text: 'What should is_even return when n is even?' },
+      hint: { level: 0, content: 'What should is_even return when n is even?' },
     })
 
     render(<ExerciseEditor exercise={EXERCISE} />)

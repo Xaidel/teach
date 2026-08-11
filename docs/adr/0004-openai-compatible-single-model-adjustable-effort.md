@@ -62,11 +62,12 @@ Build one client against an OpenAI-compatible API contract, used by all three ca
 
 ## Confirmation
 
-- No code implements this yet as of this writing; there is no automated check to point to today.
-- Once built: the AI Teacher Engine's client is typed against the OpenAI-compatible contract, with no vendor-specific SDK types leaking into calling code — verifiable by dependency/architecture review. Reasoning effort is passed as an explicit per-call parameter, not hardcoded, verifiable through the fixture-based AI Teacher Engine test double (`docs/SPEC.md`) asserting the effort level passed per task type (hint vs. generation vs. review).
+- Implemented as `src/lib/ai/` (issue #3, PR #48): one low-level `callTeacherEngine` helper (auth, structured-output plumbing, app-side zod validation, effort dial) with typed task functions on top — `generateHint` and `explainConcept` shipped; `generateExercise`, `reviewSubmission`, `draftConceptGraph`, and `analyzeMisconceptions` build against the same helper under tickets #6/#7/#8/#16.
+- The client is typed against the OpenAI-compatible contract — no vendor-specific SDK types leak into calling code, verifiable by dependency/architecture review (only global `fetch` and env config are used).
+- Reasoning effort is a fixed constant per task function (issue #23's resolution of ADR-0004's low/hint, high/generation-review split), not a per-call parameter and not caller-overridable in v1; the fixture-based AI Teacher Engine test double (see [docs/SPEC.md](../SPEC.md)) asserts the effort level passed per task type.
 
 ## Relationships and References
 
 - Related to: [ADR-0002](./0002-both-tracks-in-v1.md) — the shared integration-test seam swaps the AI Teacher Engine's client for a deterministic test double at exactly the interface boundary this ADR defines.
 - Supporting evidence: [docs/INITIAL_PRD.md](../INITIAL_PRD.md) Section 11 (AI Teacher Engine) and user story 30; [docs/SPEC.md](../SPEC.md) ("AI integration", "AI Teacher Engine responsibilities", "AI Teacher Engine test double").
-- Owning implementation package: none yet — no code implements this as of this writing.
+- Owning implementation package: `src/lib/ai/` (client helper, task functions, schemas, prompt templates).

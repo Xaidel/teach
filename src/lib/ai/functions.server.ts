@@ -1,4 +1,4 @@
-import { callTeacherEngine } from './client.server'
+import { TeacherEngineError, callTeacherEngine } from './client.server'
 import { buildExplainConceptMessages } from './prompts/explain-concept.prompt'
 import { buildGenerateHintMessages } from './prompts/generate-hint.prompt'
 import {
@@ -27,15 +27,26 @@ const REASONING_EFFORT_EXPLAIN: ReasoningEffort = 'low'
  * Generates one Socratic hint at a given escalation level for a Stage 1
  * failure (SPEC stories 18, 22-23). The AI Teacher Engine only produces the
  * hint text — pass/fail authority stays with the deterministic Stage 1 gate.
+ * The returned hint's level must match the requested level; a mismatch is
+ * invalid model output.
  */
 export async function generateHint(input: GenerateHintInput): Promise<Hint> {
   const validated = GenerateHintInputSchema.parse(input)
-  return callTeacherEngine({
+  const hint = await callTeacherEngine({
     reasoningEffort: REASONING_EFFORT_HINT,
     schemaName: 'socratic_hint',
     outputSchema: HintSchema,
     messages: buildGenerateHintMessages(validated),
   })
+
+  if (hint.level !== validated.targetLevel) {
+    throw new TeacherEngineError(
+      'invalid_output',
+      `The AI Teacher Engine returned hint level ${String(hint.level)} for requested level ${String(validated.targetLevel)}.`,
+    )
+  }
+
+  return hint
 }
 
 /** Explains a concept at a presentation depth (SPEC story 11). */

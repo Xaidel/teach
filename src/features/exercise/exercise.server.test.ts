@@ -44,6 +44,23 @@ beforeEach(() => {
   generateHintMock.mockReset()
 })
 
+/** Removes the latest persisted submission for a learner and its result. */
+async function deleteLatestSubmission(learnerId: string): Promise<void> {
+  const [submission] = await db
+    .select()
+    .from(submissions)
+    .where(eq(submissions.learnerId, learnerId))
+    .orderBy(desc(submissions.createdAt))
+    .limit(1)
+
+  if (!submission) {
+    throw new Error('expected a persisted submission to clean up')
+  }
+
+  await db.delete(results).where(eq(results.submissionId, submission.id))
+  await db.delete(submissions).where(eq(submissions.id, submission.id))
+}
+
 describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
   it('returns every seeded hardcoded exercise with its language', async () => {
     const exercises = await getHardcodedExercises()
@@ -214,7 +231,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
     })
     generateHintMock.mockResolvedValue({
       level: 0,
-      text: 'What should is_even return when n is even?',
+      content: 'What should is_even return when n is even?',
     })
 
     const exercises = await getHardcodedExercises()
@@ -233,7 +250,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
     expect(outcome.result.passed).toBe(false)
     expect(outcome.hint).toEqual({
       level: 0,
-      text: 'What should is_even return when n is even?',
+      content: 'What should is_even return when n is even?',
     })
 
     const hintInput = generateHintMock.mock.calls.at(-1)?.[0]
@@ -245,15 +262,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
     })
     expect(hintInput?.exercisePrompt).toBeTruthy()
 
-    const [submission] = await db
-      .select()
-      .from(submissions)
-      .where(eq(submissions.learnerId, learnerId))
-      .orderBy(desc(submissions.createdAt))
-      .limit(1)
-    if (!submission) throw new Error('expected a persisted submission')
-    await db.delete(results).where(eq(results.submissionId, submission.id))
-    await db.delete(submissions).where(eq(submissions.id, submission.id))
+    await deleteLatestSubmission(learnerId)
   })
 
   it('falls back to the raw result when hint generation fails', async () => {
@@ -281,14 +290,6 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
     expect(outcome.result.passed).toBe(false)
     expect(outcome.hint).toBeNull()
 
-    const [submission] = await db
-      .select()
-      .from(submissions)
-      .where(eq(submissions.learnerId, learnerId))
-      .orderBy(desc(submissions.createdAt))
-      .limit(1)
-    if (!submission) throw new Error('expected a persisted submission')
-    await db.delete(results).where(eq(results.submissionId, submission.id))
-    await db.delete(submissions).where(eq(submissions.id, submission.id))
+    await deleteLatestSubmission(learnerId)
   })
 })
