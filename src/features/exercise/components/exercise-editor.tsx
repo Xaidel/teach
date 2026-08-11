@@ -5,8 +5,12 @@ import { Button } from '#/shared/components/ui/button'
 import { Label } from '#/shared/components/ui/label'
 import { Textarea } from '#/shared/components/ui/textarea'
 
-import { submitExerciseFn } from '../exercise.functions'
-import type { Exercise, SubmitExerciseOutput } from '../exercise.schema'
+import { requestHintFn, submitExerciseFn } from '../exercise.functions'
+import type {
+  Exercise,
+  HintRequestAction,
+  SubmitExerciseOutput,
+} from '../exercise.schema'
 import { ResultPanel } from './result-panel'
 
 /** Renders the code editor and submit flow for one exercise. */
@@ -19,6 +23,7 @@ export function ExerciseEditor({
   const [outcome, setOutcome] = useState<SubmitExerciseOutput>()
   const [error, setError] = useState<string>()
   const [isPending, setIsPending] = useState(false)
+  const [isHintPending, setIsHintPending] = useState(false)
   const codeInputId = `exercise-code-${exercise.slug}`
   const codeErrorId = `exercise-code-error-${exercise.slug}`
 
@@ -28,6 +33,7 @@ export function ExerciseEditor({
     event.preventDefault()
     setError(undefined)
     setOutcome(undefined)
+    setIsHintPending(false)
     setIsPending(true)
     try {
       setOutcome(
@@ -40,9 +46,28 @@ export function ExerciseEditor({
     }
   }
 
+  async function handleHintRequest(action: HintRequestAction): Promise<void> {
+    if (!outcome) return
+
+    setError(undefined)
+    setIsHintPending(true)
+    try {
+      const response = await requestHintFn({
+        data: { submissionId: outcome.submissionId, action },
+      })
+      setOutcome((current) =>
+        current ? { ...current, hint: response.hint } : current,
+      )
+    } catch {
+      setError('The requested hint could not be generated. Try again.')
+    } finally {
+      setIsHintPending(false)
+    }
+  }
+
   return (
     <form
-      aria-busy={isPending}
+      aria-busy={isPending || isHintPending}
       className="grid gap-5"
       data-slot="exercise-editor"
       onSubmit={handleSubmit}
@@ -52,7 +77,7 @@ export function ExerciseEditor({
         <Textarea
           aria-describedby={error ? codeErrorId : undefined}
           className="min-h-64 font-mono text-xs leading-relaxed"
-          disabled={isPending}
+          disabled={isPending || isHintPending}
           id={codeInputId}
           name="code"
           onChange={(event) => setCode(event.target.value)}
@@ -66,17 +91,27 @@ export function ExerciseEditor({
           Evaluating submission in the sandbox.
         </p>
       ) : null}
+      {isHintPending ? (
+        <p className="sr-only" role="status">
+          Generating the requested hint.
+        </p>
+      ) : null}
       <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-xs text-muted-foreground">
           Runs {exercise.language}&apos;s real test toolchain in an isolated,
           network-disabled container with a 10-second limit.
         </p>
-        <Button disabled={isPending} type="submit">
+        <Button disabled={isPending || isHintPending} type="submit">
           {isPending ? 'Evaluating...' : 'Submit for evaluation'}
         </Button>
       </div>
       {outcome ? (
-        <ResultPanel result={outcome.result} hint={outcome.hint} />
+        <ResultPanel
+          hint={outcome.hint}
+          isHintPending={isHintPending}
+          onRequestHint={handleHintRequest}
+          result={outcome.result}
+        />
       ) : null}
     </form>
   )

@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import userEvent from '@testing-library/user-event'
+import { describe, expect, it, vi } from 'vitest'
 
 import { ResultPanel } from './result-panel'
 
@@ -121,5 +122,101 @@ describe('ResultPanel', () => {
     expect(
       screen.getByText('assertion failed: exercise::is_even(0)'),
     ).toBeInTheDocument()
+  })
+
+  it('offers a Level 0 hint request on failure when no hint was served', () => {
+    render(
+      <ResultPanel
+        onRequestHint={() => undefined}
+        result={{
+          passed: false,
+          tests: [{ name: 'handles_zero', status: 'failed' }],
+        }}
+      />,
+    )
+
+    expect(
+      screen.getByRole('button', { name: 'Get Level 0 hint' }),
+    ).toBeInTheDocument()
+  })
+
+  it('offers the next level after a served hint', () => {
+    render(
+      <ResultPanel
+        hint={{ level: 0, content: 'A conceptual question.' }}
+        onRequestHint={() => undefined}
+        result={{
+          passed: false,
+          tests: [{ name: 'handles_zero', status: 'failed' }],
+        }}
+      />,
+    )
+
+    expect(
+      screen.getByRole('button', { name: 'Request Level 1' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /Show full solution/ }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('offers the full solution only after Level 4 is served', () => {
+    render(
+      <ResultPanel
+        hint={{ level: 4, content: 'Use the remainder.' }}
+        onRequestHint={() => undefined}
+        result={{
+          passed: false,
+          tests: [{ name: 'handles_zero', status: 'failed' }],
+        }}
+      />,
+    )
+
+    expect(
+      screen.getByRole('button', { name: 'Show full solution · Level 5' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /Request Level/ }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('hides hint controls on a passed attempt', () => {
+    render(
+      <ResultPanel
+        onRequestHint={() => undefined}
+        result={{
+          passed: true,
+          tests: [{ name: 'handles_zero', status: 'passed' }],
+        }}
+      />,
+    )
+
+    expect(
+      screen.queryByRole('button', {
+        name: /Get Level|Request Level|Show full solution/,
+      }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('forwards the chosen action to the request handler', async () => {
+    const user = userEvent.setup()
+    const onRequestHint = vi.fn()
+
+    render(
+      <ResultPanel
+        hint={{ level: 4, content: 'Use the remainder.' }}
+        onRequestHint={onRequestHint}
+        result={{
+          passed: false,
+          tests: [{ name: 'handles_zero', status: 'failed' }],
+        }}
+      />,
+    )
+
+    await user.click(
+      screen.getByRole('button', { name: 'Show full solution · Level 5' }),
+    )
+
+    expect(onRequestHint).toHaveBeenCalledWith('full_solution')
   })
 })

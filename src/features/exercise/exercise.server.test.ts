@@ -16,7 +16,7 @@ vi.mock('#/lib/ai/functions.server', () => ({
 }))
 
 import { db } from '#/db/client.server'
-import { results, submissions } from '#/db/schema'
+import { results, submissionHints, submissions } from '#/db/schema'
 import { TeacherEngineError } from '#/lib/ai/client.server'
 import { generateHint } from '#/lib/ai/functions.server'
 import { runSandboxSubmission } from '#/lib/sandbox/runner.server'
@@ -24,6 +24,7 @@ import { getCurrentLearnerId } from '../learners/learners.server'
 import {
   getHardcodedExercises,
   HARDCODED_EXERCISE_SLUGS,
+  requestHint,
   submitExercise,
 } from './exercise.server'
 
@@ -41,10 +42,11 @@ const runSandboxSubmissionMock = vi.mocked(runSandboxSubmission)
 const generateHintMock = vi.mocked(generateHint)
 
 beforeEach(() => {
+  runSandboxSubmissionMock.mockReset()
   generateHintMock.mockReset()
 })
 
-/** Removes the latest persisted submission for a learner and its result. */
+/** Removes the latest persisted submission for a learner, its result, and hints. */
 async function deleteLatestSubmission(learnerId: string): Promise<void> {
   const [submission] = await db
     .select()
@@ -57,6 +59,9 @@ async function deleteLatestSubmission(learnerId: string): Promise<void> {
     throw new Error('expected a persisted submission to clean up')
   }
 
+  await db
+    .delete(submissionHints)
+    .where(eq(submissionHints.submissionId, submission.id))
   await db.delete(results).where(eq(results.submissionId, submission.id))
   await db.delete(submissions).where(eq(submissions.id, submission.id))
 }
@@ -262,6 +267,19 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
     })
     expect(hintInput?.exercisePrompt).toBeTruthy()
 
+    const [servedHint] = await db
+      .select()
+      .from(submissionHints)
+      .where(eq(submissionHints.submissionId, outcome.submissionId))
+      .limit(1)
+
+    expect(servedHint).toMatchObject({
+      submissionId: outcome.submissionId,
+      hintLevel: 0,
+      content: 'What should is_even return when n is even?',
+    })
+    expect(servedHint?.servedAt).toBeInstanceOf(Date)
+
     await deleteLatestSubmission(learnerId)
   })
 
@@ -289,6 +307,303 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
 
     expect(outcome.result.passed).toBe(false)
     expect(outcome.hint).toBeNull()
+
+    const served = await db
+      .select()
+      .from(submissionHints)
+      .where(eq(submissionHints.submissionId, outcome.submissionId))
+    expect(served).toHaveLength(0)
+
+    await deleteLatestSubmission(learnerId)
+  })
+
+  it('persists the failed result message for later hint context', async () => {
+    runSandboxSubmissionMock.mockResolvedValue({
+      passed: false,
+      tests: [{ name: 'handles_zero', status: 'failed' }],
+      message: 'compile error excerpt',
+    })
+    generateHintMock.mockResolvedValue({
+      level: 0,
+      content: 'A conceptual question.',
+    })
+
+    const exercises = await getHardcodedExercises()
+    const rustExercise = exercises.find(
+      (exercise) => exercise.language === 'rust',
+    )
+    if (!rustExercise) throw new Error('expected the seeded rust exercise')
+    const learnerId = await getCurrentLearnerId()
+
+    const outcome = await submitExercise({
+      exerciseId: rustExercise.id,
+      code: 'pub fn is_even(n: u32) -> bool { n % 2 == 1 }',
+      learnerId,
+    })
+
+    const [persisted] = await db
+      .select()
+      .from(results)
+      .where(eq(results.submissionId, outcome.submissionId))
+      .limit(1)
+    expect(persisted?.message).toBe('compile error excerpt')
+
+    await deleteLatestSubmission(learnerId)
+  })
+
+  it('escalates one level per request and records the full manual ladder', async () => {
+    runSandboxSubmissionMock.mockResolvedValue({
+      passed: false,
+      tests: [{ name: 'handles_zero', status: 'failed' }],
+    })
+    generateHintMock.mockImplementation(({ targetLevel }) =>
+      Promise.resolve({
+        level: targetLevel,
+        content: `Hint at level ${String(targetLevel)}`,
+      }),
+    )
+
+    const exercises = await getHardcodedExercises()
+    const rustExercise = exercises.find(
+      (exercise) => exercise.language === 'rust',
+    )
+    if (!rustExercise) throw new Error('expected the seeded rust exercise')
+    const learnerId = await getCurrentLearnerId()
+
+    const outcome = await submitExercise({
+      exerciseId: rustExercise.id,
+      code: 'pub fn is_even(n: u32) -> bool { n % 2 == 1 }',
+      learnerId,
+    })
+
+    for (const level of [1, 2, 3, 4]) {
+      await expect(
+        requestHint({
+          submissionId: outcome.submissionId,
+          action: 'next',
+          learnerId,
+        }),
+      ).resolves.toEqual({
+        hint: { level, content: `Hint at level ${String(level)}` },
+      })
+    }
+
+    await expect(
+      requestHint({
+        submissionId: outcome.submissionId,
+        action: 'next',
+        learnerId,
+      }),
+    ).rejects.toMatchObject({ code: 'HINT_ESCALATION_INVALID' })
+
+    await expect(
+      requestHint({
+        submissionId: outcome.submissionId,
+        action: 'full_solution',
+        learnerId,
+      }),
+    ).resolves.toEqual({
+      hint: { level: 5, content: 'Hint at level 5' },
+    })
+
+    expect(
+      generateHintMock.mock.calls.map(([input]) => input.targetLevel),
+    ).toEqual([0, 1, 2, 3, 4, 5])
+
+    const served = await db
+      .select({ hintLevel: submissionHints.hintLevel })
+      .from(submissionHints)
+      .where(eq(submissionHints.submissionId, outcome.submissionId))
+      .orderBy(submissionHints.hintLevel)
+    expect(served.map((row) => row.hintLevel)).toEqual([0, 1, 2, 3, 4, 5])
+
+    await deleteLatestSubmission(learnerId)
+  })
+
+  it('passes the previously served hints into each escalation request', async () => {
+    runSandboxSubmissionMock.mockResolvedValue({
+      passed: false,
+      tests: [{ name: 'handles_zero', status: 'failed' }],
+    })
+    generateHintMock.mockImplementation(({ targetLevel }) =>
+      Promise.resolve({
+        level: targetLevel,
+        content: `Hint at level ${String(targetLevel)}`,
+      }),
+    )
+
+    const exercises = await getHardcodedExercises()
+    const rustExercise = exercises.find(
+      (exercise) => exercise.language === 'rust',
+    )
+    if (!rustExercise) throw new Error('expected the seeded rust exercise')
+    const learnerId = await getCurrentLearnerId()
+
+    const outcome = await submitExercise({
+      exerciseId: rustExercise.id,
+      code: 'pub fn is_even(n: u32) -> bool { n % 2 == 1 }',
+      learnerId,
+    })
+
+    await requestHint({
+      submissionId: outcome.submissionId,
+      action: 'next',
+      learnerId,
+    })
+    await requestHint({
+      submissionId: outcome.submissionId,
+      action: 'next',
+      learnerId,
+    })
+
+    const escalationCall = generateHintMock.mock.calls.at(-1)?.[0]
+    expect(escalationCall).toMatchObject({
+      targetLevel: 2,
+      priorHints: [
+        { level: 0, content: 'Hint at level 0' },
+        { level: 1, content: 'Hint at level 1' },
+      ],
+    })
+
+    await deleteLatestSubmission(learnerId)
+  })
+
+  it('requires the full-solution action before serving Level 5', async () => {
+    runSandboxSubmissionMock.mockResolvedValue({
+      passed: false,
+      tests: [{ name: 'handles_zero', status: 'failed' }],
+    })
+    generateHintMock.mockImplementation(({ targetLevel }) =>
+      Promise.resolve({
+        level: targetLevel,
+        content: `Hint at level ${String(targetLevel)}`,
+      }),
+    )
+
+    const exercises = await getHardcodedExercises()
+    const rustExercise = exercises.find(
+      (exercise) => exercise.language === 'rust',
+    )
+    if (!rustExercise) throw new Error('expected the seeded rust exercise')
+    const learnerId = await getCurrentLearnerId()
+
+    const outcome = await submitExercise({
+      exerciseId: rustExercise.id,
+      code: 'pub fn is_even(n: u32) -> bool { n % 2 == 1 }',
+      learnerId,
+    })
+
+    await expect(
+      requestHint({
+        submissionId: outcome.submissionId,
+        action: 'full_solution',
+        learnerId,
+      }),
+    ).rejects.toMatchObject({ code: 'HINT_ESCALATION_INVALID' })
+
+    await deleteLatestSubmission(learnerId)
+  })
+
+  it('rejects hint requests on a passed attempt', async () => {
+    runSandboxSubmissionMock.mockResolvedValue({
+      passed: true,
+      tests: [{ name: 'handles_zero', status: 'passed' }],
+    })
+
+    const exercises = await getHardcodedExercises()
+    const rustExercise = exercises.find(
+      (exercise) => exercise.language === 'rust',
+    )
+    if (!rustExercise) throw new Error('expected the seeded rust exercise')
+    const learnerId = await getCurrentLearnerId()
+
+    const outcome = await submitExercise({
+      exerciseId: rustExercise.id,
+      code: 'pub fn is_even(n: u32) -> bool { n % 2 == 0 }',
+      learnerId,
+    })
+
+    await expect(
+      requestHint({
+        submissionId: outcome.submissionId,
+        action: 'next',
+        learnerId,
+      }),
+    ).rejects.toMatchObject({ code: 'HINT_ESCALATION_INVALID' })
+
+    await deleteLatestSubmission(learnerId)
+  })
+
+  it('rejects hint requests on another learner submission', async () => {
+    runSandboxSubmissionMock.mockResolvedValue({
+      passed: false,
+      tests: [{ name: 'handles_zero', status: 'failed' }],
+    })
+
+    const exercises = await getHardcodedExercises()
+    const rustExercise = exercises.find(
+      (exercise) => exercise.language === 'rust',
+    )
+    if (!rustExercise) throw new Error('expected the seeded rust exercise')
+    const learnerId = await getCurrentLearnerId()
+
+    const outcome = await submitExercise({
+      exerciseId: rustExercise.id,
+      code: 'pub fn is_even(n: u32) -> bool { n % 2 == 1 }',
+      learnerId,
+    })
+
+    await expect(
+      requestHint({
+        submissionId: outcome.submissionId,
+        action: 'next',
+        learnerId: '22222222-2222-7222-8222-222222222222',
+      }),
+    ).rejects.toMatchObject({ code: 'HINT_ESCALATION_INVALID' })
+
+    await deleteLatestSubmission(learnerId)
+  })
+
+  it('starts a fresh ladder for a new exercise attempt', async () => {
+    runSandboxSubmissionMock.mockResolvedValue({
+      passed: false,
+      tests: [{ name: 'handles_zero', status: 'failed' }],
+    })
+    generateHintMock.mockImplementation(({ targetLevel }) =>
+      Promise.resolve({
+        level: targetLevel,
+        content: `Hint at level ${String(targetLevel)}`,
+      }),
+    )
+
+    const exercises = await getHardcodedExercises()
+    const rustExercise = exercises.find(
+      (exercise) => exercise.language === 'rust',
+    )
+    if (!rustExercise) throw new Error('expected the seeded rust exercise')
+    const learnerId = await getCurrentLearnerId()
+
+    const first = await submitExercise({
+      exerciseId: rustExercise.id,
+      code: 'pub fn is_even(n: u32) -> bool { n % 2 == 1 }',
+      learnerId,
+    })
+    await requestHint({
+      submissionId: first.submissionId,
+      action: 'next',
+      learnerId,
+    })
+
+    const second = await submitExercise({
+      exerciseId: rustExercise.id,
+      code: 'pub fn is_even(n: u32) -> bool { n % 2 == 1 }',
+      learnerId,
+    })
+
+    expect(second.submissionId).not.toBe(first.submissionId)
+
+    const escalationCall = generateHintMock.mock.calls.at(-1)?.[0]
+    expect(escalationCall).toMatchObject({ targetLevel: 0, priorHints: [] })
 
     await deleteLatestSubmission(learnerId)
   })
