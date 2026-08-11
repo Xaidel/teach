@@ -13,6 +13,20 @@ export const HARDCODED_EXERCISE_SLUG = 'rust-is-even'
 /** Full exercise record available only on the server, including hidden tests. */
 type ServerExercise = Exercise & { testSource: string }
 
+type ExerciseRow = typeof exercises.$inferSelect
+
+/** Maps a persisted exercise row to the shared exercise shape. */
+function rowToExercise(row: ExerciseRow): Exercise {
+  return {
+    id: row.id,
+    slug: row.slug,
+    language: row.language,
+    title: row.title,
+    prompt: row.prompt,
+    starterCode: row.starterCode,
+  }
+}
+
 async function getExerciseById(exerciseId: string): Promise<ServerExercise> {
   const row = await db.query.exercises.findFirst({
     where: eq(exercises.id, exerciseId),
@@ -22,15 +36,7 @@ async function getExerciseById(exerciseId: string): Promise<ServerExercise> {
     throw new ExerciseError('EXERCISE_NOT_FOUND')
   }
 
-  return {
-    id: row.id,
-    slug: row.slug,
-    language: row.language,
-    title: row.title,
-    prompt: row.prompt,
-    starterCode: row.starterCode,
-    testSource: row.testSource,
-  }
+  return { ...rowToExercise(row), testSource: row.testSource }
 }
 
 /** Returns the single hardcoded v1 exercise, or null before seeding. */
@@ -39,18 +45,7 @@ export async function getHardcodedExercise(): Promise<Exercise | null> {
     where: eq(exercises.slug, HARDCODED_EXERCISE_SLUG),
   })
 
-  if (!row) {
-    return null
-  }
-
-  return {
-    id: row.id,
-    slug: row.slug,
-    language: row.language,
-    title: row.title,
-    prompt: row.prompt,
-    starterCode: row.starterCode,
-  }
+  return row ? rowToExercise(row) : null
 }
 
 /**
