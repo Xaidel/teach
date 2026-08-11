@@ -1,10 +1,15 @@
+import {
+  HINT_LADDER_MANUAL_MAX_LEVEL,
+  HINT_LADDER_MAX_LEVEL,
+} from '#/lib/hint-levels'
+
 import { ExerciseError } from './exercise.schema'
 
 /** The highest level reachable through the normal next-hint request. */
-export const MAX_MANUAL_HINT_LEVEL = 4
+export const MAX_MANUAL_HINT_LEVEL = HINT_LADDER_MANUAL_MAX_LEVEL
 
 /** The full-solution level, served only through the distinct action. */
-export const FULL_SOLUTION_LEVEL = 5
+export const FULL_SOLUTION_LEVEL = HINT_LADDER_MAX_LEVEL
 
 /**
  * Resolves the target hint level for a learner action against the levels

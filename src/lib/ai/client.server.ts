@@ -30,6 +30,42 @@ export class TeacherEngineError extends Error {
 /** Hard ceiling on one AI Teacher Engine call. */
 const TEACHER_ENGINE_TIMEOUT_MS = 30_000
 
+/** Structured-output mode for the OpenAI-compatible API (issue #54). */
+export type ResponseFormatKind = 'json_schema' | 'json_object'
+
+/**
+ * Builds the API `response_format` body for the configured structured-output
+ * mode. `json_schema` carries the strict schema block; `json_object` omits it,
+ * for providers that only support JSON mode and reject `json_schema` outright.
+ * App-side Zod validation (defense-in-depth) is unchanged in either mode.
+ */
+export function buildResponseFormat(
+  format: ResponseFormatKind,
+  schemaName: string,
+  outputSchema: z.ZodType,
+):
+  | { type: 'json_object' }
+  | {
+      type: 'json_schema'
+      json_schema: {
+        name: string
+        schema: unknown
+        strict: true
+      }
+    } {
+  if (format === 'json_object') {
+    return { type: 'json_object' }
+  }
+  return {
+    type: 'json_schema',
+    json_schema: {
+      name: schemaName,
+      schema: z.toJSONSchema(outputSchema),
+      strict: true,
+    },
+  }
+}
+
 /** One structured-output task call against the OpenAI-compatible API. */
 export type TeacherEngineCall<T> = {
   reasoningEffort: ReasoningEffort
@@ -62,14 +98,11 @@ export async function callTeacherEngine<T>(
           model: env.AI_MODEL,
           reasoning_effort: call.reasoningEffort,
           messages: call.messages,
-          response_format: {
-            type: 'json_schema',
-            json_schema: {
-              name: call.schemaName,
-              schema: z.toJSONSchema(call.outputSchema),
-              strict: true,
-            },
-          },
+          response_format: buildResponseFormat(
+            env.AI_RESPONSE_FORMAT,
+            call.schemaName,
+            call.outputSchema,
+          ),
         }),
         signal: AbortSignal.timeout(TEACHER_ENGINE_TIMEOUT_MS),
       },

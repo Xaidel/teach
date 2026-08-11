@@ -29,6 +29,17 @@ We will use the following schema for v1's core persistence, all in the single Po
 - **`learner_concept_mastery`**: `learner_id`, `concept_id`, `state` (enum: Unknown → Introduced → Practiced → Demonstrated → Retained), `updated_at`. Holds only the *current* mastery state per learner+concept; it is overwritten in place, not appended to.
 - **`attempts`**: `id`, `learner_id`, `exercise_id`, `outcome`, `time_to_solution`, `compiler_errors` (jsonb).
 - **`attempt_hints`**: `attempt_id`, `hint_level`, `served_at` — one row per hint level actually served against an attempt, child of `attempts`.
+
+> **Staging deviation (2026-08-12, PR #52):** the walking skeleton persisted hints as
+> `submission_hints` (`submission_id`, `hint_level`, `content`, `served_at`), keyed to
+> `submissions` — not this ADR's `attempt_hints` (`attempt_id`, `hint_level`, `served_at`) —
+> because the `attempts` table does not exist yet (ticket #10 is still blocked). The staging
+> table also adds a `content` column, since the AI Teacher Engine generates hint text that
+> must be stored with the level and served-at timestamp. This is a guaranteed **rekey
+> migration**, not a rename, when the real attempts model lands: `submission_hints` →
+> `attempt_hints` with `submission_id` re-keyed to `attempt_id`, and `submissions` merged
+> into `attempts`. Do not treat `submission_hints` as the durable shape; treat this note as
+> the reconciliation record ticket #10 must consume.
 - **`exercises`**: `id`, `mode` (enum: `implement` | `debug` | `explain`), `difficulty`, `constraints`, `reference_solution`, `status` (enum: `pending` | `verified` | `failed` | `retired`).
 - **`exercise_concepts`**: `exercise_id`, `concept_id` — join table; an exercise may target more than one concept.
 - **Explanation Assessment and Transfer Testing** are not separate entities: they are `exercises`/`attempts` rows with `mode = explain` or a structurally different exercise (`debug`) on an already-passed concept. An `explain`-mode attempt stores its accuracy score and detected missing/incorrect/conflated concepts as jsonb in place of a pass/fail outcome, and skips Pre-Flight validation, which does not apply to it.
