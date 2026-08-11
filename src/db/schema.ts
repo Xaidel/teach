@@ -13,6 +13,7 @@ import {
 } from 'drizzle-orm/pg-core'
 import { uuidv7 } from 'uuidv7'
 
+import { HINT_LADDER_MAX_LEVEL } from '../lib/hint-levels'
 import type { SandboxTest } from '../lib/sandbox/types'
 
 /** The single learner the platform serves in v1 (ADR-0001, ADR-0014). */
@@ -116,7 +117,7 @@ export const submissionHints = pgTable(
     ),
     check(
       'submission_hints_level_check',
-      sql`${table.hintLevel} between 0 and 5`,
+      sql`${table.hintLevel} between 0 and ${sql.raw(String(HINT_LADDER_MAX_LEVEL))}`,
     ),
   ],
 )

@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest'
 
-import { resolveTargetLevel } from './hint-ladder'
+import { HintSchema } from '#/lib/ai/schemas'
+import {
+  HINT_LADDER_MANUAL_MAX_LEVEL,
+  HINT_LADDER_MAX_LEVEL,
+} from '#/lib/hint-levels'
+
+import {
+  FULL_SOLUTION_LEVEL,
+  MAX_MANUAL_HINT_LEVEL,
+  resolveTargetLevel,
+} from './hint-ladder'
 
 describe('resolveTargetLevel', () => {
   it('serves level 0 as the first next-hint request', () => {
@@ -42,5 +52,28 @@ describe('resolveTargetLevel', () => {
     expect(() =>
       resolveTargetLevel([0, 1, 2, 3, 4, 5], 'full_solution'),
     ).toThrow(expect.objectContaining({ code: 'HINT_ESCALATION_INVALID' }))
+  })
+})
+
+describe('hint ladder bounds stay in sync (issue #56)', () => {
+  it('shares one constant between the ladder module and the schema-level bound', () => {
+    expect(MAX_MANUAL_HINT_LEVEL).toBe(HINT_LADDER_MANUAL_MAX_LEVEL)
+    expect(FULL_SOLUTION_LEVEL).toBe(HINT_LADDER_MAX_LEVEL)
+    expect(HINT_LADDER_MANUAL_MAX_LEVEL + 1).toBe(HINT_LADDER_MAX_LEVEL)
+  })
+
+  it('the hint output schema honors the shared full-solution bound', () => {
+    expect(
+      HintSchema.safeParse({
+        level: HINT_LADDER_MAX_LEVEL,
+        content: 'Here is the full solution.',
+      }).success,
+    ).toBe(true)
+    expect(
+      HintSchema.safeParse({
+        level: HINT_LADDER_MAX_LEVEL + 1,
+        content: 'Too deep.',
+      }).success,
+    ).toBe(false)
   })
 })

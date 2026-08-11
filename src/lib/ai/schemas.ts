@@ -1,16 +1,17 @@
 import { z } from 'zod'
 
+import { HINT_LADDER_MAX_LEVEL } from '#/lib/hint-levels'
 import { SandboxResultSchema } from '#/lib/sandbox/types'
 
 /**
  * One Socratic hint at an escalation level (0: conceptual question through
- * 5: full solution, SPEC stories 22-23). The hint content is `content` per
- * issue #23's contract (`{level, content}[]`). Parsed strictly — the model's
- * structured output is untrusted input.
+ * HINT_LADDER_MAX_LEVEL: full solution, SPEC stories 22-23, issue #56). The
+ * hint content is `content` per issue #23's contract (`{level, content}[]`).
+ * Parsed strictly — the model's structured output is untrusted input.
  */
 export const HintSchema = z
   .object({
-    level: z.number().int().min(0).max(5),
+    level: z.number().int().min(0).max(HINT_LADDER_MAX_LEVEL),
     content: z.string().trim().min(1),
   })
   .strict()
@@ -28,7 +29,7 @@ export const GenerateHintInputSchema = z.object({
   exerciseTitle: z.string().min(1),
   exercisePrompt: z.string().min(1),
   sandboxResult: SandboxResultSchema,
-  targetLevel: z.number().int().min(0).max(5),
+  targetLevel: z.number().int().min(0).max(HINT_LADDER_MAX_LEVEL),
   priorHints: z.array(HintSchema),
 })
 
