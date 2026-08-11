@@ -64,7 +64,7 @@ Build one client against an OpenAI-compatible API contract, used by all three ca
 
 - Implemented as `src/lib/ai/` (issue #3, PR #48): one low-level `callTeacherEngine` helper (auth, structured-output plumbing, app-side zod validation, effort dial) with typed task functions on top — `generateHint` and `explainConcept` shipped; `generateExercise`, `reviewSubmission`, `draftConceptGraph`, and `analyzeMisconceptions` build against the same helper under tickets #6/#7/#8/#16.
 - The client is typed against the OpenAI-compatible contract — no vendor-specific SDK types leak into calling code, verifiable by dependency/architecture review (only global `fetch` and env config are used).
-- Reasoning effort is a fixed constant per task function (issue #23's resolution of ADR-0004's low/hint, high/generation-review split), not a per-call parameter and not caller-overridable in v1; the fixture-based AI Teacher Engine test double (see [docs/SPEC.md](../SPEC.md)) asserts the effort level passed per task type.
+- Reasoning effort is a fixed constant per task function (issue #23's resolution of ADR-0004's low/hint, high/generation-review split), not a per-call parameter and not caller-overridable in v1. Current confirmation: `src/lib/ai/functions.server.test.ts` mocks `callTeacherEngine` directly and asserts the effort level passed per task type (`low` for `generateHint` and `explainConcept`). The fixture-based AI Teacher Engine test double described in [docs/SPEC.md](../SPEC.md) Testing Decisions remains future confirmation at the integration-test seam.
 
 ## Relationships and References
 
