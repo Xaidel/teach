@@ -101,6 +101,7 @@ Start new ADRs from [`template.md`](./template.md).
 | [ADR-0017](./0017-stage2-rubric-storage.md) | Stage 2 evaluation rubric storage: nullable `evaluation_rubric` jsonb column on `exercises` | Accepted | Related to ADR-0010, ADR-0016 |
 | [ADR-0018](./0018-per-language-dependency-set-mechanism.md) | Per-language allowed dependency set: curation & cache-rebuild mechanism | Accepted | Refines ADR-0011; amends ADR-0013; related to ADR-0016 |
 | [ADR-0019](./0019-generated-test-source-storage.md) | Generated test source storage: nullable `test_source` text column on `exercises` | Accepted | Related to ADR-0010, ADR-0011, ADR-0017 |
+| [ADR-0020](./0020-lf-line-endings-policy.md) | LF line-ending policy for all text files (`.gitattributes`, `* text=auto eol=lf`) | Accepted | — |
 
 Keep this table in the same change as any status or relationship update. Every ADR file
 appears here exactly once.
