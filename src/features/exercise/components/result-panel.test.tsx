@@ -62,4 +62,64 @@ describe('ResultPanel', () => {
 
     expect(screen.getByText(/10s sandbox limit/)).toBeInTheDocument()
   })
+
+  it('shows the hint in place of the raw compiler/test error on failure', () => {
+    render(
+      <ResultPanel
+        result={{
+          passed: false,
+          tests: [
+            {
+              name: 'returns_true_for_even_numbers',
+              status: 'failed',
+              message: 'assertion failed: exercise::is_even(4)',
+            },
+          ],
+          message: 'error[E0308]: mismatched types',
+        }}
+        hint={{
+          level: 0,
+          content: 'What should is_even return when n is even?',
+        }}
+      />,
+    )
+
+    expect(screen.getByText(/Your hint · Level 0/)).toBeInTheDocument()
+    expect(
+      screen.getByText('What should is_even return when n is even?'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('returns_true_for_even_numbers'),
+    ).toBeInTheDocument()
+
+    expect(
+      screen.queryByText('assertion failed: exercise::is_even(4)'),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('error[E0308]: mismatched types'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('still shows the raw error when no hint is available', () => {
+    render(
+      <ResultPanel
+        result={{
+          passed: false,
+          tests: [
+            {
+              name: 'handles_zero',
+              status: 'failed',
+              message: 'assertion failed: exercise::is_even(0)',
+            },
+          ],
+          message: 'compile error excerpt',
+        }}
+      />,
+    )
+
+    expect(screen.getByText('compile error excerpt')).toBeInTheDocument()
+    expect(
+      screen.getByText('assertion failed: exercise::is_even(0)'),
+    ).toBeInTheDocument()
+  })
 })
