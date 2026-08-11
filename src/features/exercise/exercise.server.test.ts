@@ -607,4 +607,41 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
 
     await deleteLatestSubmission(learnerId)
   })
+
+  it('does not persist an auto-served hint at an invalid engine level (issue #57)', async () => {
+    runSandboxSubmissionMock.mockResolvedValue({
+      passed: false,
+      tests: [{ name: 'handles_zero', status: 'failed' }],
+    })
+    generateHintMock.mockRejectedValue(
+      new TeacherEngineError(
+        'invalid_output',
+        'engine returned hint level 5 for requested level 0',
+      ),
+    )
+
+    const exercises = await getHardcodedExercises()
+    const rustExercise = exercises.find(
+      (exercise) => exercise.language === 'rust',
+    )
+    if (!rustExercise) throw new Error('expected the seeded rust exercise')
+    const learnerId = await getCurrentLearnerId()
+
+    const outcome = await submitExercise({
+      exerciseId: rustExercise.id,
+      code: 'pub fn is_even(n: u32) -> bool { n % 2 == 1 }',
+      learnerId,
+    })
+
+    expect(outcome.result.passed).toBe(false)
+    expect(outcome.hint).toBeNull()
+
+    const served = await db
+      .select()
+      .from(submissionHints)
+      .where(eq(submissionHints.submissionId, outcome.submissionId))
+    expect(served).toHaveLength(0)
+
+    await deleteLatestSubmission(learnerId)
+  })
 })

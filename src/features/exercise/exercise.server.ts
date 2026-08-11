@@ -186,7 +186,7 @@ export async function submitExercise(input: {
       exerciseTitle: exercise.title,
       exercisePrompt: exercise.prompt,
       sandboxResult,
-      targetLevel: 0,
+      targetLevel: resolveTargetLevel([], 'next'),
       priorHints: [],
     })
   } catch (error) {
