@@ -3,8 +3,16 @@ import { CheckCircle2, Lightbulb, XCircle } from 'lucide-react'
 import type { Hint } from '#/lib/ai/schemas'
 import { Alert } from '#/shared/components/ui/alert'
 import { Badge } from '#/shared/components/ui/badge'
+import { Button } from '#/shared/components/ui/button'
 
-import type { SandboxResult } from '../exercise.schema'
+import type { HintRequestAction, SandboxResult } from '../exercise.schema'
+
+type ResultPanelProps = {
+  result: SandboxResult
+  hint?: Hint | null
+  isHintPending?: boolean
+  onRequestHint?: (action: HintRequestAction) => void
+}
 
 /**
  * Renders the pass/fail verdict and per-test detail of a Sandbox Result. On
@@ -14,13 +22,15 @@ import type { SandboxResult } from '../exercise.schema'
 export function ResultPanel({
   result,
   hint = null,
-}: {
-  result: SandboxResult
-  hint?: Hint | null
-}): React.JSX.Element {
+  isHintPending = false,
+  onRequestHint,
+}: ResultPanelProps): React.JSX.Element {
   const failedTests = result.tests.filter(
     (test) => test.status === 'failed' || test.status === 'errored',
   )
+  const nextLevel = hint ? hint.level + 1 : 0
+  const canRequestNextHint = !result.passed && nextLevel <= 4
+  const canRequestFullSolution = !result.passed && hint?.level === 4
 
   return (
     <section
@@ -56,6 +66,39 @@ export function ResultPanel({
           <p className="text-sm leading-relaxed text-foreground">
             {hint.content}
           </p>
+        </div>
+      ) : null}
+
+      {onRequestHint && (canRequestNextHint || canRequestFullSolution) ? (
+        <div className="flex flex-col gap-3 rounded-2xl border border-border bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-muted-foreground">
+            Choose how much help you want next.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {canRequestNextHint ? (
+              <Button
+                disabled={isHintPending}
+                onClick={() => onRequestHint('next')}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                {hint
+                  ? `Request Level ${String(nextLevel)}`
+                  : 'Get Level 0 hint'}
+              </Button>
+            ) : null}
+            {canRequestFullSolution ? (
+              <Button
+                disabled={isHintPending}
+                onClick={() => onRequestHint('full_solution')}
+                size="sm"
+                type="button"
+              >
+                Show full solution · Level 5
+              </Button>
+            ) : null}
+          </div>
         </div>
       ) : null}
 

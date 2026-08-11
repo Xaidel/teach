@@ -1,7 +1,7 @@
-import { eq, inArray } from 'drizzle-orm'
+import { and, asc, eq, inArray } from 'drizzle-orm'
 
 import { db } from '#/db/client.server'
-import { exercises, results, submissions } from '#/db/schema'
+import { exercises, results, submissionHints, submissions } from '#/db/schema'
 import { TeacherEngineError } from '#/lib/ai/client.server'
 import { generateHint } from '#/lib/ai/functions.server'
 import type { Hint } from '#/lib/ai/schemas'
@@ -9,7 +9,13 @@ import { runSandboxSubmission, SandboxError } from '#/lib/sandbox/runner.server'
 import { isSandboxLanguage } from '#/lib/sandbox/types'
 
 import { ExerciseError, parseSandboxResult } from './exercise.schema'
-import type { Exercise, SubmitExerciseOutput } from './exercise.schema'
+import type {
+  Exercise,
+  HintRequestAction,
+  RequestHintOutput,
+  SandboxResult,
+  SubmitExerciseOutput,
+} from './exercise.schema'
 
 /** Slugs of the hardcoded v1 exercises, one per sandbox language (issue #2). */
 export const HARDCODED_EXERCISE_SLUGS = [
@@ -22,6 +28,12 @@ export const HARDCODED_EXERCISE_SLUGS = [
 type ServerExercise = Exercise & { testSource: string }
 
 type ExerciseRow = typeof exercises.$inferSelect
+
+type HintContext = {
+  exercise: Exercise
+  result: SandboxResult
+  priorHints: { level: number; content: string }[]
+}
 
 /** Maps a persisted exercise row to the shared exercise shape. */
 function rowToExercise(row: ExerciseRow): Exercise {
@@ -56,6 +68,48 @@ async function getExerciseById(exerciseId: string): Promise<ServerExercise> {
   }
 
   return { ...rowToExercise(row), testSource: row.testSource }
+}
+
+async function getHintContext(input: {
+  submissionId: string
+  learnerId: string
+}): Promise<HintContext> {
+  const rows = await db
+    .select({ exercise: exercises, result: results })
+    .from(submissions)
+    .innerJoin(exercises, eq(exercises.id, submissions.exerciseId))
+    .innerJoin(results, eq(results.submissionId, submissions.id))
+    .where(
+      and(
+        eq(submissions.id, input.submissionId),
+        eq(submissions.learnerId, input.learnerId),
+      ),
+    )
+    .limit(1)
+
+  const row = rows[0]
+  if (!row) {
+    throw new ExerciseError('HINT_ESCALATION_INVALID')
+  }
+
+  const priorHints = await db
+    .select({
+      level: submissionHints.hintLevel,
+      content: submissionHints.content,
+    })
+    .from(submissionHints)
+    .where(eq(submissionHints.submissionId, input.submissionId))
+    .orderBy(asc(submissionHints.hintLevel))
+
+  return {
+    exercise: rowToExercise(row.exercise),
+    result: {
+      passed: row.result.passed,
+      tests: row.result.tests,
+      ...(row.result.message === null ? {} : { message: row.result.message }),
+    },
+    priorHints,
+  }
 }
 
 /** Returns all seeded hardcoded exercises, or null before seeding. */
@@ -110,10 +164,11 @@ export async function submitExercise(input: {
     submissionId: submission.id,
     passed: sandboxResult.passed,
     tests: sandboxResult.tests,
+    message: sandboxResult.message ?? null,
   })
 
   if (sandboxResult.passed) {
-    return { result: sandboxResult, hint: null }
+    return { submissionId: submission.id, result: sandboxResult, hint: null }
   }
 
   let hint: Hint | null = null
@@ -132,5 +187,61 @@ export async function submitExercise(input: {
     }
   }
 
-  return { result: sandboxResult, hint }
+  if (hint) {
+    await db.insert(submissionHints).values({
+      submissionId: submission.id,
+      hintLevel: hint.level,
+      content: hint.content,
+    })
+  }
+
+  return { submissionId: submission.id, result: sandboxResult, hint }
+}
+
+/**
+ * Generates and records one manually requested hint for an exercise attempt.
+ * Normal progression stops at Level 4; Level 5 can only be requested through
+ * the separate full-solution action after Level 4 was served.
+ */
+export async function requestHint(input: {
+  submissionId: string
+  action: HintRequestAction
+  learnerId: string
+}): Promise<RequestHintOutput> {
+  const context = await getHintContext(input)
+
+  if (context.result.passed) {
+    throw new ExerciseError('HINT_ESCALATION_INVALID')
+  }
+
+  const lastLevel = context.priorHints.at(-1)?.level ?? -1
+  const nextLevel = lastLevel + 1
+  const targetLevel = input.action === 'next' ? nextLevel : 5
+
+  if (
+    (input.action === 'next' && nextLevel > 4) ||
+    (input.action === 'full_solution' && lastLevel !== 4)
+  ) {
+    throw new ExerciseError('HINT_ESCALATION_INVALID')
+  }
+
+  const hint = await generateHint({
+    language: context.exercise.language,
+    exerciseTitle: context.exercise.title,
+    exercisePrompt: context.exercise.prompt,
+    sandboxResult: context.result,
+    targetLevel,
+    priorHints: context.priorHints.map((priorHint) => ({
+      level: priorHint.level,
+      content: priorHint.content,
+    })),
+  })
+
+  await db.insert(submissionHints).values({
+    submissionId: input.submissionId,
+    hintLevel: hint.level,
+    content: hint.content,
+  })
+
+  return { hint }
 }

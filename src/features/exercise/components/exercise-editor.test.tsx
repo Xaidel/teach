@@ -2,17 +2,19 @@
 import '@testing-library/jest-dom/vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../exercise.functions', () => ({
+  requestHintFn: vi.fn(),
   submitExerciseFn: vi.fn(),
 }))
 
-import { submitExerciseFn } from '../exercise.functions'
+import { requestHintFn, submitExerciseFn } from '../exercise.functions'
 import type { Exercise } from '../exercise.schema'
 import { ExerciseEditor } from './exercise-editor'
 
 const submitMock = vi.mocked(submitExerciseFn)
+const requestHintMock = vi.mocked(requestHintFn)
 
 const EXERCISE: Exercise = {
   id: 'e1',
@@ -24,9 +26,15 @@ const EXERCISE: Exercise = {
 }
 
 describe('ExerciseEditor', () => {
+  beforeEach(() => {
+    submitMock.mockReset()
+    requestHintMock.mockReset()
+  })
+
   it('prefills the editor with starter code and submits it', async () => {
     const user = userEvent.setup()
     submitMock.mockResolvedValue({
+      submissionId: 's1',
       result: { passed: true, tests: [] },
       hint: null,
     })
@@ -49,6 +57,7 @@ describe('ExerciseEditor', () => {
   it('shows the result after editing the code', async () => {
     const user = userEvent.setup()
     submitMock.mockResolvedValue({
+      submissionId: 's1',
       result: {
         passed: false,
         tests: [{ name: 'handles_zero', status: 'failed' }],
@@ -75,6 +84,7 @@ describe('ExerciseEditor', () => {
   it('shows the socratic hint when stage 1 fails and a hint is produced', async () => {
     const user = userEvent.setup()
     submitMock.mockResolvedValue({
+      submissionId: 's1',
       result: {
         passed: false,
         tests: [{ name: 'handles_zero', status: 'failed' }],
@@ -107,5 +117,86 @@ describe('ExerciseEditor', () => {
     expect(
       await screen.findByText(/could not be evaluated/),
     ).toBeInTheDocument()
+  })
+
+  it('lets the learner request the next hint level for the attempt', async () => {
+    const user = userEvent.setup()
+    submitMock.mockResolvedValue({
+      submissionId: 's1',
+      result: {
+        passed: false,
+        tests: [{ name: 'handles_zero', status: 'failed' }],
+      },
+      hint: { level: 0, content: 'Start by considering zero.' },
+    })
+    requestHintMock.mockResolvedValue({
+      hint: { level: 1, content: 'Check the remainder operation.' },
+    })
+
+    render(<ExerciseEditor exercise={EXERCISE} />)
+
+    await user.click(
+      screen.getByRole('button', { name: 'Submit for evaluation' }),
+    )
+    await user.click(
+      await screen.findByRole('button', { name: 'Request Level 1' }),
+    )
+
+    expect(requestHintMock).toHaveBeenCalledWith({
+      data: { submissionId: 's1', action: 'next' },
+    })
+    expect(
+      await screen.findByText('Check the remainder operation.'),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/Your hint · Level 1/)).toBeInTheDocument()
+  })
+
+  it('requires a separate action to request the full solution', async () => {
+    const user = userEvent.setup()
+    submitMock.mockResolvedValue({
+      submissionId: 's1',
+      result: {
+        passed: false,
+        tests: [{ name: 'handles_zero', status: 'failed' }],
+      },
+      hint: {
+        level: 4,
+        content: 'Use the remainder to complete the function.',
+      },
+    })
+    requestHintMock.mockResolvedValue({
+      hint: {
+        level: 5,
+        content: 'pub fn is_even(n: u32) -> bool { n % 2 == 0 }',
+      },
+    })
+
+    render(<ExerciseEditor exercise={EXERCISE} />)
+
+    await user.click(
+      screen.getByRole('button', { name: 'Submit for evaluation' }),
+    )
+    expect(
+      await screen.findByRole('button', {
+        name: 'Show full solution · Level 5',
+      }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Request Level 5' }),
+    ).not.toBeInTheDocument()
+
+    await user.click(
+      screen.getByRole('button', { name: 'Show full solution · Level 5' }),
+    )
+
+    expect(requestHintMock).toHaveBeenCalledWith({
+      data: { submissionId: 's1', action: 'full_solution' },
+    })
+    expect(
+      await screen.findByText('pub fn is_even(n: u32) -> bool { n % 2 == 0 }', {
+        selector: 'p',
+      }),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/Your hint · Level 5/)).toBeInTheDocument()
   })
 })

@@ -1,6 +1,9 @@
+import { sql } from 'drizzle-orm'
 import {
   boolean,
+  check,
   index,
+  integer,
   jsonb,
   pgTable,
   text,
@@ -80,9 +83,39 @@ export const results = pgTable(
       .references(() => submissions.id),
     passed: boolean('passed').notNull(),
     tests: jsonb('tests').$type<SandboxTest[]>().notNull(),
+    message: text('message'),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
   (table) => [uniqueIndex('results_submission_unique').on(table.submissionId)],
+)
+
+/** One Socratic hint served during a submission's exercise attempt. */
+export const submissionHints = pgTable(
+  'submission_hints',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .$defaultFn(() => uuidv7()),
+    submissionId: uuid('submission_id')
+      .notNull()
+      .references(() => submissions.id),
+    hintLevel: integer('hint_level').notNull(),
+    content: text('content').notNull(),
+    servedAt: timestamp('served_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index('submission_hints_submission_idx').on(table.submissionId),
+    uniqueIndex('submission_hints_level_unique').on(
+      table.submissionId,
+      table.hintLevel,
+    ),
+    check(
+      'submission_hints_level_check',
+      sql`${table.hintLevel} between 0 and 5`,
+    ),
+  ],
 )

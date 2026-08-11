@@ -37,19 +37,41 @@ export const SubmitExerciseInputSchema = z.object({
 
 export type SubmitExerciseInput = z.infer<typeof SubmitExerciseInputSchema>
 
+/** The two learner actions that can advance a manual hint ladder. */
+export const HintRequestActionSchema = z.enum(['next', 'full_solution'])
+
+export type HintRequestAction = z.infer<typeof HintRequestActionSchema>
+
+/** Input for requesting another hint on a persisted exercise attempt. */
+export const RequestHintInputSchema = z.object({
+  submissionId: z.uuid(),
+  action: HintRequestActionSchema,
+})
+
+export type RequestHintInput = z.infer<typeof RequestHintInputSchema>
+
 /**
  * Output of a submission: the deterministic Sandbox Result, plus a Socratic
  * hint when Stage 1 failed and the AI Teacher Engine produced one. The hint
  * is never the pass/fail authority — `result.passed` always is (issue #3).
  */
 export type SubmitExerciseOutput = {
+  submissionId: string
   result: SandboxResult
   hint: Hint | null
 }
 
+/** Output returned after one additional hint has been served. */
+export type RequestHintOutput = {
+  hint: Hint
+}
+
 /** Stable public exercise error codes. */
 export type ExerciseErrorCode =
-  'EXERCISE_NOT_FOUND' | 'EXERCISE_NOT_SUBMITTABLE' | 'SANDBOX_RESULT_INVALID'
+  | 'EXERCISE_NOT_FOUND'
+  | 'EXERCISE_NOT_SUBMITTABLE'
+  | 'SANDBOX_RESULT_INVALID'
+  | 'HINT_ESCALATION_INVALID'
 
 const EXERCISE_ERROR_MESSAGES: Record<ExerciseErrorCode, string> = {
   EXERCISE_NOT_FOUND: 'Exercise not found.',
@@ -57,6 +79,8 @@ const EXERCISE_ERROR_MESSAGES: Record<ExerciseErrorCode, string> = {
     'This exercise has no test source and cannot be submitted.',
   SANDBOX_RESULT_INVALID:
     'The sandbox produced an invalid result; the submission was not persisted.',
+  HINT_ESCALATION_INVALID:
+    'That hint level is not available for this exercise attempt.',
 }
 
 /** Safe error surfaced by exercise server boundaries. */
