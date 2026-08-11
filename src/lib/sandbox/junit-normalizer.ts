@@ -1,6 +1,10 @@
 import { XMLParser } from 'fast-xml-parser'
 
 import type { SandboxResult, SandboxTest, SandboxTestStatus } from './types'
+import {
+  SANDBOX_TEST_MESSAGE_CAP_BYTES,
+  SANDBOX_TEST_OUTPUT_CAP_BYTES,
+} from './types'
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -8,9 +12,6 @@ const parser = new XMLParser({
   trimValues: true,
   parseTagValue: false,
 })
-
-const TEST_MESSAGE_CAP_BYTES = 16_000
-const TEST_OUTPUT_CAP_BYTES = 64_000
 
 type JunitTestcase = {
   '@_name'?: string
@@ -68,13 +69,13 @@ function normalizeTestcase(testcase: JunitTestcase): SandboxTest | null {
         : undefined
   const systemOut = testcase['system-out']
   const output = systemOut?.trim()
-    ? systemOut.slice(0, TEST_OUTPUT_CAP_BYTES)
+    ? systemOut.slice(0, SANDBOX_TEST_OUTPUT_CAP_BYTES)
     : undefined
 
   return {
     name,
     status,
-    ...(message ? { message: message.slice(0, TEST_MESSAGE_CAP_BYTES) } : {}),
+    ...(message ? { message: message.slice(0, SANDBOX_TEST_MESSAGE_CAP_BYTES) } : {}),
     ...(output ? { output } : {}),
   }
 }

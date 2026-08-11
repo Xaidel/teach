@@ -123,6 +123,18 @@ export function decodeDockerLogs(buffer: Buffer): string {
   return chunks.join('')
 }
 
+/** Container-side path of the Sandbox Workspace bind mount (ADR-0011). */
+const WORKSPACE_CONTAINER_PATH = '/project'
+
+/**
+ * Maps a workspace-relative output path to its container-side absolute path,
+ * so the toolchain commands, the Rust harness config, and the runner's
+ * host-side read all spell the same location.
+ */
+function workspacePath(relativePath: string): string {
+  return `${WORKSPACE_CONTAINER_PATH}/${relativePath.replaceAll('\\', '/')}`
+}
+
 async function materializeRustProject(
   workspace: string,
   input: SandboxSubmissionInput,
@@ -141,7 +153,7 @@ async function materializeRustProject(
   await mkdir(join(workspace, '.config'), { recursive: true })
   await writeFile(
     join(workspace, '.config', 'nextest.toml'),
-    '[profile.sandbox.junit]\npath = "/project/output/junit.xml"\n',
+    `[profile.sandbox.junit]\npath = "${workspacePath(RUST_JUNIT_PATH)}"\n`,
     'utf8',
   )
   await writeFile(join(workspace, 'src', 'lib.rs'), input.code, 'utf8')
@@ -179,6 +191,11 @@ async function materializePythonProject(
   )
 }
 
+/** Workspace-relative path each toolchain writes its structured output to. */
+const RUST_JUNIT_PATH = join('output', 'junit.xml')
+const GO_TEST_JSON_PATH = join('output', 'go-test.json')
+const PYTHON_JUNIT_PATH = join('output', 'junit.xml')
+
 const SANDBOX_LANGUAGE_CONFIGS: Partial<
   Record<SandboxLanguage, LanguageSandboxConfig>
 > = {
@@ -186,7 +203,7 @@ const SANDBOX_LANGUAGE_CONFIGS: Partial<
       image: RUST_SANDBOX_IMAGE,
       materialize: materializeRustProject,
       cmd: ['cargo', 'nextest', 'run', '--no-fail-fast', '--profile', 'sandbox'],
-      outputFile: join('output', 'junit.xml'),
+      outputFile: RUST_JUNIT_PATH,
       normalize: normalizeJunit,
     },
     go: {
@@ -195,9 +212,9 @@ const SANDBOX_LANGUAGE_CONFIGS: Partial<
       cmd: [
         'sh',
         '-c',
-        'go test -json -count=1 -vet=off ./... > /project/output/go-test.json',
+        `go test -json -count=1 -vet=off ./... > ${workspacePath(GO_TEST_JSON_PATH)}`,
       ],
-      outputFile: join('output', 'go-test.json'),
+      outputFile: GO_TEST_JSON_PATH,
       normalize: normalizeGoTestJson,
     },
     python: {
@@ -205,12 +222,12 @@ const SANDBOX_LANGUAGE_CONFIGS: Partial<
       materialize: materializePythonProject,
       cmd: [
         'pytest',
-        '--junit-xml=/project/output/junit.xml',
+        `--junit-xml=${workspacePath(PYTHON_JUNIT_PATH)}`,
         '-q',
         '-p',
         'no:cacheprovider',
       ],
-      outputFile: join('output', 'junit.xml'),
+      outputFile: PYTHON_JUNIT_PATH,
       normalize: normalizeJunit,
     },
   }

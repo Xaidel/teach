@@ -239,7 +239,7 @@ describe.skipIf(!daemon)('go sandbox runner against real Docker', () => {
     ).toHaveLength(3)
   }, 120_000)
 
-  it('reports a build error without test-scoped events', async () => {
+  it('reports a build error as a decoded message without raw JSON', async () => {
     const result = await runSandboxSubmission({
       language: 'go',
       code: GO_COMPILE_ERROR_CODE,
@@ -247,8 +247,11 @@ describe.skipIf(!daemon)('go sandbox runner against real Docker', () => {
     })
 
     expect(result.passed).toBe(false)
-    expect(result.message).toBeTruthy()
+    expect(result.tests).toEqual([])
     expect(result.message).toMatch(/syntax error/)
+    expect(result.message).toContain('exercise.go')
+    expect(result.message).not.toContain('{"Action"')
+    expect(result.message).not.toContain('"Action":')
   }, 120_000)
 
   it('kills a run that exceeds the timeout and leaves no container behind', async () => {

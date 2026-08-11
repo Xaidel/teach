@@ -53,17 +53,16 @@ export const SANDBOX_LANGUAGES = ['rust', 'go', 'python'] as const
 
 export type SandboxLanguage = (typeof SANDBOX_LANGUAGES)[number]
 
-/** The pinned image each sandbox language runs (ADR-0011). */
-export const SANDBOX_IMAGE_BY_LANGUAGE: Record<SandboxLanguage, string> = {
-  rust: RUST_SANDBOX_IMAGE,
-  go: GO_SANDBOX_IMAGE,
-  python: PYTHON_SANDBOX_IMAGE,
-}
-
 /** Narrowing guard for language values coming from untrusted input. */
 export function isSandboxLanguage(value: string): value is SandboxLanguage {
   return (SANDBOX_LANGUAGES as readonly string[]).includes(value)
 }
+
+/** Per-test message cap in a Sandbox Result, shared by all normalizers. */
+export const SANDBOX_TEST_MESSAGE_CAP_BYTES = 16_000
+
+/** Per-test output cap in a Sandbox Result, shared by all normalizers. */
+export const SANDBOX_TEST_OUTPUT_CAP_BYTES = 64_000
 
 /** Fixed execution window per PRD 5.1 / ADR-0005. */
 export const SANDBOX_EXECUTION_TIMEOUT_MS = 10_000

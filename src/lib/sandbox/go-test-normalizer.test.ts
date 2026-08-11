@@ -32,8 +32,11 @@ const SKIPPED_STREAM = `{"Time":"2026-08-11T10:00:00Z","Action":"run","Package":
 {"Time":"2026-08-11T10:00:00Z","Action":"pass","Package":"exercise"}
 `
 
-const BUILD_FAILURE_STREAM = `{"Time":"2026-08-11T10:00:00Z","Action":"output","Package":"exercise","Output":"# exercise\\n"}
-{"Time":"2026-08-11T10:00:00Z","Action":"output","Package":"exercise","Output":"./exercise.go:3:1: syntax error: unexpected EOF\\n"}
+const BUILD_FAILURE_STREAM = `{"Time":"2026-08-11T10:00:00Z","Action":"start","Package":"exercise"}
+{"ImportPath":"exercise","Action":"build-output","Output":"# exercise\\n"}
+{"ImportPath":"exercise","Action":"build-output","Output":"./exercise.go:3:1: syntax error: unexpected EOF\\n"}
+{"ImportPath":"exercise","Action":"build-fail"}
+{"Time":"2026-08-11T10:00:00Z","Action":"output","Package":"exercise","Output":"FAIL\\texercise [build failed]\\n"}
 {"Time":"2026-08-11T10:00:00Z","Action":"fail","Package":"exercise"}
 `
 
@@ -68,8 +71,14 @@ describe('normalizeGoTestJson', () => {
     expect(result.tests[0]).toMatchObject({ status: 'skipped' })
   })
 
-  it('returns null for a build failure with no test-scoped events', () => {
-    expect(normalizeGoTestJson(BUILD_FAILURE_STREAM)).toBeNull()
+  it('returns a decoded message for a build failure with no test-scoped events', () => {
+    const result = normalizeGoTestJson(BUILD_FAILURE_STREAM)
+
+    expect(result).not.toBeNull()
+    expect(result?.passed).toBe(false)
+    expect(result?.tests).toEqual([])
+    expect(result?.message).toContain('# exercise')
+    expect(result?.message).toContain('./exercise.go:3:1: syntax error')
   })
 
   it('returns null for empty or non-JSON input', () => {
