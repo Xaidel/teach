@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { SandboxResultSchema, type SandboxResult } from '#/lib/sandbox/types'
+
 /**
  * The shared Sandbox Result shape is defined once in the sandbox lib
  * (src/lib/sandbox/types.ts) and re-exported here for the feature surface
@@ -34,10 +36,13 @@ export const SubmitExerciseInputSchema = z.object({
 export type SubmitExerciseInput = z.infer<typeof SubmitExerciseInputSchema>
 
 /** Stable public exercise error codes. */
-export type ExerciseErrorCode = 'EXERCISE_NOT_FOUND' | 'SANDBOX_RESULT_INVALID'
+export type ExerciseErrorCode =
+  'EXERCISE_NOT_FOUND' | 'EXERCISE_NOT_SUBMITTABLE' | 'SANDBOX_RESULT_INVALID'
 
 const EXERCISE_ERROR_MESSAGES: Record<ExerciseErrorCode, string> = {
   EXERCISE_NOT_FOUND: 'Exercise not found.',
+  EXERCISE_NOT_SUBMITTABLE:
+    'This exercise has no test source and cannot be submitted.',
   SANDBOX_RESULT_INVALID:
     'The sandbox produced an invalid result; the submission was not persisted.',
 }
@@ -51,5 +56,18 @@ export class ExerciseError extends Error {
     super(EXERCISE_ERROR_MESSAGES[code])
     this.name = 'ExerciseError'
     this.code = code
+  }
+}
+
+/**
+ * Validates sandbox output at the persistence boundary, mapping any schema
+ * violation to the stable exercise error code. Only the parse is wrapped:
+ * infrastructure failures from the runner propagate as `SandboxError`.
+ */
+export function parseSandboxResult(raw: unknown): SandboxResult {
+  try {
+    return SandboxResultSchema.parse(raw)
+  } catch {
+    throw new ExerciseError('SANDBOX_RESULT_INVALID')
   }
 }

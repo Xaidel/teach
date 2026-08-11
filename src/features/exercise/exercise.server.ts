@@ -4,7 +4,7 @@ import { db } from '#/db/client.server'
 import { exercises, results, submissions } from '#/db/schema'
 import { runRustSubmission } from '#/lib/sandbox/runner.server'
 
-import { ExerciseError, SandboxResultSchema } from './exercise.schema'
+import { ExerciseError, parseSandboxResult } from './exercise.schema'
 import type { Exercise, SandboxResult } from './exercise.schema'
 
 /** Slug of the single v1 walking-skeleton exercise. */
@@ -37,9 +37,7 @@ async function getExerciseById(exerciseId: string): Promise<ServerExercise> {
   }
 
   if (row.testSource === null) {
-    throw new Error(
-      `Exercise ${row.id} has no test source; only implement/debug-mode exercises can be submitted (ADR-0019).`,
-    )
+    throw new ExerciseError('EXERCISE_NOT_SUBMITTABLE')
   }
 
   return { ...rowToExercise(row), testSource: row.testSource }
@@ -66,17 +64,12 @@ export async function submitExercise(input: {
 }): Promise<SandboxResult> {
   const exercise = await getExerciseById(input.exerciseId)
 
-  let sandboxResult: SandboxResult
-  try {
-    sandboxResult = SandboxResultSchema.parse(
-      await runRustSubmission({
-        code: input.code,
-        testSource: exercise.testSource,
-      }),
-    )
-  } catch {
-    throw new ExerciseError('SANDBOX_RESULT_INVALID')
-  }
+  const sandboxResult = parseSandboxResult(
+    await runRustSubmission({
+      code: input.code,
+      testSource: exercise.testSource,
+    }),
+  )
 
   const [submission] = await db
     .insert(submissions)

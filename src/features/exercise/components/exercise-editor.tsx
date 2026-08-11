@@ -66,7 +66,7 @@ export function ExerciseEditor({
       ) : null}
       <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-xs text-muted-foreground">
-          Runs <code className="font-mono">cargo test</code> in an isolated,
+          Runs <code className="font-mono">cargo nextest</code> in an isolated,
           network-disabled container with a 10-second limit.
         </p>
         <Button disabled={isPending} type="submit">
