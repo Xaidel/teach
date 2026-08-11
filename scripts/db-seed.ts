@@ -1,6 +1,6 @@
 import 'dotenv/config'
 
-import { count } from 'drizzle-orm'
+import { count, eq } from 'drizzle-orm'
 
 import { db } from '../src/db/client.server'
 import { exercises, learners } from '../src/db/schema'
@@ -14,6 +14,10 @@ const HARDCODED_EXERCISES = [
       'Implement `is_even(n: u32) -> bool`, returning true when n is an even number and false otherwise. Handle zero.',
     starterCode: `pub fn is_even(n: u32) -> bool {
     false
+}
+`,
+    referenceSolution: `pub fn is_even(n: u32) -> bool {
+    n % 2 == 0
 }
 `,
     testSource: `#[test]
@@ -43,6 +47,12 @@ fn handles_zero() {
 
 func IsEven(n uint32) bool {
 	return false
+}
+`,
+    referenceSolution: `package exercise
+
+func IsEven(n uint32) bool {
+	return n%2 == 0
 }
 `,
     testSource: `package exercise
@@ -77,6 +87,9 @@ func TestIsEvenZero(t *testing.T) {
       'Implement `is_even(n: int) -> bool`, returning True when n is an even number and False otherwise. Handle zero.',
     starterCode: `def is_even(n: int) -> bool:
     return False
+`,
+    referenceSolution: `def is_even(n: int) -> bool:
+    return n % 2 == 0
 `,
     testSource: `from exercise import is_even
 
@@ -114,7 +127,17 @@ async function seedExercise(
     where: (table, { eq }) => eq(table.slug, exercise.slug),
   })
   if (existing) {
-    console.log(`Exercise "${exercise.slug}" already present; skipping.`)
+    if (existing.referenceSolution === null) {
+      await db
+        .update(exercises)
+        .set({ referenceSolution: exercise.referenceSolution })
+        .where(eq(exercises.slug, exercise.slug))
+      console.log(
+        `Exercise "${exercise.slug}" already present; backfilled reference solution.`,
+      )
+    } else {
+      console.log(`Exercise "${exercise.slug}" already present; skipping.`)
+    }
     return
   }
   await db.insert(exercises).values(exercise)

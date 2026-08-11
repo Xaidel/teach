@@ -1,0 +1,1 @@
+ALTER TABLE "exercises" ADD COLUMN "reference_solution" text;

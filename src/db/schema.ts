@@ -29,7 +29,10 @@ export const learners = pgTable('learners', {
 /**
  * One exercise a learner can attempt; v1 seeds exactly one (issue #1).
  * `test_source` is nullable because explain-mode rows skip Stage 1 and have
- * no generated tests (ADR-0019).
+ * no generated tests (ADR-0019). `reference_solution` is nullable for the
+ * same reason: the Prompt Shield's leakage check needs the Pre-Flight-verified
+ * reference solution as ground truth (ADR-0008), which explain-mode rows
+ * don't produce (ADR-0010).
  */
 export const exercises = pgTable(
   'exercises',
@@ -43,6 +46,7 @@ export const exercises = pgTable(
     prompt: text('prompt').notNull(),
     starterCode: text('starter_code').notNull(),
     testSource: text('test_source'),
+    referenceSolution: text('reference_solution'),
     status: text('status').notNull().default('verified'),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()

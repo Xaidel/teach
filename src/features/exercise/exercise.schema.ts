@@ -72,6 +72,7 @@ export type RequestHintOutput = {
 export type ExerciseErrorCode =
   | 'EXERCISE_NOT_FOUND'
   | 'EXERCISE_NOT_SUBMITTABLE'
+  | 'EXERCISE_NOT_HINTABLE'
   | 'SANDBOX_RESULT_INVALID'
   | 'HINT_ESCALATION_INVALID'
 
@@ -79,6 +80,8 @@ const EXERCISE_ERROR_MESSAGES: Record<ExerciseErrorCode, string> = {
   EXERCISE_NOT_FOUND: 'Exercise not found.',
   EXERCISE_NOT_SUBMITTABLE:
     'This exercise has no test source and cannot be submitted.',
+  EXERCISE_NOT_HINTABLE:
+    'This exercise has no reference solution and cannot serve hints.',
   SANDBOX_RESULT_INVALID:
     'The sandbox produced an invalid result; the submission was not persisted.',
   HINT_ESCALATION_INVALID:
