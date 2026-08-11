@@ -21,16 +21,18 @@ import type { SandboxLanguage } from '#/lib/sandbox/types'
  *   Closeness is token overlap: how many of the solution fragment's tokens
  *   appear, in order, in the response's token stream.
  * - The block threshold is a percentage of that exercise's own
- *   reference-solution length, with a small absolute floor, applied
- *   two-tier: near-zero tolerance at Levels 0-3, a much higher tolerance
- *   (~45% starting point) at Level 4. Level 5 is unchecked — the learner
- *   has explicitly opted into the full solution.
+ *   reference-solution length, with a small absolute floor, capped at the
+ *   solution's own token count so a full verbatim copy always blocks (issue
+ *   #64), applied two-tier: near-zero tolerance at Levels 0-3, a much higher
+ *   tolerance (~45% starting point) at Level 4. Level 5 is unchecked — the
+ *   learner has explicitly opted into the full solution.
  * - The check is per-hint only; nothing is tracked across hints in an
  *   attempt (accepted v1 gap, ADR-0012).
  *
  * Known accepted v1 gaps (ADR-0012): renamed-identifier evasion (no
  * identifier normalization), cumulative leakage across repeated same-level
- * requests, and general paraphrase/restructuring.
+ * requests, general paraphrase/restructuring, and unshielded `explainConcept`
+ * output (no exercise context in v1; issue #65).
  */
 
 /** Small absolute floor in tokens (ADR-0012: "a handful of tokens"). */
@@ -150,7 +152,11 @@ export function longestInOrderRun(
  * The block threshold for one hint level, in solution tokens: a percentage
  * of the solution's own length with the absolute floor as a minimum
  * (ADR-0012). Levels 0-3 use near-zero tolerance (the floor alone); Level 4
- * adds the ratio on top; Level 5 is unchecked.
+ * adds the ratio on top; Level 5 is unchecked. The threshold never exceeds
+ * the solution's own token count, so a full verbatim copy always blocks even
+ * on a solution shorter than the floor (issue #64). An empty solution — a
+ * degenerate input the Pre-Flight gate never produces — keeps the absolute
+ * floor, so the check cannot block every response via a zero threshold.
  */
 export function shieldThresholdTokens(
   hintLevel: number,
@@ -159,12 +165,18 @@ export function shieldThresholdTokens(
   if (hintLevel >= PROMPT_SHIELD_UNCHECKED_LEVEL) {
     return Number.POSITIVE_INFINITY
   }
+  if (solutionTokenCount === 0) {
+    return PROMPT_SHIELD_TOKEN_FLOOR
+  }
   const ratioTokens = Math.round(
     (hintLevel === HINT_LADDER_MANUAL_MAX_LEVEL
       ? PROMPT_SHIELD_LEVEL4_RATIO
       : 0) * solutionTokenCount,
   )
-  return Math.max(PROMPT_SHIELD_TOKEN_FLOOR, ratioTokens)
+  return Math.min(
+    Math.max(PROMPT_SHIELD_TOKEN_FLOOR, ratioTokens),
+    solutionTokenCount,
+  )
 }
 
 /** One prompt-shield comparison over a hint's content. */

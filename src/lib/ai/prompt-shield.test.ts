@@ -21,6 +21,9 @@ const RUST_REFERENCE = `pub fn is_even(n: u32) -> bool {
 /** A short solution used for the renamed-variable non-catch fixture. */
 const SHORT_REFERENCE = 'return n % 2 == 0'
 
+/** The categorical non-code hint levels (ADR-0012's near-zero tier). */
+const NON_CODE_LEVELS = [0, 1, 2, 3] as const
+
 describe('stripComments', () => {
   it('strips line comments for Rust and Go', () => {
     expect(stripComments('let x = 1; // set x\nlet y = 2;', 'rust')).toBe(
@@ -146,7 +149,7 @@ describe('longestInOrderRun', () => {
 
 describe('shieldThresholdTokens', () => {
   it('uses near-zero tolerance (floor alone) at levels 0-3', () => {
-    for (const level of [0, 1, 2, 3]) {
+    for (const level of NON_CODE_LEVELS) {
       expect(shieldThresholdTokens(level, 19)).toBe(PROMPT_SHIELD_TOKEN_FLOOR)
     }
   })
@@ -158,7 +161,19 @@ describe('shieldThresholdTokens', () => {
         Math.round(19 * PROMPT_SHIELD_LEVEL4_RATIO),
       ),
     )
-    expect(shieldThresholdTokens(4, 4)).toBe(PROMPT_SHIELD_TOKEN_FLOOR)
+  })
+
+  it('never exceeds the solution length, so a verbatim copy always blocks (issue #64)', () => {
+    for (const level of [...NON_CODE_LEVELS, 4]) {
+      expect(shieldThresholdTokens(level, 5)).toBe(5)
+      expect(shieldThresholdTokens(level, 3)).toBe(3)
+      expect(shieldThresholdTokens(level, 6)).toBe(PROMPT_SHIELD_TOKEN_FLOOR)
+    }
+  })
+
+  it('keeps the floor for an empty solution (degenerate input)', () => {
+    expect(shieldThresholdTokens(0, 0)).toBe(PROMPT_SHIELD_TOKEN_FLOOR)
+    expect(shieldThresholdTokens(4, 0)).toBe(PROMPT_SHIELD_TOKEN_FLOOR)
   })
 
   it('never blocks level 5', () => {
@@ -168,7 +183,7 @@ describe('shieldThresholdTokens', () => {
 
 describe('checkPromptShield', () => {
   it('blocks a verbatim solution copy at levels 0-3', () => {
-    for (const level of [0, 1, 2, 3]) {
+    for (const level of NON_CODE_LEVELS) {
       expect(
         checkPromptShield({
           content: RUST_REFERENCE,
@@ -224,6 +239,20 @@ describe('checkPromptShield', () => {
         hintLevel: 2,
       }),
     ).toBe('block')
+  })
+
+  it('blocks a verbatim copy of a short (< floor) solution at levels 0-3 (issue #64)', () => {
+    const shortSolution = 'return true'
+    for (const level of NON_CODE_LEVELS) {
+      expect(
+        checkPromptShield({
+          content: shortSolution,
+          referenceSolution: shortSolution,
+          language: 'python',
+          hintLevel: level,
+        }),
+      ).toBe('block')
+    }
   })
 
   it('passes a single shared keyword or short common phrase', () => {
@@ -307,6 +336,17 @@ func IsEven(n uint32) bool {
         referenceSolution: RUST_REFERENCE,
         language: 'rust',
         hintLevel: 1,
+      }),
+    ).toBe('pass')
+  })
+
+  it('passes on an empty reference solution (degenerate input)', () => {
+    expect(
+      checkPromptShield({
+        content: 'Any text at all.',
+        referenceSolution: '',
+        language: 'python',
+        hintLevel: 0,
       }),
     ).toBe('pass')
   })
