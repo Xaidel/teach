@@ -28,6 +28,7 @@ This ADR was resolved as wayfinder ticket [#25](../../issues/25) ("Prompt Shield
 - **Matching technique: token overlap via a minimal, language-agnostic lexer.** Both texts are split into tokens using one shared lexer: runs of letters/digits are one token, every other character (`(`, `:`, `[`, operators, etc.) is its own token — no per-language keyword or grammar classification. Closeness is the fraction of the solution fragment's tokens, in order, that are also present in the response's token stream. Not edit distance, and not AST/structural comparison.
 - **Threshold units: percentage of that exercise's own reference-solution length**, not an absolute constant — so a 3-line solution and a 40-line solution are held to proportionally fair standards. A small absolute floor (on the order of a handful of tokens) prevents a single shared keyword or short common phrase from ever triggering a block by itself.
 - **Per-level shape: two-tier, not a smooth per-level formula.** Levels 0–3 use a near-zero tolerance — any matched fragment at or above the floor blocks. Level 4 uses a much higher tolerance (starting point on the order of 40–50% solution-token overlap in one matched run), reflecting that real partial code is expected and intended at this level; only a near-complete match should block. Level 5 is unchecked — the learner has explicitly opted into the full solution. The exact percentages are tuning constants to refine from real usage, not fixed permanently by this ADR.
+- **Scope: hints only — `explainConcept` is deliberately unshielded in v1.** The check runs only on `generateHint` output. `explainConcept` (SPEC story 11) takes a concept, a presentation depth, and an optional reference frame — it has no exercise or Pre-Flight-verified reference solution context to compare against. Explanations are standalone reference material, not answer-revealing steps on an exercise, so v1 treats them as an informational, trusted-AI surface and accepts the possibility of solution-shaped code appearing inside an explanation. This is an explicit, deliberate boundary, not an omission: wiring the shield onto explanations would require attaching an exercise (and its verified reference solution) to every explanation request, changing the product surface ("explain this concept *in the context of this exercise*") rather than just the check. Recorded as a v1 gap (issue #65); revisit toward shielding explanations when/if explanations become exercise-anchored.
 
 ## Alternatives Considered
 
@@ -104,6 +105,7 @@ This ADR was resolved as wayfinder ticket [#25](../../issues/25) ("Prompt Shield
 
 - Renamed-variable leaks (same code, different identifier names) mostly pass through the check; token overlap only partially compensates by degrading gracefully around the changed token, it does not neutralize the rename.
 - Cumulative leakage — small pieces revealed across several separate hint requests at the same level — is not caught; each hint is checked in isolation.
+- `explainConcept` output is not shielded (issue #65): the check runs only on `generateHint` output, so an explanation could in principle contain solution-shaped code. Accepted as a deliberate v1 boundary — see the "Scope: hints only" decision note above.
 - The Level 4 threshold (~40–50% starting point) is an estimate, not derived from real usage; it will likely need retuning once real hint traffic exists.
 
 ### Neutral / Risks
@@ -111,6 +113,7 @@ This ADR was resolved as wayfinder ticket [#25](../../issues/25) ("Prompt Shield
 - The general paraphrase/restructuring recall gap ADR-0008 already names is unchanged by this ADR — still present.
 - **Renamed-identifier evasion is an explicit, accepted v1 gap.** Revisit toward identifier-aware tokenization (Option C, Normalization) if it proves to matter in practice — tracked via the [AI Learning Platform v1 map](../../issues/21).
 - **Cumulative-hints leakage across repeated same-level requests is an explicit, accepted v1 gap.** Revisit if learners are observed extracting solutions piecemeal across several hint calls — tracked via the same map.
+- **Unshielded `explainConcept` output is an explicit, accepted v1 gap** (issue #65): the check covers hints only; explanations have no exercise/reference-solution context in v1. Revisit toward shielding explanations when explanations become exercise-anchored — tracked via the [AI Learning Platform v1 map](../../issues/21).
 - Exact numeric constants (the absolute floor, the Level 4 percentage) are implementation-tunable, not fixed permanently by this ADR.
 
 ## Confirmation
