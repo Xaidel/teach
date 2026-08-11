@@ -6,7 +6,7 @@ import { Label } from '#/shared/components/ui/label'
 import { Textarea } from '#/shared/components/ui/textarea'
 
 import { submitExerciseFn } from '../exercise.functions'
-import type { Exercise, SandboxResult } from '../exercise.schema'
+import type { Exercise, SubmitExerciseOutput } from '../exercise.schema'
 import { ResultPanel } from './result-panel'
 
 /** Renders the code editor and submit flow for one exercise. */
@@ -16,7 +16,7 @@ export function ExerciseEditor({
   exercise: Exercise
 }): React.JSX.Element {
   const [code, setCode] = useState(exercise.starterCode)
-  const [result, setResult] = useState<SandboxResult>()
+  const [outcome, setOutcome] = useState<SubmitExerciseOutput>()
   const [error, setError] = useState<string>()
   const [isPending, setIsPending] = useState(false)
   const codeInputId = `exercise-code-${exercise.slug}`
@@ -27,10 +27,10 @@ export function ExerciseEditor({
   ): Promise<void> {
     event.preventDefault()
     setError(undefined)
-    setResult(undefined)
+    setOutcome(undefined)
     setIsPending(true)
     try {
-      setResult(
+      setOutcome(
         await submitExerciseFn({ data: { exerciseId: exercise.id, code } }),
       )
     } catch {
@@ -75,7 +75,9 @@ export function ExerciseEditor({
           {isPending ? 'Evaluating...' : 'Submit for evaluation'}
         </Button>
       </div>
-      {result ? <ResultPanel result={result} /> : null}
+      {outcome ? (
+        <ResultPanel result={outcome.result} hint={outcome.hint} />
+      ) : null}
     </form>
   )
 }

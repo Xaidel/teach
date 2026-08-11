@@ -2,11 +2,14 @@ import { eq, inArray } from 'drizzle-orm'
 
 import { db } from '#/db/client.server'
 import { exercises, results, submissions } from '#/db/schema'
+import { TeacherEngineError } from '#/lib/ai/client.server'
+import { generateHint } from '#/lib/ai/functions.server'
+import type { Hint } from '#/lib/ai/schemas'
 import { runSandboxSubmission, SandboxError } from '#/lib/sandbox/runner.server'
 import { isSandboxLanguage } from '#/lib/sandbox/types'
 
 import { ExerciseError, parseSandboxResult } from './exercise.schema'
-import type { Exercise, SandboxResult } from './exercise.schema'
+import type { Exercise, SubmitExerciseOutput } from './exercise.schema'
 
 /** Slugs of the hardcoded v1 exercises, one per sandbox language (issue #2). */
 export const HARDCODED_EXERCISE_SLUGS = [
@@ -68,12 +71,18 @@ export async function getHardcodedExercises(): Promise<Exercise[]> {
  * Runs one submission through the sandbox of the exercise's language and
  * persists the submission and its normalized result. The caller resolves the
  * current learner once and passes the id down (ADR-0014).
+ *
+ * On Stage 1 failure the AI Teacher Engine generates a Level 0 Socratic hint
+ * (empty prior-hints list for a fresh attempt); the hint only accompanies the
+ * result and never determines pass/fail (issue #3). If hint generation
+ * itself fails, the deterministic verdict still reaches the learner — the
+ * raw result is returned without a hint (issue #3, AC 5).
  */
 export async function submitExercise(input: {
   exerciseId: string
   code: string
   learnerId: string
-}): Promise<SandboxResult> {
+}): Promise<SubmitExerciseOutput> {
   const exercise = await getExerciseById(input.exerciseId)
 
   const sandboxResult = parseSandboxResult(
@@ -103,5 +112,25 @@ export async function submitExercise(input: {
     tests: sandboxResult.tests,
   })
 
-  return sandboxResult
+  if (sandboxResult.passed) {
+    return { result: sandboxResult, hint: null }
+  }
+
+  let hint: Hint | null = null
+  try {
+    hint = await generateHint({
+      language: exercise.language,
+      exerciseTitle: exercise.title,
+      exercisePrompt: exercise.prompt,
+      sandboxResult,
+      targetLevel: 0,
+      priorHints: [],
+    })
+  } catch (error) {
+    if (!(error instanceof TeacherEngineError)) {
+      throw error
+    }
+  }
+
+  return { result: sandboxResult, hint }
 }

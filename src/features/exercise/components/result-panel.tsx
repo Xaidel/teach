@@ -1,15 +1,22 @@
-import { CheckCircle2, XCircle } from 'lucide-react'
+import { CheckCircle2, Lightbulb, XCircle } from 'lucide-react'
 
+import type { Hint } from '#/lib/ai/schemas'
 import { Alert } from '#/shared/components/ui/alert'
 import { Badge } from '#/shared/components/ui/badge'
 
 import type { SandboxResult } from '../exercise.schema'
 
-/** Renders the pass/fail verdict and per-test detail of a Sandbox Result. */
+/**
+ * Renders the pass/fail verdict and per-test detail of a Sandbox Result. On
+ * Stage 1 failure with a Socratic hint, the hint is shown in place of the raw
+ * compiler/test error (issue #3, AC 3); without one, the raw error is shown.
+ */
 export function ResultPanel({
   result,
+  hint = null,
 }: {
   result: SandboxResult
+  hint?: Hint | null
 }): React.JSX.Element {
   const failedTests = result.tests.filter(
     (test) => test.status === 'failed' || test.status === 'errored',
@@ -40,7 +47,17 @@ export function ResultPanel({
         </div>
       )}
 
-      {result.message ? (
+      {hint ? (
+        <div className="grid gap-1.5 rounded-2xl border border-primary/30 bg-primary/8 px-4 py-3">
+          <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-primary">
+            <Lightbulb aria-hidden="true" className="size-4" />
+            Your hint · Level {hint.level}
+          </p>
+          <p className="text-sm leading-relaxed text-foreground">{hint.text}</p>
+        </div>
+      ) : null}
+
+      {result.message && !hint ? (
         <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-xl border border-border bg-background p-4 font-mono text-xs leading-relaxed text-foreground">
           {result.message}
         </pre>
@@ -57,7 +74,7 @@ export function ResultPanel({
                 <p className="truncate font-mono text-sm text-foreground">
                   {test.name}
                 </p>
-                {test.message ? (
+                {test.message && !hint ? (
                   <p className="mt-1 line-clamp-3 text-xs leading-relaxed text-muted-foreground">
                     {test.message}
                   </p>

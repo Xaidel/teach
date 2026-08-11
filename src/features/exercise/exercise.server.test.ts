@@ -1,5 +1,5 @@
 import { desc, eq, sql } from 'drizzle-orm'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type * as runner from '#/lib/sandbox/runner.server'
 
@@ -11,8 +11,14 @@ vi.mock('#/lib/sandbox/runner.server', async (importOriginal) => {
   }
 })
 
+vi.mock('#/lib/ai/functions.server', () => ({
+  generateHint: vi.fn(),
+}))
+
 import { db } from '#/db/client.server'
 import { results, submissions } from '#/db/schema'
+import { TeacherEngineError } from '#/lib/ai/client.server'
+import { generateHint } from '#/lib/ai/functions.server'
 import { runSandboxSubmission } from '#/lib/sandbox/runner.server'
 import { getCurrentLearnerId } from '../learners/learners.server'
 import {
@@ -32,6 +38,11 @@ async function dbAvailable(): Promise<boolean> {
 
 const dbUp = await dbAvailable()
 const runSandboxSubmissionMock = vi.mocked(runSandboxSubmission)
+const generateHintMock = vi.mocked(generateHint)
+
+beforeEach(() => {
+  generateHintMock.mockReset()
+})
 
 describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
   it('returns every seeded hardcoded exercise with its language', async () => {
@@ -61,13 +72,15 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
     if (!rustExercise) throw new Error('expected the seeded rust exercise')
     const learnerId = await getCurrentLearnerId()
 
-    const result = await submitExercise({
+    const outcome = await submitExercise({
       exerciseId: rustExercise.id,
       code: 'pub fn is_even(n: u32) -> bool { n % 2 == 0 }',
       learnerId,
     })
 
-    expect(result.passed).toBe(true)
+    expect(outcome.result.passed).toBe(true)
+    expect(outcome.hint).toBeNull()
+    expect(generateHintMock).not.toHaveBeenCalled()
     const submitted = runSandboxSubmissionMock.mock.calls[0]?.[0]
     expect(submitted).toMatchObject({
       language: 'rust',
@@ -186,5 +199,96 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
         learnerId: '11111111-1111-7111-8111-111111111111',
       }),
     ).rejects.toMatchObject({ code: 'EXERCISE_NOT_FOUND' })
+  })
+
+  it('generates a Level 0 hint with an empty prior-hints list on stage 1 failure', async () => {
+    runSandboxSubmissionMock.mockResolvedValue({
+      passed: false,
+      tests: [
+        {
+          name: 'returns_true_for_even_numbers',
+          status: 'failed',
+          message: 'assertion failed: exercise::is_even(4)',
+        },
+      ],
+    })
+    generateHintMock.mockResolvedValue({
+      level: 0,
+      text: 'What should is_even return when n is even?',
+    })
+
+    const exercises = await getHardcodedExercises()
+    const rustExercise = exercises.find(
+      (exercise) => exercise.language === 'rust',
+    )
+    if (!rustExercise) throw new Error('expected the seeded rust exercise')
+    const learnerId = await getCurrentLearnerId()
+
+    const outcome = await submitExercise({
+      exerciseId: rustExercise.id,
+      code: 'pub fn is_even(n: u32) -> bool { n % 2 == 1 }',
+      learnerId,
+    })
+
+    expect(outcome.result.passed).toBe(false)
+    expect(outcome.hint).toEqual({
+      level: 0,
+      text: 'What should is_even return when n is even?',
+    })
+
+    const hintInput = generateHintMock.mock.calls.at(-1)?.[0]
+    expect(hintInput).toMatchObject({
+      language: 'rust',
+      exerciseTitle: rustExercise.title,
+      targetLevel: 0,
+      priorHints: [],
+    })
+    expect(hintInput?.exercisePrompt).toBeTruthy()
+
+    const [submission] = await db
+      .select()
+      .from(submissions)
+      .where(eq(submissions.learnerId, learnerId))
+      .orderBy(desc(submissions.createdAt))
+      .limit(1)
+    if (!submission) throw new Error('expected a persisted submission')
+    await db.delete(results).where(eq(results.submissionId, submission.id))
+    await db.delete(submissions).where(eq(submissions.id, submission.id))
+  })
+
+  it('falls back to the raw result when hint generation fails', async () => {
+    runSandboxSubmissionMock.mockResolvedValue({
+      passed: false,
+      tests: [{ name: 'handles_zero', status: 'failed' }],
+    })
+    generateHintMock.mockRejectedValue(
+      new TeacherEngineError('api_error', 'hint service unavailable'),
+    )
+
+    const exercises = await getHardcodedExercises()
+    const rustExercise = exercises.find(
+      (exercise) => exercise.language === 'rust',
+    )
+    if (!rustExercise) throw new Error('expected the seeded rust exercise')
+    const learnerId = await getCurrentLearnerId()
+
+    const outcome = await submitExercise({
+      exerciseId: rustExercise.id,
+      code: 'pub fn is_even(n: u32) -> bool { n % 2 == 1 }',
+      learnerId,
+    })
+
+    expect(outcome.result.passed).toBe(false)
+    expect(outcome.hint).toBeNull()
+
+    const [submission] = await db
+      .select()
+      .from(submissions)
+      .where(eq(submissions.learnerId, learnerId))
+      .orderBy(desc(submissions.createdAt))
+      .limit(1)
+    if (!submission) throw new Error('expected a persisted submission')
+    await db.delete(results).where(eq(results.submissionId, submission.id))
+    await db.delete(submissions).where(eq(submissions.id, submission.id))
   })
 })

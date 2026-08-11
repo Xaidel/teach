@@ -26,7 +26,10 @@ const EXERCISE: Exercise = {
 describe('ExerciseEditor', () => {
   it('prefills the editor with starter code and submits it', async () => {
     const user = userEvent.setup()
-    submitMock.mockResolvedValue({ passed: true, tests: [] })
+    submitMock.mockResolvedValue({
+      result: { passed: true, tests: [] },
+      hint: null,
+    })
 
     render(<ExerciseEditor exercise={EXERCISE} />)
 
@@ -46,8 +49,11 @@ describe('ExerciseEditor', () => {
   it('shows the result after editing the code', async () => {
     const user = userEvent.setup()
     submitMock.mockResolvedValue({
-      passed: false,
-      tests: [{ name: 'handles_zero', status: 'failed' }],
+      result: {
+        passed: false,
+        tests: [{ name: 'handles_zero', status: 'failed' }],
+      },
+      hint: null,
     })
 
     render(<ExerciseEditor exercise={EXERCISE} />)
@@ -64,6 +70,28 @@ describe('ExerciseEditor', () => {
       data: { exerciseId: 'e1', code: editedCode },
     })
     expect(await screen.findByText(/Failed — 1 of 1 test/)).toBeInTheDocument()
+  })
+
+  it('shows the socratic hint when stage 1 fails and a hint is produced', async () => {
+    const user = userEvent.setup()
+    submitMock.mockResolvedValue({
+      result: {
+        passed: false,
+        tests: [{ name: 'handles_zero', status: 'failed' }],
+      },
+      hint: { level: 0, text: 'What should is_even return when n is even?' },
+    })
+
+    render(<ExerciseEditor exercise={EXERCISE} />)
+
+    await user.click(
+      screen.getByRole('button', { name: 'Submit for evaluation' }),
+    )
+
+    expect(
+      await screen.findByText(/What should is_even return when n is even/),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/Your hint · Level 0/)).toBeInTheDocument()
   })
 
   it('shows a failure message when the submission cannot be evaluated', async () => {

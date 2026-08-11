@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import type { Hint } from '#/lib/ai/schemas'
 import { SANDBOX_LANGUAGES } from '#/lib/sandbox/types'
 import { SandboxResultSchema, type SandboxResult } from '#/lib/sandbox/types'
 
@@ -35,6 +36,16 @@ export const SubmitExerciseInputSchema = z.object({
 })
 
 export type SubmitExerciseInput = z.infer<typeof SubmitExerciseInputSchema>
+
+/**
+ * Output of a submission: the deterministic Sandbox Result, plus a Socratic
+ * hint when Stage 1 failed and the AI Teacher Engine produced one. The hint
+ * is never the pass/fail authority — `result.passed` always is (issue #3).
+ */
+export type SubmitExerciseOutput = {
+  result: SandboxResult
+  hint: Hint | null
+}
 
 /** Stable public exercise error codes. */
 export type ExerciseErrorCode =
