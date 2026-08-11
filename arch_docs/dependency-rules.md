@@ -11,6 +11,7 @@ Production imports form a directed acyclic graph.
 | `src/features/<feature>/*.functions.ts` | same feature schemas and server-only operations                      |
 | `src/features/<feature>/*.server.ts`    | same feature, server-only `src/lib`, private infrastructure packages |
 | `src/shared/*`                          | other shared code and `src/lib` only                                 |
+| `src/db`                                | server-only `src/lib` modules                                       |
 | `src/lib`                               | other focused `src/lib` modules only                                 |
 | `scripts/`                              | client-safe or server-only `src` modules, `src/lib`                  |
 | `src/router.tsx` and `src/start.ts`     | generated routes and `src/lib` framework glue                        |
