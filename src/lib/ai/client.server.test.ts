@@ -10,7 +10,8 @@ process.env.AI_API_KEY = 'test-key'
 process.env.AI_API_BASE_URL = 'https://api.example.com/v1/'
 process.env.AI_MODEL = 'test-model'
 
-const { callTeacherEngine } = await import('./client.server')
+const { buildResponseFormat, callTeacherEngine } =
+  await import('./client.server')
 
 const MESSAGES: ChatMessage[] = [
   { role: 'system', content: 'You are the AI Teacher.' },
@@ -185,5 +186,55 @@ describe('callTeacherEngine', () => {
         messages: MESSAGES,
       }),
     ).rejects.toMatchObject({ kind: 'api_error' })
+  })
+})
+
+describe('buildResponseFormat (issue #54)', () => {
+  it('builds the strict json_schema body for the default mode', () => {
+    expect(
+      buildResponseFormat('json_schema', 'socratic_hint', HintSchema),
+    ).toMatchObject({
+      type: 'json_schema',
+      json_schema: {
+        name: 'socratic_hint',
+        strict: true,
+      },
+    })
+  })
+
+  it('omits the json_schema block in json_object mode', () => {
+    expect(
+      buildResponseFormat('json_object', 'socratic_hint', HintSchema),
+    ).toEqual({
+      type: 'json_object',
+    })
+  })
+})
+
+describe('callTeacherEngine response_format selection from env (issue #54)', () => {
+  it('sends { type: json_object } without the schema block when AI_RESPONSE_FORMAT=json_object', async () => {
+    process.env.AI_RESPONSE_FORMAT = 'json_object'
+    vi.resetModules()
+    const { callTeacherEngine: callJsonObject } =
+      await import('./client.server')
+
+    let captured: CapturedRequest | undefined
+    fetchMock.mockImplementation((input, init) => {
+      captured = captureRequest(input, init)
+      return Promise.resolve(
+        chatCompletionResponse('{"level": 0, "content": "Hmm"}'),
+      )
+    })
+
+    await callJsonObject({
+      reasoningEffort: 'low',
+      schemaName: 'socratic_hint',
+      outputSchema: HintSchema,
+      messages: MESSAGES,
+    })
+
+    expect(captured?.body.response_format).toEqual({ type: 'json_object' })
+
+    delete process.env.AI_RESPONSE_FORMAT
   })
 })
