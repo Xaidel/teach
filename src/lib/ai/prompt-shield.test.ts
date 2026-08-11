@@ -137,7 +137,7 @@ describe('longestInOrderRun', () => {
     expect(longestInOrderRun(response, solution)).toBe(5)
   })
 
-  it('ignores the response order when the fragment is not contiguous in the response', () => {
+  it('does not accumulate scattered tokens that are not contiguous in the response', () => {
     const solution = normalizeAndTokenize('a b c d', 'python')
     const response = normalizeAndTokenize('a c', 'python')
     expect(longestInOrderRun(response, solution)).toBe(1)

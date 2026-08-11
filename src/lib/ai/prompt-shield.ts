@@ -1,4 +1,7 @@
-import { HINT_LADDER_MAX_LEVEL } from '#/lib/hint-levels'
+import {
+  HINT_LADDER_MANUAL_MAX_LEVEL,
+  HINT_LADDER_MAX_LEVEL,
+} from '#/lib/hint-levels'
 import type { SandboxLanguage } from '#/lib/sandbox/types'
 
 /**
@@ -157,7 +160,9 @@ export function shieldThresholdTokens(
     return Number.POSITIVE_INFINITY
   }
   const ratioTokens = Math.round(
-    (hintLevel === 4 ? PROMPT_SHIELD_LEVEL4_RATIO : 0) * solutionTokenCount,
+    (hintLevel === HINT_LADDER_MANUAL_MAX_LEVEL
+      ? PROMPT_SHIELD_LEVEL4_RATIO
+      : 0) * solutionTokenCount,
   )
   return Math.max(PROMPT_SHIELD_TOKEN_FLOOR, ratioTokens)
 }
@@ -179,9 +184,6 @@ export type PromptShieldCheckInput = {
 export function checkPromptShield(
   input: PromptShieldCheckInput,
 ): PromptShieldVerdict {
-  if (input.hintLevel >= PROMPT_SHIELD_UNCHECKED_LEVEL) {
-    return 'pass'
-  }
   const responseTokens = normalizeAndTokenize(input.content, input.language)
   const solutionTokens = normalizeAndTokenize(
     input.referenceSolution,

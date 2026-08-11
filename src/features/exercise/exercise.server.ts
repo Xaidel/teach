@@ -189,6 +189,9 @@ export async function submitExercise(input: {
   }
 
   let hint: Hint | null = null
+  // Best-effort auto-hint: silently skipped when the exercise has no
+  // reference solution (unlike requestHint's explicit EXERCISE_NOT_HINTABLE),
+  // because a failed submission must still be recorded and returned.
   if (exercise.referenceSolution !== null) {
     try {
       hint = await generateHint({
