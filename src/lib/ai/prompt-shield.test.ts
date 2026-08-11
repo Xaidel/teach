@@ -158,7 +158,15 @@ describe('shieldThresholdTokens', () => {
         Math.round(19 * PROMPT_SHIELD_LEVEL4_RATIO),
       ),
     )
-    expect(shieldThresholdTokens(4, 4)).toBe(PROMPT_SHIELD_TOKEN_FLOOR)
+    expect(shieldThresholdTokens(4, 4)).toBe(4)
+  })
+
+  it('never exceeds the solution length, so a verbatim copy always blocks (issue #64)', () => {
+    for (const level of [0, 1, 2, 3]) {
+      expect(shieldThresholdTokens(level, 5)).toBe(5)
+      expect(shieldThresholdTokens(level, 3)).toBe(3)
+      expect(shieldThresholdTokens(level, 6)).toBe(PROMPT_SHIELD_TOKEN_FLOOR)
+    }
   })
 
   it('never blocks level 5', () => {
@@ -224,6 +232,20 @@ describe('checkPromptShield', () => {
         hintLevel: 2,
       }),
     ).toBe('block')
+  })
+
+  it('blocks a verbatim copy of a short (< floor) solution at levels 0-3 (issue #64)', () => {
+    const shortSolution = 'return true'
+    for (const level of [0, 1, 2, 3]) {
+      expect(
+        checkPromptShield({
+          content: shortSolution,
+          referenceSolution: shortSolution,
+          language: 'python',
+          hintLevel: level,
+        }),
+      ).toBe('block')
+    }
   })
 
   it('passes a single shared keyword or short common phrase', () => {
