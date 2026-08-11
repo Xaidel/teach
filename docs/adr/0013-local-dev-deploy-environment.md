@@ -91,6 +91,14 @@ Two further shapes were raised and rejected without changing the outcome:
 - No code implements this yet as of this writing; there is no automated check to point to today.
 - Once built: a fresh clone following the setup sequence (`docker compose up -d` → `pnpm run db:migrate` → `pnpm run db:seed` → `pnpm run sandbox:build` → `pnpm run dev`) reaches a working walking skeleton (build ticket #1) end to end, confirming the sequence as documented.
 
+## Status note (2026-08-12)
+
+CI/CD now exists via `.github/workflows/verify.yml` (GitHub Actions): every `pull_request` and
+`push` to `main` runs `pnpm run verify` against a `postgres` service container, after
+`pnpm run db:migrate`, `pnpm run db:seed`, and `pnpm run sandbox:build`. This ADR's local-dev
+decisions (native app, composed Postgres, explicit sandbox build step, fresh-setup sequence)
+remain authoritative and unchanged; its "no CI/CD" framing is now historical context.
+
 ## Relationships and References
 
 - Related to: [ADR-0009](./0009-tanstack-start-single-app-stack.md) — this ADR's local-machine/local-daemon framing is the starting point this ADR makes concrete.

@@ -15,7 +15,26 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17.10-alpine
+        env:
+          POSTGRES_USER: teach
+          POSTGRES_PASSWORD: teach
+          POSTGRES_DB: teach
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U teach -d teach"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://teach:teach@localhost:5432/teach
+      AI_API_KEY: ci-placeholder
+      AI_API_BASE_URL: https://api.example.com/v1/
+      AI_MODEL: ci-placeholder
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -23,12 +42,10 @@ jobs:
           version: 10.34.5
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm run db:migrate
+      - run: pnpm run db:seed
+      - run: pnpm run sandbox:build
       - run: pnpm run verify
-        env:
-          DATABASE_URL: postgres://teach:teach@localhost:5432/teach
-          AI_API_KEY: ci-placeholder
-          AI_API_BASE_URL: https://api.example.com/v1/
-          AI_MODEL: ci-placeholder
