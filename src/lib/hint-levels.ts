@@ -6,8 +6,10 @@
  * through the distinct action after Level 4 was served. These constants feed
  * the ladder module (`src/features/exercise/hint-ladder.ts`), the AI output
  * schema bound (`src/lib/ai/schemas.ts`), and the `submission_hints` CHECK
- * constraint (`src/db/schema.ts`) so a ladder-depth change is one edit, not
- * three coordinated ones.
+ * constraint (`src/db/schema.ts`) so a ladder-depth change is three
+ * coordinated code edits. Existing databases still need a Drizzle migration
+ * to re-apply the CHECK constraint, since the constant is baked into the
+ * constraint at generation time.
  */
 
 /** The highest level reachable through the normal next-hint request. */
