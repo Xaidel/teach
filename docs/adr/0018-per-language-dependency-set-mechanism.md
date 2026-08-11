@@ -204,6 +204,16 @@ as the actual signal, making staleness detectable by comparing the manifest agai
   `pnpm run sandbox:build` produces a warm-cache hit on a trivial submission using the newly added
   dependency.
 
+## Status note (2026-08-12)
+
+CI/CD now exists via `.github/workflows/verify.yml` (GitHub Actions), which runs
+`pnpm run sandbox:build` on every `pull_request` and `push` to `main` — hitting the
+"revisit if this project gains contributors or CI/CD" trigger noted above. The risk profile
+changes accordingly: a stale Pinned Image relative to `sandbox/<lang>/` can no longer persist
+silently past the next CI run, since the rebuild now happens automatically there. The
+"no CI hook — pure developer discipline" framing is historical context; the curation and
+exact-pinning decisions themselves remain authoritative and unchanged.
+
 ## Relationships and References
 
 - Refines: [ADR-0011](./0011-sandbox-orchestration-mechanics.md) — fills the "who curates the
