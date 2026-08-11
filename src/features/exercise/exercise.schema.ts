@@ -34,7 +34,15 @@ export const SubmitExerciseInputSchema = z.object({
 export type SubmitExerciseInput = z.infer<typeof SubmitExerciseInputSchema>
 
 /** Stable public exercise error codes. */
-export type ExerciseErrorCode = 'EXERCISE_NOT_FOUND'
+export type ExerciseErrorCode =
+  | 'EXERCISE_NOT_FOUND'
+  | 'SANDBOX_RESULT_INVALID'
+
+const EXERCISE_ERROR_MESSAGES: Record<ExerciseErrorCode, string> = {
+  EXERCISE_NOT_FOUND: 'Exercise not found.',
+  SANDBOX_RESULT_INVALID:
+    'The sandbox produced an invalid result; the submission was not persisted.',
+}
 
 /** Safe error surfaced by exercise server boundaries. */
 export class ExerciseError extends Error {
@@ -42,7 +50,7 @@ export class ExerciseError extends Error {
 
   /** Creates a safe exercise feature error. */
   constructor(code: ExerciseErrorCode) {
-    super('Exercise not found.')
+    super(EXERCISE_ERROR_MESSAGES[code])
     this.name = 'ExerciseError'
     this.code = code
   }

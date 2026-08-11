@@ -66,12 +66,17 @@ export async function submitExercise(input: {
 }): Promise<SandboxResult> {
   const exercise = await getExerciseById(input.exerciseId)
 
-  const sandboxResult = SandboxResultSchema.parse(
-    await runRustSubmission({
-      code: input.code,
-      testSource: exercise.testSource,
-    }),
-  )
+  let sandboxResult: SandboxResult
+  try {
+    sandboxResult = SandboxResultSchema.parse(
+      await runRustSubmission({
+        code: input.code,
+        testSource: exercise.testSource,
+      }),
+    )
+  } catch {
+    throw new ExerciseError('SANDBOX_RESULT_INVALID')
+  }
 
   const [submission] = await db
     .insert(submissions)

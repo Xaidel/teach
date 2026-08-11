@@ -11,12 +11,14 @@ export const SandboxTestStatusSchema = z.enum([
 export type SandboxTestStatus = z.infer<typeof SandboxTestStatusSchema>
 
 /** One normalized test entry in a Sandbox Result (CONTEXT.md — Sandbox Result). */
-export const SandboxTestSchema = z.object({
-  name: z.string(),
-  status: SandboxTestStatusSchema,
-  message: z.string().optional(),
-  output: z.string().optional(),
-})
+export const SandboxTestSchema = z
+  .object({
+    name: z.string(),
+    status: SandboxTestStatusSchema,
+    message: z.string().optional(),
+    output: z.string().optional(),
+  })
+  .strict()
 
 export type SandboxTest = z.infer<typeof SandboxTestSchema>
 
@@ -24,13 +26,16 @@ export type SandboxTest = z.infer<typeof SandboxTestSchema>
  * The normalized, language-independent pass/fail + diagnostics shape a
  * Sandbox run produces (CONTEXT.md — Sandbox Result). The single
  * authoritative definition of the shape; validated at runtime where
- * sandbox output enters persistence.
+ * sandbox output enters persistence. Parsed strictly: sandbox output is
+ * untrusted input, so unknown keys fail loudly instead of being stripped.
  */
-export const SandboxResultSchema = z.object({
-  passed: z.boolean(),
-  tests: z.array(SandboxTestSchema),
-  message: z.string().optional(),
-})
+export const SandboxResultSchema = z
+  .object({
+    passed: z.boolean(),
+    tests: z.array(SandboxTestSchema),
+    message: z.string().optional(),
+  })
+  .strict()
 
 export type SandboxResult = z.infer<typeof SandboxResultSchema>
 
