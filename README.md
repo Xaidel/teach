@@ -6,7 +6,7 @@ AI Teacher with a real sandboxed compiler and a deterministic evaluation gate.
 
 This repository currently implements the **walking skeleton** (build ticket #1):
 one hardcoded Rust exercise, submitted through a TanStack Start server function,
-evaluated by `cargo test` in an isolated Docker sandbox, with the submission
+evaluated by `cargo nextest` in an isolated Docker sandbox, with the submission
 and its pass/fail result persisted in Postgres.
 
 ## Stack

@@ -24,7 +24,7 @@ export function ExercisePage(): React.JSX.Element {
             </h1>
             <p className="mt-5 max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-lg">
               Write code against one real exercise and get authoritative
-              pass/fail feedback from a sandboxed cargo test run.
+              pass/fail feedback from a sandboxed cargo nextest run.
             </p>
           </div>
           <p className="text-sm font-semibold text-muted-foreground md:pb-1">
