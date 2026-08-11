@@ -1,0 +1,1 @@
+ALTER TABLE "exercises" ALTER COLUMN "test_source" DROP NOT NULL;

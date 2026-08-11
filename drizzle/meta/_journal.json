@@ -8,6 +8,13 @@
       "when": 1786396150623,
       "tag": "0000_bored_jack_power",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1786426248308,
+      "tag": "0001_stormy_zzzax",
+      "breakpoints": true
     }
   ]
 }

@@ -36,6 +36,12 @@ async function getExerciseById(exerciseId: string): Promise<ServerExercise> {
     throw new ExerciseError('EXERCISE_NOT_FOUND')
   }
 
+  if (row.testSource === null) {
+    throw new Error(
+      `Exercise ${row.id} has no test source; only implement/debug-mode exercises can be submitted (ADR-0019).`,
+    )
+  }
+
   return { ...rowToExercise(row), testSource: row.testSource }
 }
 

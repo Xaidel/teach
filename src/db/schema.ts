@@ -22,7 +22,11 @@ export const learners = pgTable('learners', {
     .defaultNow(),
 })
 
-/** One exercise a learner can attempt; v1 seeds exactly one (ADR-0019). */
+/**
+ * One exercise a learner can attempt; v1 seeds exactly one (issue #1).
+ * `test_source` is nullable because explain-mode rows skip Stage 1 and have
+ * no generated tests (ADR-0019).
+ */
 export const exercises = pgTable(
   'exercises',
   {
@@ -34,7 +38,7 @@ export const exercises = pgTable(
     title: text('title').notNull(),
     prompt: text('prompt').notNull(),
     starterCode: text('starter_code').notNull(),
-    testSource: text('test_source').notNull(),
+    testSource: text('test_source'),
     status: text('status').notNull().default('verified'),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
