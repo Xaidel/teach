@@ -19,6 +19,8 @@ export function ExerciseEditor({
   const [result, setResult] = useState<SandboxResult>()
   const [error, setError] = useState<string>()
   const [isPending, setIsPending] = useState(false)
+  const codeInputId = `exercise-code-${exercise.slug}`
+  const codeErrorId = `exercise-code-error-${exercise.slug}`
 
   async function handleSubmit(
     event: React.SyntheticEvent<HTMLFormElement>,
@@ -46,19 +48,19 @@ export function ExerciseEditor({
       onSubmit={handleSubmit}
     >
       <div className="grid gap-2">
-        <Label htmlFor="exercise-code">Your solution</Label>
+        <Label htmlFor={codeInputId}>Your solution</Label>
         <Textarea
-          aria-describedby={error ? 'exercise-code-error' : undefined}
+          aria-describedby={error ? codeErrorId : undefined}
           className="min-h-64 font-mono text-xs leading-relaxed"
           disabled={isPending}
-          id="exercise-code"
+          id={codeInputId}
           name="code"
           onChange={(event) => setCode(event.target.value)}
           spellCheck={false}
           value={code}
         />
       </div>
-      {error ? <Alert id="exercise-code-error">{error}</Alert> : null}
+      {error ? <Alert id={codeErrorId}>{error}</Alert> : null}
       {isPending ? (
         <p className="sr-only" role="status">
           Evaluating submission in the sandbox.
@@ -66,7 +68,7 @@ export function ExerciseEditor({
       ) : null}
       <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-xs text-muted-foreground">
-          Runs <code className="font-mono">cargo nextest</code> in an isolated,
+          Runs {exercise.language}&apos;s real test toolchain in an isolated,
           network-disabled container with a 10-second limit.
         </p>
         <Button disabled={isPending} type="submit">

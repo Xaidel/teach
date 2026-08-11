@@ -42,6 +42,28 @@ export type SandboxResult = z.infer<typeof SandboxResultSchema>
 /** The pinned per-language sandbox image (ADR-0011). */
 export const RUST_SANDBOX_IMAGE = 'teach-sandbox-rust:v1'
 
+/** The pinned Go sandbox image (ADR-0011). */
+export const GO_SANDBOX_IMAGE = 'teach-sandbox-go:v1'
+
+/** The pinned Python sandbox image (ADR-0011). */
+export const PYTHON_SANDBOX_IMAGE = 'teach-sandbox-python:v1'
+
+/** The v1 sandbox languages (ADR-0003, ADR-0011). */
+export const SANDBOX_LANGUAGES = ['rust', 'go', 'python'] as const
+
+export type SandboxLanguage = (typeof SANDBOX_LANGUAGES)[number]
+
+/** Narrowing guard for language values coming from untrusted input. */
+export function isSandboxLanguage(value: string): value is SandboxLanguage {
+  return (SANDBOX_LANGUAGES as readonly string[]).includes(value)
+}
+
+/** Per-test message cap in a Sandbox Result, shared by all normalizers. */
+export const SANDBOX_TEST_MESSAGE_CAP_BYTES = 16_000
+
+/** Per-test output cap in a Sandbox Result, shared by all normalizers. */
+export const SANDBOX_TEST_OUTPUT_CAP_BYTES = 64_000
+
 /** Fixed execution window per PRD 5.1 / ADR-0005. */
 export const SANDBOX_EXECUTION_TIMEOUT_MS = 10_000
 

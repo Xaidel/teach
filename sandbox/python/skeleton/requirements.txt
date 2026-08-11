@@ -1,0 +1,4 @@
+# The skeleton project's own manifest is the allowed-dependency list
+# (ADR-0018): whatever is declared here is what the Pinned Image pre-installs
+# and what exercises may use. Exact `==` pins only; content deferred to build
+# ticket #20.

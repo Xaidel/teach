@@ -1,15 +1,15 @@
 import { createFileRoute, notFound } from '@tanstack/react-router'
 
-import { getHardcodedExerciseFn } from '../features/exercise/exercise.functions'
+import { getHardcodedExercisesFn } from '../features/exercise/exercise.functions'
 import { ExercisePage } from '../features/exercise/pages/exercise-page'
 
 export const Route = createFileRoute('/')({
   loader: async () => {
-    const exercise = await getHardcodedExerciseFn()
-    if (!exercise) {
+    const exercises = await getHardcodedExercisesFn()
+    if (exercises.length === 0) {
       throw notFound()
     }
-    return exercise
+    return exercises
   },
   component: ExercisePage,
 })

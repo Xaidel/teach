@@ -25,7 +25,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:seed": "tsx scripts/db-seed.ts",
-    "sandbox:build": "docker build --tag teach-sandbox-rust:v1 sandbox/rust",
+    "sandbox:build": "docker build --tag teach-sandbox-rust:v1 sandbox/rust && docker build --tag teach-sandbox-go:v1 sandbox/go && docker build --tag teach-sandbox-python:v1 sandbox/python",
     "verify": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build"
   },
   "dependencies": {
