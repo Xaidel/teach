@@ -12,7 +12,12 @@ import type { ConceptEdgeKind } from '#/lib/concept-graph'
 import { db } from '#/db/client.server'
 import { conceptEdges, concepts } from '#/db/schema'
 
-import { conceptEdgeKey, validateConceptGraph } from './concept-validation'
+import {
+  type ConceptValidationResult,
+  type EdgeValidationStatus,
+  conceptEdgeKey,
+  validateConceptGraph,
+} from './concept-validation'
 import { ConceptError } from './concepts.schema'
 import type {
   Concept,
@@ -63,8 +68,17 @@ async function loadConceptGraph(
   return { concepts: conceptRows, edges: edgeRows }
 }
 
-/** The Concept Validation verdict per persisted edge, keyed by edge id pair. */
-function buildEdgeValidation(loaded: LoadedGraph): Map<string, 'ok' | 'cycle'> {
+/** Maps one resolved edge row to its stable validation-map key. */
+function edgeRowKey(row: {
+  fromSlug: string
+  toSlug: string
+  kind: string
+}): string {
+  return conceptEdgeKey({ from: row.fromSlug, to: row.toSlug, kind: row.kind })
+}
+
+/** Runs the deterministic Concept Validation gate over a loaded graph. */
+function runValidation(loaded: LoadedGraph): ConceptValidationResult {
   const drafts: ConceptDraft[] = loaded.concepts.map((row) => ({
     slug: row.slug,
     difficulty: row.difficulty,
@@ -74,15 +88,18 @@ function buildEdgeValidation(loaded: LoadedGraph): Map<string, 'ok' | 'cycle'> {
     to: row.toSlug,
     kind: row.kind,
   }))
-  const report = validateConceptGraph(drafts, draftEdges)
+  return validateConceptGraph(drafts, draftEdges)
+}
+
+/** The Concept Validation verdict per persisted edge, keyed by edge row. */
+function buildEdgeValidation(
+  report: ConceptValidationResult,
+  loaded: LoadedGraph,
+): Map<string, EdgeValidationStatus> {
   return new Map(
     loaded.edges.map((row) => {
-      const key = conceptEdgeKey({
-        from: row.fromSlug,
-        to: row.toSlug,
-        kind: row.kind,
-      })
-      return [key, report.edgeStatuses.get(key) === 'cycle' ? 'cycle' : 'ok']
+      const key = edgeRowKey(row)
+      return [key, report.edgeStatuses.get(key) ?? 'ok']
     }),
   )
 }
@@ -98,7 +115,8 @@ export async function getConceptReview(
   language: SandboxLanguage,
 ): Promise<ConceptReview> {
   const loaded = await loadConceptGraph(language)
-  const validation = buildEdgeValidation(loaded)
+  const report = runValidation(loaded)
+  const validation = buildEdgeValidation(report, loaded)
 
   const reviewItems: ConceptReviewItem[] = loaded.concepts
     .map((row) => {
@@ -113,14 +131,7 @@ export async function getConceptReview(
           fromSlug: edge.fromSlug,
           toSlug: edge.toSlug,
           kind: edge.kind,
-          validation:
-            validation.get(
-              conceptEdgeKey({
-                from: edge.fromSlug,
-                to: edge.toSlug,
-                kind: edge.kind,
-              }),
-            ) ?? 'ok',
+          validation: validation.get(edgeRowKey(edge)) ?? 'ok',
         }))
       const concept: Concept = {
         id: row.id,
@@ -147,36 +158,17 @@ export async function getUsableConceptGraph(
   language: SandboxLanguage,
 ): Promise<UsableConceptGraph> {
   const loaded = await loadConceptGraph(language)
-  const drafts: ConceptDraft[] = loaded.concepts.map((row) => ({
-    slug: row.slug,
-    difficulty: row.difficulty,
-  }))
-  const draftEdges: ConceptEdgeDraft[] = loaded.edges.map((row) => ({
-    from: row.fromSlug,
-    to: row.toSlug,
-    kind: row.kind,
-  }))
-  const report = validateConceptGraph(drafts, draftEdges)
+  const report = runValidation(loaded)
+  const validation = buildEdgeValidation(report, loaded)
 
   const excluded = new Set(report.excludedConceptSlugs)
   const usableConcepts = loaded.concepts.filter(
     (row) => !excluded.has(row.slug),
   )
   const usableEdgeKeys = new Set(
-    loaded.edges
-      .filter(
-        (row) =>
-          report.edgeStatuses.get(
-            conceptEdgeKey({
-              from: row.fromSlug,
-              to: row.toSlug,
-              kind: row.kind,
-            }),
-          ) === 'ok',
-      )
-      .map((row) =>
-        conceptEdgeKey({ from: row.fromSlug, to: row.toSlug, kind: row.kind }),
-      ),
+    [...validation.entries()]
+      .filter(([, status]) => status === 'ok')
+      .map(([key]) => key),
   )
 
   return {
@@ -187,15 +179,7 @@ export async function getUsableConceptGraph(
       difficulty: row.difficulty,
     })),
     edges: loaded.edges
-      .filter((row) =>
-        usableEdgeKeys.has(
-          conceptEdgeKey({
-            from: row.fromSlug,
-            to: row.toSlug,
-            kind: row.kind,
-          }),
-        ),
-      )
+      .filter((row) => usableEdgeKeys.has(edgeRowKey(row)))
       .map((row) => ({
         fromConceptId: row.fromConceptId,
         toConceptId: row.toConceptId,

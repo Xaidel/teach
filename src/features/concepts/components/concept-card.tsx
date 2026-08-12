@@ -19,19 +19,12 @@ import {
   setConceptStatusFn,
   updateConceptFn,
 } from '../concepts.functions'
+import { errorMessage } from '../client-utils'
 import type {
   ConceptEdgeView,
   ConceptReviewItem,
   ConceptStatus,
 } from '../concepts.schema'
-
-/** Extracts a safe message from a server-function rejection. */
-function errorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message
-  }
-  return fallback
-}
 
 /** Human-readable direction label for one edge from this concept's view. */
 function edgeDirection(
@@ -66,7 +59,7 @@ export function ConceptCard({
   const [edgeError, setEdgeError] = useState<string>()
   const [isBusy, setIsBusy] = useState(false)
 
-  const hasCycleEdge = concept.edges.some((edge) => edge.validation === 'cycle')
+  const excludedEdge = concept.edges.find((edge) => edge.validation !== 'ok')
   const nextStatus: ConceptStatus =
     concept.status === 'approved' ? 'draft' : 'approved'
   const slugInputId = `concept-slug-${concept.id}`
@@ -169,9 +162,9 @@ export function ConceptCard({
             </h2>
             <Badge>{concept.status}</Badge>
             <Badge>difficulty {String(concept.difficulty)}</Badge>
-            {hasCycleEdge ? (
+            {excludedEdge ? (
               <Badge className="border-destructive/30 bg-destructive/10 text-destructive">
-                Excluded — cycle
+                Excluded — {excludedEdge.validation}
               </Badge>
             ) : null}
           </div>
@@ -250,9 +243,9 @@ export function ConceptCard({
                       {edge.kind}
                     </span>
                     {edgeDirection(concept, edge)}
-                    {edge.validation === 'cycle' ? (
+                    {edge.validation !== 'ok' ? (
                       <Badge className="border-destructive/30 bg-destructive/10 text-destructive">
-                        excluded
+                        excluded — {edge.validation}
                       </Badge>
                     ) : null}
                   </span>

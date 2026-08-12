@@ -8,11 +8,9 @@ export const Route = createFileRoute('/concepts')({
   validateSearch: (search: Record<string, unknown>) => ({
     language: normalizeConceptLanguage(search.language),
   }),
-  loader: async ({ location }) => {
-    const search = location.search as Record<string, unknown> | undefined
-    return getConceptReviewFn({
-      data: normalizeConceptLanguage(search?.language),
-    })
+  loaderDeps: ({ search }) => ({ language: search.language }),
+  loader: async ({ deps }) => {
+    return getConceptReviewFn({ data: deps.language })
   },
   head: () => ({
     meta: [

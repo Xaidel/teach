@@ -8,7 +8,9 @@ import {
   CONCEPT_SLUG_PATTERN,
   CONCEPT_STATUSES,
 } from '#/lib/concept-graph'
-import { SANDBOX_LANGUAGES } from '#/lib/sandbox/types'
+import { SANDBOX_LANGUAGES, isSandboxLanguage } from '#/lib/sandbox/types'
+import type { SandboxLanguage } from '#/lib/sandbox/types'
+export type { SandboxLanguage } from '#/lib/sandbox/types'
 
 import type { EdgeValidationStatus } from './concept-validation'
 
@@ -154,8 +156,6 @@ export type RemoveConceptEdgeInput = z.infer<
 /** Input for the review route's language search param. */
 export const ConceptLanguageSearchSchema = z.enum(SANDBOX_LANGUAGES)
 
-export type SandboxLanguage = z.infer<typeof ConceptLanguageSearchSchema>
-
 /**
  * Normalizes an untrusted URL search value into a sandbox language,
  * defaulting to rust. The review route's search params are route-coupled,
@@ -163,7 +163,7 @@ export type SandboxLanguage = z.infer<typeof ConceptLanguageSearchSchema>
  * resolves no search map), narrowing through a known union instead of any.
  */
 export function normalizeConceptLanguage(raw: unknown): SandboxLanguage {
-  if (raw === 'go' || raw === 'python') {
+  if (typeof raw === 'string' && isSandboxLanguage(raw)) {
     return raw
   }
   return 'rust'

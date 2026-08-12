@@ -1,19 +1,14 @@
-import { getRouteApi, useRouter } from '@tanstack/react-router'
+import { getRouteApi } from '@tanstack/react-router'
 
 import { ConceptReviewView } from '../components/concept-review'
 import type { ConceptReview } from '../concepts.schema'
-import { normalizeConceptLanguage } from '../concepts.schema'
 
 const conceptsRoute = getRouteApi('/concepts')
 
 /** Renders the in-app Concept Graph review surface for one language (ADR-0016). */
 export function ConceptReviewPage(): React.JSX.Element {
-  const router = useRouter()
   const review: ConceptReview = conceptsRoute.useLoaderData()
-  const language = normalizeConceptLanguage(
-    (router.state.location.search as Record<string, unknown> | undefined)
-      ?.language,
-  )
+  const { language } = review
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-6xl px-5 py-8 sm:px-8 sm:py-12">

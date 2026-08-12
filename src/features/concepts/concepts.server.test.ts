@@ -45,6 +45,7 @@ const TEST_SLUGS = [
   'test.graph.c',
   'test.graph.d',
   'test.graph.renamed',
+  'Test Graph',
 ] as const
 
 async function insertConcept(
@@ -124,6 +125,20 @@ describe.skipIf(!dbUp)('concept review reads against Postgres', () => {
     )
     expect(cycleEdge?.validation).toBe('cycle')
   })
+
+  it('surfaces dangling edges in the review view when a concept is not usable', async () => {
+    const aId = await insertConcept('test.graph.a')
+    const badId = await insertConcept('Test Graph')
+    await insertEdge(aId, badId, 'prerequisite')
+
+    const review = await getConceptReview('rust')
+
+    const a = review.concepts.find((c) => c.slug === 'test.graph.a')
+    const danglingEdge = a?.edges.find(
+      (e) => e.toSlug === 'Test Graph' && e.kind === 'prerequisite',
+    )
+    expect(danglingEdge?.validation).toBe('dangling')
+  })
 })
 
 describe.skipIf(!dbUp)(
@@ -154,6 +169,19 @@ describe.skipIf(!dbUp)(
       expect(usable.concepts.map((c) => c.slug).sort()).toEqual([
         'test.graph.a',
         'test.graph.b',
+      ])
+      expect(usable.edges).toEqual([])
+    })
+
+    it('excludes dangling edges from use when a concept is not usable', async () => {
+      const aId = await insertConcept('test.graph.a')
+      const badId = await insertConcept('Test Graph')
+      await insertEdge(aId, badId, 'prerequisite')
+
+      const usable = await getUsableConceptGraph('rust')
+
+      expect(usable.concepts.map((c) => c.slug).sort()).toEqual([
+        'test.graph.a',
       ])
       expect(usable.edges).toEqual([])
     })
