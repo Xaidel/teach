@@ -25,6 +25,8 @@ describe('client and server source boundaries', () => {
       ...(await collectSourceFiles('src/routes/')),
       ...(await collectSourceFiles('src/features/exercise/components/')),
       ...(await collectSourceFiles('src/features/exercise/pages/')),
+      ...(await collectSourceFiles('src/features/concepts/components/')),
+      ...(await collectSourceFiles('src/features/concepts/pages/')),
     ].filter((path) => !path.endsWith('.test.tsx'))
 
     const sources = await Promise.all(
@@ -46,5 +48,14 @@ describe('client and server source boundaries', () => {
     expect(exerciseRoute).toContain('ExercisePage')
     expect(exerciseRoute).toContain('getHardcodedExercisesFn')
     expect(exerciseRoute).not.toContain('<main')
+
+    const conceptsRoute = await readFile(
+      new URL('src/routes/concepts.tsx', workspaceRoot),
+      'utf8',
+    )
+
+    expect(conceptsRoute).toContain('ConceptReviewPage')
+    expect(conceptsRoute).toContain('getConceptReviewFn')
+    expect(conceptsRoute).not.toContain('<main')
   })
 })
