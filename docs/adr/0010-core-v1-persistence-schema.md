@@ -39,7 +39,9 @@ We will use the following schema for v1's core persistence, all in the single Po
 > migration**, not a rename, when the real attempts model lands: `submission_hints` →
 > `attempt_hints` with `submission_id` re-keyed to `attempt_id`, and `submissions` merged
 > into `attempts`. Do not treat `submission_hints` as the durable shape; treat this note as
-> the reconciliation record ticket #10 must consume.
+> the reconciliation record ticket #10 must consume. [ADR-NNNN](./NNNN-shield-blocked-hint-ladder-exhaustion.md)
+> (parked, unnumbered) adds a shield-blocked marker column to `submission_hints`; the rekey migration must carry that
+> column forward into the durable shape.
 - **`exercises`**: `id`, `mode` (enum: `implement` | `debug` | `explain`), `difficulty`, `constraints`, `reference_solution`, `status` (enum: `pending` | `verified` | `failed` | `retired`).
 - **`exercise_concepts`**: `exercise_id`, `concept_id` — join table; an exercise may target more than one concept.
 - **Explanation Assessment and Transfer Testing** are not separate entities: they are `exercises`/`attempts` rows with `mode = explain` or a structurally different exercise (`debug`) on an already-passed concept. An `explain`-mode attempt stores its accuracy score and detected missing/incorrect/conflated concepts as jsonb in place of a pass/fail outcome, and skips Pre-Flight validation, which does not apply to it.
