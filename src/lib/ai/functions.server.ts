@@ -1,6 +1,7 @@
 import { TeacherEngineError, callTeacherEngine } from './client.server'
 import { buildDraftConceptGraphMessages } from './prompts/draft-concept-graph.prompt'
 import { buildExplainConceptMessages } from './prompts/explain-concept.prompt'
+import { buildGenerateExerciseMessages } from './prompts/generate-exercise.prompt'
 import { buildGenerateHintMessages } from './prompts/generate-hint.prompt'
 import { buildReviewSubmissionMessages } from './prompts/review-submission.prompt'
 import { checkPromptShield } from './prompt-shield'
@@ -9,6 +10,8 @@ import {
   DraftConceptGraphOutputSchema,
   ExplainConceptInputSchema,
   ExplainConceptOutputSchema,
+  GenerateExerciseInputSchema,
+  GeneratedExerciseSchema,
   GenerateHintInputSchema,
   HintSchema,
   ReviewSubmissionInputSchema,
@@ -19,6 +22,8 @@ import type {
   DraftConceptGraphOutput,
   ExplainConceptInput,
   ExplainConceptOutput,
+  GenerateExerciseInput,
+  GeneratedExercise,
   GenerateHintInput,
   Hint,
   ReviewSubmissionInput,
@@ -143,5 +148,29 @@ export async function draftConceptGraph(
     schemaName: 'concept_graph_draft',
     outputSchema: DraftConceptGraphOutputSchema,
     messages: buildDraftConceptGraphMessages(validated),
+  })
+}
+
+/**
+ * Generates one exercise for a target concept (SPEC stories 27-29, PRD §13,
+ * issue #8): the learner-facing prompt and code, the reference solution,
+ * the test harness, and the exercise metadata (target concepts,
+ * prerequisites, difficulty, estimated minutes, constraints, and the
+ * evaluation spec — tests plus the Stage 2 rubric, ADR-0017/0019).
+ * Generation is a high-effort task (ADR-0004). The output is only raw
+ * material: it must pass the deterministic Pre-Flight Validation gate
+ * (reference compiles and passes, intended broken state fails on the
+ * concept's tests) before a learner ever sees it — the model never decides
+ * what reaches the learner.
+ */
+export async function generateExercise(
+  input: GenerateExerciseInput,
+): Promise<GeneratedExercise> {
+  const validated = GenerateExerciseInputSchema.parse(input)
+  return callTeacherEngine({
+    reasoningEffort: REASONING_EFFORT_GENERATION,
+    schemaName: 'exercise_generation',
+    outputSchema: GeneratedExerciseSchema,
+    messages: buildGenerateExerciseMessages(validated),
   })
 }

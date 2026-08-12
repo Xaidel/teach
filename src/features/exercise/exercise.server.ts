@@ -1,7 +1,13 @@
 import { and, asc, eq, inArray } from 'drizzle-orm'
 
 import { db } from '#/db/client.server'
-import { exercises, results, submissionHints, submissions } from '#/db/schema'
+import {
+  exerciseConcepts,
+  exercises,
+  results,
+  submissionHints,
+  submissions,
+} from '#/db/schema'
 import { TeacherEngineError } from '#/lib/ai/client.server'
 import { generateHint, reviewSubmission } from '#/lib/ai/functions.server'
 import type { EvaluationRubric, Hint } from '#/lib/ai/schemas'
@@ -20,9 +26,13 @@ import type {
 import { resolveTargetLevel } from './hint-ladder'
 import { buildStage2Review } from './stage2-review.server'
 
-/** Slugs of the hardcoded v1 exercises, one per sandbox language (issue #2). */
+/**
+ * Slugs of the hardcoded v1 exercises (issue #1). Rust is no longer
+ * hardcoded — it is replaced by exercises generated through the AI Teacher
+ * Engine and verified by Pre-Flight (issue #8, ADR-0010); Go and Python
+ * stay hardcoded until tickets #19/#20.
+ */
 export const HARDCODED_EXERCISE_SLUGS = [
-  'rust-is-even',
   'go-is-even',
   'python-is-even',
 ] as const
@@ -37,7 +47,7 @@ type ServerExercise = Exercise & {
 type ExerciseRow = typeof exercises.$inferSelect
 
 /** Maps a persisted exercise row to the shared exercise shape. */
-function rowToExercise(row: ExerciseRow): Exercise {
+export function rowToExercise(row: ExerciseRow): Exercise {
   if (!isSandboxLanguage(row.language)) {
     throw new SandboxError(
       'SANDBOX_UNSUPPORTED_LANGUAGE',
@@ -62,6 +72,12 @@ async function getExerciseById(exerciseId: string): Promise<ServerExercise> {
 
   if (!row) {
     throw new ExerciseError('EXERCISE_NOT_FOUND')
+  }
+
+  // Only Pre-Flight-verified exercises are ever submittable (issue #8):
+  // a `pending`/`failed`/`retired` row must not reach the sandbox.
+  if (row.status !== 'verified') {
+    throw new ExerciseError('EXERCISE_NOT_SUBMITTABLE')
   }
 
   if (row.testSource === null) {
@@ -140,6 +156,38 @@ export async function getHardcodedExercises(): Promise<Exercise[]> {
   })
 
   return rows.map(rowToExercise)
+}
+
+/**
+ * Returns every exercise a learner may attempt: the hardcoded v1 seeds
+ * plus every Pre-Flight-verified generated exercise (the exercises with an
+ * `exercise_concepts` row — generated exercises are exactly those linked
+ * to a Concept Graph concept, issue #8). Only `status = verified` rows are
+ * ever shown (ADR-0010, acceptance criterion).
+ */
+export async function getAvailableExercises(): Promise<Exercise[]> {
+  const [hardcoded, generatedIds] = await Promise.all([
+    getHardcodedExercises(),
+    db
+      .selectDistinct({ exerciseId: exerciseConcepts.exerciseId })
+      .from(exerciseConcepts)
+      .innerJoin(exercises, eq(exercises.id, exerciseConcepts.exerciseId))
+      .where(eq(exercises.status, 'verified')),
+  ])
+
+  if (generatedIds.length === 0) {
+    return hardcoded
+  }
+
+  const generated = await db.query.exercises.findMany({
+    where: inArray(
+      exercises.id,
+      generatedIds.map((row) => row.exerciseId),
+    ),
+    orderBy: asc(exercises.createdAt),
+  })
+
+  return [...hardcoded, ...generated.map(rowToExercise)]
 }
 
 /**

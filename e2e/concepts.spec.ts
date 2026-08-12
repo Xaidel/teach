@@ -45,7 +45,9 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await cleanupFixture()
-  await db.$client.end()
+  // No db.$client.end() here: the specs share one worker process and one
+  // DB client, and ending it would break any DB-using spec that runs
+  // after this one (e2e/exercise.spec.ts).
 })
 
 /** The review card for one fixture concept, scoped by its heading. */

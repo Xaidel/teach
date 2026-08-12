@@ -43,6 +43,13 @@
       "when": 1786530053255,
       "tag": "0005_calm_warpath",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786557190190,
+      "tag": "0006_happy_hercules",
+      "breakpoints": true
     }
   ]
 }
