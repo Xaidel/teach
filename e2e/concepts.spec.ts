@@ -1,51 +1,51 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
-import postgres from 'postgres'
+import { inArray, or } from 'drizzle-orm'
+
+import { db } from '../src/db/client.server'
+import { conceptEdges, concepts } from '../src/db/schema'
 
 test.setTimeout(240_000)
 
 /**
  * Self-contained fixture for the `/concepts` review route (issue #79): the
- * e2e seeds its own Concept Graph rows directly into Postgres so the review
- * surface is deterministic without needing the AI Teacher Engine. Slugs are
- * namespaced `e2e.graph.*` and removed in `afterAll`.
+ * e2e seeds its own Concept Graph rows through the shared `src/db` client so
+ * the review surface is deterministic without needing the AI Teacher Engine.
+ * Slugs are namespaced `e2e.graph.*` and removed in `afterAll`.
  */
-const SQL = postgres(
-  process.env.DATABASE_URL ?? 'postgres://teach:teach@localhost:5432/teach',
-  { max: 1 },
-)
-
 const SLUGS = ['e2e.graph.a', 'e2e.graph.b', 'e2e.graph.c'] as const
 const IDs = { a: randomUUID(), b: randomUUID(), c: randomUUID() }
 
 /** Removes any rows this spec owns so reruns start from a clean graph. */
 async function cleanupFixture(): Promise<void> {
-  await SQL`
-    delete from concept_edges
-    where from_concept_id in ${SQL([IDs.a, IDs.b, IDs.c])}
-       or to_concept_id in ${SQL([IDs.a, IDs.b, IDs.c])}`
-  await SQL`delete from concepts where slug in ${SQL([...SLUGS])}`
+  await db
+    .delete(conceptEdges)
+    .where(
+      or(
+        inArray(conceptEdges.fromConceptId, [IDs.a, IDs.b, IDs.c]),
+        inArray(conceptEdges.toConceptId, [IDs.a, IDs.b, IDs.c]),
+      ),
+    )
+  await db.delete(concepts).where(inArray(concepts.slug, [...SLUGS]))
 }
 
 test.beforeAll(async () => {
   await cleanupFixture()
-  await SQL`
-    insert into concepts (id, language, slug, difficulty, status)
-    values
-      (${IDs.a}, 'rust', 'e2e.graph.a', 2, 'draft'),
-      (${IDs.b}, 'rust', 'e2e.graph.b', 3, 'draft'),
-      (${IDs.c}, 'rust', 'e2e.graph.c', 4, 'draft')`
+  await db.insert(concepts).values([
+    { id: IDs.a, language: 'rust', slug: 'e2e.graph.a', difficulty: 2 },
+    { id: IDs.b, language: 'rust', slug: 'e2e.graph.b', difficulty: 3 },
+    { id: IDs.c, language: 'rust', slug: 'e2e.graph.c', difficulty: 4 },
+  ])
   // a ↔ b both prerequisite forms a cycle, excluding both edges (ADR-0016).
-  await SQL`
-    insert into concept_edges (from_concept_id, to_concept_id, kind)
-    values
-      (${IDs.a}, ${IDs.b}, 'prerequisite'),
-      (${IDs.b}, ${IDs.a}, 'prerequisite')`
+  await db.insert(conceptEdges).values([
+    { fromConceptId: IDs.a, toConceptId: IDs.b, kind: 'prerequisite' },
+    { fromConceptId: IDs.b, toConceptId: IDs.a, kind: 'prerequisite' },
+  ])
 })
 
 test.afterAll(async () => {
   await cleanupFixture()
-  await SQL.end()
+  await db.$client.end()
 })
 
 /** The review card for one fixture concept, scoped by its heading. */
