@@ -46,11 +46,16 @@ export type GenerateExerciseForConceptInput = z.infer<
  * verified exercise plus the generation metadata and the Pre-Flight
  * verdict. `targetConcepts` are the slugs actually joined to persisted
  * concepts (drafts referencing concepts outside the graph are dropped).
+ * `prerequisites` surfaces the model-declared prerequisite slugs at the
+ * feature boundary so they are not silently dropped — the Concept Graph's
+ * edges already model prerequisites structurally, and this field lets
+ * callers compare the model's claim against the graph (issue #91).
  */
 export type GenerateExerciseOutput = {
   exercise: Exercise
   conceptSlug: string
   targetConcepts: string[]
+  prerequisites: string[]
   estimatedMinutes: number
   constraints: string[]
   preflight: {
