@@ -3,8 +3,8 @@ import { and, asc, eq, inArray } from 'drizzle-orm'
 import { db } from '#/db/client.server'
 import { exercises, results, submissionHints, submissions } from '#/db/schema'
 import { TeacherEngineError } from '#/lib/ai/client.server'
-import { generateHint } from '#/lib/ai/functions.server'
-import type { Hint } from '#/lib/ai/schemas'
+import { generateHint, reviewSubmission } from '#/lib/ai/functions.server'
+import type { EvaluationRubric, Hint } from '#/lib/ai/schemas'
 import { runSandboxSubmission, SandboxError } from '#/lib/sandbox/runner.server'
 import { isSandboxLanguage } from '#/lib/sandbox/types'
 
@@ -14,9 +14,11 @@ import type {
   HintRequestAction,
   RequestHintOutput,
   SandboxResult,
+  Stage2Review,
   SubmitExerciseOutput,
 } from './exercise.schema'
 import { resolveTargetLevel } from './hint-ladder'
+import { buildStage2Review } from './stage2-review.server'
 
 /** Slugs of the hardcoded v1 exercises, one per sandbox language (issue #2). */
 export const HARDCODED_EXERCISE_SLUGS = [
@@ -29,6 +31,7 @@ export const HARDCODED_EXERCISE_SLUGS = [
 type ServerExercise = Exercise & {
   testSource: string
   referenceSolution: string | null
+  evaluationRubric: EvaluationRubric | null
 }
 
 type ExerciseRow = typeof exercises.$inferSelect
@@ -69,6 +72,7 @@ async function getExerciseById(exerciseId: string): Promise<ServerExercise> {
     ...rowToExercise(row),
     testSource: row.testSource,
     referenceSolution: row.referenceSolution,
+    evaluationRubric: row.evaluationRubric,
   }
 }
 
@@ -148,6 +152,9 @@ export async function getHardcodedExercises(): Promise<Exercise[]> {
  * result and never determines pass/fail (issue #3). If hint generation
  * itself fails, the deterministic verdict still reaches the learner — the
  * raw result is returned without a hint (issue #3, AC 5).
+ *
+ * On Stage 1 success with a rubric-bearing exercise, the submission is
+ * reviewed against the rubric (Stage 2, issue #6) — see `runStage2Review`.
  */
 export async function submitExercise(input: {
   exerciseId: string
@@ -185,7 +192,12 @@ export async function submitExercise(input: {
   })
 
   if (sandboxResult.passed) {
-    return { submissionId: submission.id, result: sandboxResult, hint: null }
+    return {
+      submissionId: submission.id,
+      result: sandboxResult,
+      hint: null,
+      stage2Review: await runStage2Review(exercise, input.code),
+    }
   }
 
   let hint: Hint | null = null
@@ -218,7 +230,46 @@ export async function submitExercise(input: {
     })
   }
 
-  return { submissionId: submission.id, result: sandboxResult, hint }
+  return {
+    submissionId: submission.id,
+    result: sandboxResult,
+    hint,
+    stage2Review: null,
+  }
+}
+
+/**
+ * Runs the Stage 2 qualitative review of a Stage 1-passing submission
+ * against the exercise's rubric (SPEC stories 19-21, issue #6). Returns
+ * null when the exercise has no rubric (explain-mode rows, ADR-0017) or
+ * when the AI review itself fails — the deterministic Stage 1 verdict
+ * always reaches the learner, exactly like the hint path (issue #3, AC 5).
+ * Pass/fail is derived app-side from the rubric's criterion kinds
+ * (PRD §18), never by the model (SPEC story 28).
+ */
+async function runStage2Review(
+  exercise: ServerExercise,
+  code: string,
+): Promise<Stage2Review | null> {
+  if (exercise.evaluationRubric === null) {
+    return null
+  }
+
+  try {
+    const output = await reviewSubmission({
+      language: exercise.language,
+      exerciseTitle: exercise.title,
+      exercisePrompt: exercise.prompt,
+      rubric: exercise.evaluationRubric,
+      submissionCode: code,
+    })
+    return buildStage2Review(exercise.evaluationRubric, output)
+  } catch (error) {
+    if (!(error instanceof TeacherEngineError)) {
+      throw error
+    }
+    return null
+  }
 }
 
 /**

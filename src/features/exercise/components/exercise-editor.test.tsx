@@ -37,6 +37,7 @@ describe('ExerciseEditor', () => {
       submissionId: 's1',
       result: { passed: true, tests: [] },
       hint: null,
+      stage2Review: null,
     })
 
     render(<ExerciseEditor exercise={EXERCISE} />)
@@ -63,6 +64,7 @@ describe('ExerciseEditor', () => {
         tests: [{ name: 'handles_zero', status: 'failed' }],
       },
       hint: null,
+      stage2Review: null,
     })
 
     render(<ExerciseEditor exercise={EXERCISE} />)
@@ -90,6 +92,7 @@ describe('ExerciseEditor', () => {
         tests: [{ name: 'handles_zero', status: 'failed' }],
       },
       hint: { level: 0, content: 'What should is_even return when n is even?' },
+      stage2Review: null,
     })
 
     render(<ExerciseEditor exercise={EXERCISE} />)
@@ -128,6 +131,7 @@ describe('ExerciseEditor', () => {
         tests: [{ name: 'handles_zero', status: 'failed' }],
       },
       hint: { level: 0, content: 'Start by considering zero.' },
+      stage2Review: null,
     })
     requestHintMock.mockResolvedValue({
       hint: { level: 1, content: 'Check the remainder operation.' },
@@ -163,6 +167,7 @@ describe('ExerciseEditor', () => {
         level: 4,
         content: 'Use the remainder to complete the function.',
       },
+      stage2Review: null,
     })
     requestHintMock.mockResolvedValue({
       hint: {
@@ -202,6 +207,7 @@ describe('ExerciseEditor', () => {
         tests: [{ name: 'handles_zero', status: 'passed' }],
       },
       hint: null,
+      stage2Review: null,
     })
 
     render(<ExerciseEditor exercise={EXERCISE} />)
@@ -228,6 +234,7 @@ describe('ExerciseEditor', () => {
         tests: [{ name: 'handles_zero', status: 'failed' }],
       },
       hint: { level: 0, content: 'Start by considering zero.' },
+      stage2Review: null,
     })
     requestHintMock.mockRejectedValue(new Error('hint service unavailable'))
 

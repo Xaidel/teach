@@ -14,6 +14,7 @@ import {
 import { uuidv7 } from 'uuidv7'
 
 import { HINT_LADDER_MAX_LEVEL } from '../lib/hint-levels'
+import type { EvaluationRubric } from '../lib/ai/schemas'
 import type { SandboxTest } from '../lib/sandbox/types'
 
 /** The single learner the platform serves in v1 (ADR-0001, ADR-0014). */
@@ -32,7 +33,9 @@ export const learners = pgTable('learners', {
  * no generated tests (ADR-0019). `reference_solution` is nullable for the
  * same reason: the Prompt Shield's leakage check needs the Pre-Flight-verified
  * reference solution as ground truth (ADR-0008), which explain-mode rows
- * don't produce (ADR-0010).
+ * don't produce (ADR-0010). `evaluation_rubric` is nullable because
+ * explain-mode rows never reach Stage 2 and therefore have no rubric
+ * (ADR-0017).
  */
 export const exercises = pgTable(
   'exercises',
@@ -47,6 +50,7 @@ export const exercises = pgTable(
     starterCode: text('starter_code').notNull(),
     testSource: text('test_source'),
     referenceSolution: text('reference_solution'),
+    evaluationRubric: jsonb('evaluation_rubric').$type<EvaluationRubric>(),
     status: text('status').notNull().default('verified'),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()

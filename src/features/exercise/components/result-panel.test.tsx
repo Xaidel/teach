@@ -219,4 +219,121 @@ describe('ResultPanel', () => {
 
     expect(onRequestHint).toHaveBeenCalledWith('full_solution')
   })
+
+  it('shows a refactor request when a required criterion is violated (Stage 2)', () => {
+    render(
+      <ResultPanel
+        result={{
+          passed: true,
+          tests: [{ name: 'handles_zero', status: 'passed' }],
+        }}
+        stage2Review={{
+          passed: false,
+          refactorRequest: 'Use the remainder operator (%) to compute parity.',
+          criteria: [
+            {
+              criterion: 'Uses the remainder operator (%) to determine parity',
+              kind: 'required',
+              verdict: 'violated',
+              explanation: 'The body never uses the remainder operator.',
+            },
+            {
+              criterion: 'Keeps the function body minimal and readable',
+              kind: 'advisory',
+              verdict: 'satisfied',
+              explanation: 'The body is a single expression.',
+            },
+          ],
+        }}
+      />,
+    )
+
+    expect(screen.getByText(/Refactor requested/)).toBeInTheDocument()
+    expect(
+      screen.getByText('Use the remainder operator (%) to compute parity.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('Uses the remainder operator (%) to determine parity'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('violated')).toBeInTheDocument()
+    expect(screen.getByText('required')).toBeInTheDocument()
+  })
+
+  it('shows the review-passed verdict when every criterion is satisfied (Stage 2)', () => {
+    render(
+      <ResultPanel
+        result={{
+          passed: true,
+          tests: [{ name: 'handles_zero', status: 'passed' }],
+        }}
+        stage2Review={{
+          passed: true,
+          refactorRequest: null,
+          criteria: [
+            {
+              criterion: 'Uses the remainder operator (%) to determine parity',
+              kind: 'required',
+              verdict: 'satisfied',
+              explanation: 'The body computes n % 2 == 0.',
+            },
+          ],
+        }}
+      />,
+    )
+
+    expect(
+      screen.getByText(
+        /Code review passed — the submission satisfies the exercise rubric/,
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('Uses the remainder operator (%) to determine parity'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Refactor requested/)).not.toBeInTheDocument()
+  })
+
+  it('surfaces advisory violations without blocking progress (Stage 2)', () => {
+    render(
+      <ResultPanel
+        result={{
+          passed: true,
+          tests: [{ name: 'handles_zero', status: 'passed' }],
+        }}
+        stage2Review={{
+          passed: true,
+          refactorRequest: null,
+          criteria: [
+            {
+              criterion: 'Keeps the function body minimal and readable',
+              kind: 'advisory',
+              verdict: 'violated',
+              explanation: 'The body is longer than it needs to be.',
+            },
+          ],
+        }}
+      />,
+    )
+
+    expect(screen.getByText(/Code review passed/)).toBeInTheDocument()
+    expect(
+      screen.getByText('Keeps the function body minimal and readable'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('advisory')).toBeInTheDocument()
+    expect(screen.queryByText(/Refactor requested/)).not.toBeInTheDocument()
+  })
+
+  it('renders nothing for Stage 2 when no review is present', () => {
+    render(
+      <ResultPanel
+        result={{
+          passed: true,
+          tests: [{ name: 'handles_zero', status: 'passed' }],
+        }}
+        stage2Review={null}
+      />,
+    )
+
+    expect(screen.queryByText(/Refactor requested/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Code review passed/)).not.toBeInTheDocument()
+  })
 })

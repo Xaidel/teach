@@ -59,3 +59,73 @@ export const ExplainConceptOutputSchema = z
   .strict()
 
 export type ExplainConceptOutput = z.infer<typeof ExplainConceptOutputSchema>
+
+/**
+ * The Stage 2 evaluation rubric of one exercise (ADR-0017, SPEC story 29):
+ * the required/prohibited/advisory criteria generated alongside the
+ * exercise, mirroring PRD §18's `review:` YAML. Only `required` and
+ * `prohibited` criteria affect pass/fail (PRD §18); `advisory` is
+ * informational and never blocks.
+ */
+export const EvaluationRubricSchema = z
+  .object({
+    required: z.array(z.string().trim().min(1)),
+    prohibited: z.array(z.string().trim().min(1)),
+    advisory: z.array(z.string().trim().min(1)),
+  })
+  .strict()
+
+export type EvaluationRubric = z.infer<typeof EvaluationRubricSchema>
+
+/**
+ * Input to `reviewSubmission`: the exercise context, the code that already
+ * passed the deterministic Stage 1 gate, and the exercise's evaluation
+ * rubric. The rubric is passed explicitly so the model evaluates exactly
+ * the generated criteria and never invents its own.
+ */
+export const ReviewSubmissionInputSchema = z.object({
+  language: z.enum(SANDBOX_LANGUAGES),
+  exerciseTitle: z.string().min(1),
+  exercisePrompt: z.string().min(1),
+  rubric: EvaluationRubricSchema,
+  submissionCode: z.string().trim().min(1),
+})
+
+export type ReviewSubmissionInput = z.infer<typeof ReviewSubmissionInputSchema>
+
+/**
+ * One model verdict on one rubric criterion. For a `prohibited` criterion,
+ * `violated` means the forbidden pattern is present; for a `required`
+ * criterion it means the demanded pattern is absent.
+ */
+export const CriterionVerdictSchema = z
+  .object({
+    criterion: z.string().trim().min(1),
+    verdict: z.enum(['satisfied', 'violated']),
+    explanation: z.string().trim().min(1),
+  })
+  .strict()
+
+export type CriterionVerdict = z.infer<typeof CriterionVerdictSchema>
+
+/**
+ * Structured output of `reviewSubmission`. The `required`/`prohibited`/
+ * `advisory` arrays mirror the input rubric's lists entry-for-entry, so the
+ * caller attaches pass/fail relevance by position without text matching.
+ * The model only assesses each criterion — pass/fail is derived
+ * app-side, deterministically, from the criterion kinds (PRD §18), and the
+ * refactor request is composed app-side from the violated criteria. The
+ * model never writes free-text verdicts or summaries.
+ * Parsed strictly: model output is untrusted input.
+ */
+export const ReviewSubmissionOutputSchema = z
+  .object({
+    required: z.array(CriterionVerdictSchema),
+    prohibited: z.array(CriterionVerdictSchema),
+    advisory: z.array(CriterionVerdictSchema),
+  })
+  .strict()
+
+export type ReviewSubmissionOutput = z.infer<
+  typeof ReviewSubmissionOutputSchema
+>

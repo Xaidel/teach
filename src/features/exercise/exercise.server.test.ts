@@ -13,12 +13,14 @@ vi.mock('#/lib/sandbox/runner.server', async (importOriginal) => {
 
 vi.mock('#/lib/ai/functions.server', () => ({
   generateHint: vi.fn(),
+  reviewSubmission: vi.fn(),
 }))
 
 import { db } from '#/db/client.server'
 import { exercises, results, submissionHints, submissions } from '#/db/schema'
 import { TeacherEngineError } from '#/lib/ai/client.server'
-import { generateHint } from '#/lib/ai/functions.server'
+import { generateHint, reviewSubmission } from '#/lib/ai/functions.server'
+import type { ReviewSubmissionOutput } from '#/lib/ai/schemas'
 import { runSandboxSubmission } from '#/lib/sandbox/runner.server'
 import { getCurrentLearnerId } from '../learners/learners.server'
 import {
@@ -27,6 +29,36 @@ import {
   requestHint,
   submitExercise,
 } from './exercise.server'
+import {
+  ADVISORY_CRITERION,
+  PROHIBITED_CRITERION,
+  REQUIRED_CRITERION,
+  STAGE2_RUBRIC,
+} from './stage2-review.rubric'
+
+const PASSING_REVIEW_OUTPUT: ReviewSubmissionOutput = {
+  required: [
+    {
+      criterion: REQUIRED_CRITERION,
+      verdict: 'satisfied',
+      explanation: 'The body computes n % 2 == 0.',
+    },
+  ],
+  prohibited: [
+    {
+      criterion: PROHIBITED_CRITERION,
+      verdict: 'satisfied',
+      explanation: 'No lookup table is present.',
+    },
+  ],
+  advisory: [
+    {
+      criterion: ADVISORY_CRITERION,
+      verdict: 'satisfied',
+      explanation: 'The body is a single expression.',
+    },
+  ],
+}
 
 async function dbAvailable(): Promise<boolean> {
   try {
@@ -40,10 +72,13 @@ async function dbAvailable(): Promise<boolean> {
 const dbUp = await dbAvailable()
 const runSandboxSubmissionMock = vi.mocked(runSandboxSubmission)
 const generateHintMock = vi.mocked(generateHint)
+const reviewSubmissionMock = vi.mocked(reviewSubmission)
 
 beforeEach(() => {
   runSandboxSubmissionMock.mockReset()
   generateHintMock.mockReset()
+  reviewSubmissionMock.mockReset()
+  reviewSubmissionMock.mockResolvedValue(PASSING_REVIEW_OUTPUT)
 })
 
 /** Removes the latest persisted submission for a learner, its result, and hints. */
@@ -760,6 +795,378 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       }).catch((error: unknown) => error)
 
       expect(escalation).toMatchObject({ code: 'EXERCISE_NOT_HINTABLE' })
+
+      await deleteLatestSubmission(learnerId)
+    } finally {
+      await db.delete(exercises).where(eq(exercises.id, inserted.id))
+    }
+  })
+
+  it('runs the Stage 2 review against the exercise rubric when Stage 1 passes (issue #6)', async () => {
+    runSandboxSubmissionMock.mockResolvedValue({
+      passed: true,
+      tests: [{ name: 'handles_zero', status: 'passed' }],
+    })
+
+    const [inserted] = await db
+      .insert(exercises)
+      .values({
+        slug: 'test-stage2-rubric',
+        language: 'rust',
+        title: 'Stage 2 exercise',
+        prompt: 'Implement is_even.',
+        starterCode: 'fn placeholder() {}',
+        testSource: '#[test]\nfn placeholder_works() { assert!(true); }\n',
+        referenceSolution: 'pub fn is_even(n: u32) -> bool { n % 2 == 0 }',
+        evaluationRubric: STAGE2_RUBRIC,
+      })
+      .returning({ id: exercises.id })
+
+    if (!inserted) throw new Error('expected the inserted exercise')
+
+    try {
+      const learnerId = await getCurrentLearnerId()
+      const code = 'pub fn is_even(n: u32) -> bool { n % 2 == 0 }'
+      const outcome = await submitExercise({
+        exerciseId: inserted.id,
+        code,
+        learnerId,
+      })
+
+      expect(outcome.result.passed).toBe(true)
+      expect(outcome.hint).toBeNull()
+      expect(outcome.stage2Review).toMatchObject({
+        passed: true,
+        refactorRequest: null,
+      })
+
+      const reviewInput = reviewSubmissionMock.mock.calls[0]?.[0]
+      expect(reviewInput).toMatchObject({
+        language: 'rust',
+        exerciseTitle: 'Stage 2 exercise',
+        rubric: STAGE2_RUBRIC,
+      })
+      expect(reviewInput?.submissionCode).toContain('n % 2 == 0')
+
+      await deleteLatestSubmission(learnerId)
+    } finally {
+      await db.delete(exercises).where(eq(exercises.id, inserted.id))
+    }
+  })
+
+  it('blocks progress with a refactor request on a required-criterion violation (issue #6)', async () => {
+    runSandboxSubmissionMock.mockResolvedValue({
+      passed: true,
+      tests: [{ name: 'handles_zero', status: 'passed' }],
+    })
+    reviewSubmissionMock.mockResolvedValue({
+      ...PASSING_REVIEW_OUTPUT,
+      required: [
+        {
+          criterion: REQUIRED_CRITERION,
+          verdict: 'violated',
+          explanation: 'The body never uses the remainder operator.',
+        },
+      ],
+    })
+
+    const [inserted] = await db
+      .insert(exercises)
+      .values({
+        slug: 'test-stage2-required-violation',
+        language: 'rust',
+        title: 'Stage 2 exercise',
+        prompt: 'Implement is_even.',
+        starterCode: 'fn placeholder() {}',
+        testSource: '#[test]\nfn placeholder_works() { assert!(true); }\n',
+        referenceSolution: 'pub fn is_even(n: u32) -> bool { n % 2 == 0 }',
+        evaluationRubric: STAGE2_RUBRIC,
+      })
+      .returning({ id: exercises.id })
+
+    if (!inserted) throw new Error('expected the inserted exercise')
+
+    try {
+      const learnerId = await getCurrentLearnerId()
+      const outcome = await submitExercise({
+        exerciseId: inserted.id,
+        code: 'pub fn is_even(n: u32) -> bool { n % 2 == 1 }',
+        learnerId,
+      })
+
+      expect(outcome.result.passed).toBe(true)
+      expect(outcome.stage2Review).toMatchObject({
+        passed: false,
+        refactorRequest:
+          'Refactor the submission to address: "Uses the remainder operator (%) to determine parity" — The body never uses the remainder operator.',
+      })
+      expect(outcome.stage2Review?.criteria[0]).toMatchObject({
+        kind: 'required',
+        verdict: 'violated',
+      })
+
+      await deleteLatestSubmission(learnerId)
+    } finally {
+      await db.delete(exercises).where(eq(exercises.id, inserted.id))
+    }
+  })
+
+  it('blocks progress on a prohibited-criterion violation (issue #6)', async () => {
+    runSandboxSubmissionMock.mockResolvedValue({
+      passed: true,
+      tests: [{ name: 'handles_zero', status: 'passed' }],
+    })
+    reviewSubmissionMock.mockResolvedValue({
+      ...PASSING_REVIEW_OUTPUT,
+      prohibited: [
+        {
+          criterion: PROHIBITED_CRITERION,
+          verdict: 'violated',
+          explanation: 'A hardcoded lookup table is returned.',
+        },
+      ],
+    })
+
+    const [inserted] = await db
+      .insert(exercises)
+      .values({
+        slug: 'test-stage2-prohibited-violation',
+        language: 'rust',
+        title: 'Stage 2 exercise',
+        prompt: 'Implement is_even.',
+        starterCode: 'fn placeholder() {}',
+        testSource: '#[test]\nfn placeholder_works() { assert!(true); }\n',
+        referenceSolution: 'pub fn is_even(n: u32) -> bool { n % 2 == 0 }',
+        evaluationRubric: STAGE2_RUBRIC,
+      })
+      .returning({ id: exercises.id })
+
+    if (!inserted) throw new Error('expected the inserted exercise')
+
+    try {
+      const learnerId = await getCurrentLearnerId()
+      const outcome = await submitExercise({
+        exerciseId: inserted.id,
+        code: 'pub fn is_even(n: u32) -> bool { n % 2 == 0 }',
+        learnerId,
+      })
+
+      expect(outcome.stage2Review).toMatchObject({
+        passed: false,
+        refactorRequest:
+          'Refactor the submission to address: "Returns a hardcoded lookup table instead of computing parity" — A hardcoded lookup table is returned.',
+      })
+
+      await deleteLatestSubmission(learnerId)
+    } finally {
+      await db.delete(exercises).where(eq(exercises.id, inserted.id))
+    }
+  })
+
+  it('never blocks progress on advisory-only violations (issue #6)', async () => {
+    runSandboxSubmissionMock.mockResolvedValue({
+      passed: true,
+      tests: [{ name: 'handles_zero', status: 'passed' }],
+    })
+    reviewSubmissionMock.mockResolvedValue({
+      ...PASSING_REVIEW_OUTPUT,
+      advisory: [
+        {
+          criterion: ADVISORY_CRITERION,
+          verdict: 'violated',
+          explanation: 'The body is longer than it needs to be.',
+        },
+      ],
+    })
+
+    const [inserted] = await db
+      .insert(exercises)
+      .values({
+        slug: 'test-stage2-advisory-only',
+        language: 'rust',
+        title: 'Stage 2 exercise',
+        prompt: 'Implement is_even.',
+        starterCode: 'fn placeholder() {}',
+        testSource: '#[test]\nfn placeholder_works() { assert!(true); }\n',
+        referenceSolution: 'pub fn is_even(n: u32) -> bool { n % 2 == 0 }',
+        evaluationRubric: STAGE2_RUBRIC,
+      })
+      .returning({ id: exercises.id })
+
+    if (!inserted) throw new Error('expected the inserted exercise')
+
+    try {
+      const learnerId = await getCurrentLearnerId()
+      const outcome = await submitExercise({
+        exerciseId: inserted.id,
+        code: 'pub fn is_even(n: u32) -> bool { n % 2 == 0 }',
+        learnerId,
+      })
+
+      expect(outcome.stage2Review).toMatchObject({
+        passed: true,
+        refactorRequest: null,
+      })
+      expect(outcome.stage2Review?.criteria[2]).toMatchObject({
+        kind: 'advisory',
+        verdict: 'violated',
+      })
+
+      await deleteLatestSubmission(learnerId)
+    } finally {
+      await db.delete(exercises).where(eq(exercises.id, inserted.id))
+    }
+  })
+
+  it('skips Stage 2 when the exercise has no rubric (issue #6)', async () => {
+    runSandboxSubmissionMock.mockResolvedValue({
+      passed: true,
+      tests: [{ name: 'handles_zero', status: 'passed' }],
+    })
+
+    const [inserted] = await db
+      .insert(exercises)
+      .values({
+        slug: 'test-stage2-no-rubric',
+        language: 'rust',
+        title: 'No rubric',
+        prompt: 'Implement a function.',
+        starterCode: 'fn placeholder() {}',
+        testSource: '#[test]\nfn placeholder_works() { assert!(true); }\n',
+        referenceSolution: 'fn placeholder() -> bool { true }',
+      })
+      .returning({ id: exercises.id })
+
+    if (!inserted) throw new Error('expected the inserted exercise')
+
+    try {
+      const learnerId = await getCurrentLearnerId()
+      const outcome = await submitExercise({
+        exerciseId: inserted.id,
+        code: 'fn placeholder() -> bool { true }',
+        learnerId,
+      })
+
+      expect(outcome.result.passed).toBe(true)
+      expect(outcome.stage2Review).toBeNull()
+      expect(reviewSubmissionMock).not.toHaveBeenCalled()
+
+      await deleteLatestSubmission(learnerId)
+    } finally {
+      await db.delete(exercises).where(eq(exercises.id, inserted.id))
+    }
+  })
+
+  it('never runs Stage 2 on a Stage 1 failure (issue #6)', async () => {
+    runSandboxSubmissionMock.mockResolvedValue({
+      passed: false,
+      tests: [{ name: 'handles_zero', status: 'failed' }],
+    })
+
+    const exercises = await getHardcodedExercises()
+    const rustExercise = exercises.find(
+      (exercise) => exercise.language === 'rust',
+    )
+    if (!rustExercise) throw new Error('expected the seeded rust exercise')
+    const learnerId = await getCurrentLearnerId()
+
+    const outcome = await submitExercise({
+      exerciseId: rustExercise.id,
+      code: 'pub fn is_even(n: u32) -> bool { n % 2 == 1 }',
+      learnerId,
+    })
+
+    expect(outcome.result.passed).toBe(false)
+    expect(outcome.stage2Review).toBeNull()
+    expect(reviewSubmissionMock).not.toHaveBeenCalled()
+
+    await deleteLatestSubmission(learnerId)
+  })
+
+  it('fails open when the AI review is unavailable (issue #6)', async () => {
+    runSandboxSubmissionMock.mockResolvedValue({
+      passed: true,
+      tests: [{ name: 'handles_zero', status: 'passed' }],
+    })
+    reviewSubmissionMock.mockRejectedValue(
+      new TeacherEngineError('api_error', 'review service unavailable'),
+    )
+
+    const [inserted] = await db
+      .insert(exercises)
+      .values({
+        slug: 'test-stage2-review-down',
+        language: 'rust',
+        title: 'Stage 2 exercise',
+        prompt: 'Implement is_even.',
+        starterCode: 'fn placeholder() {}',
+        testSource: '#[test]\nfn placeholder_works() { assert!(true); }\n',
+        referenceSolution: 'pub fn is_even(n: u32) -> bool { n % 2 == 0 }',
+        evaluationRubric: STAGE2_RUBRIC,
+      })
+      .returning({ id: exercises.id })
+
+    if (!inserted) throw new Error('expected the inserted exercise')
+
+    try {
+      const learnerId = await getCurrentLearnerId()
+      const outcome = await submitExercise({
+        exerciseId: inserted.id,
+        code: 'pub fn is_even(n: u32) -> bool { n % 2 == 0 }',
+        learnerId,
+      })
+
+      expect(outcome.result.passed).toBe(true)
+      expect(outcome.stage2Review).toBeNull()
+
+      await deleteLatestSubmission(learnerId)
+    } finally {
+      await db.delete(exercises).where(eq(exercises.id, inserted.id))
+    }
+  })
+
+  it('fails open when the AI review output is invalid (issue #6)', async () => {
+    runSandboxSubmissionMock.mockResolvedValue({
+      passed: true,
+      tests: [{ name: 'handles_zero', status: 'passed' }],
+    })
+    reviewSubmissionMock.mockResolvedValue({
+      ...PASSING_REVIEW_OUTPUT,
+      required: [
+        {
+          criterion: 'Parity is determined with the remainder operator',
+          verdict: 'satisfied',
+          explanation: 'The body computes n % 2 == 0.',
+        },
+      ],
+    })
+
+    const [inserted] = await db
+      .insert(exercises)
+      .values({
+        slug: 'test-stage2-invalid-output',
+        language: 'rust',
+        title: 'Stage 2 exercise',
+        prompt: 'Implement is_even.',
+        starterCode: 'fn placeholder() {}',
+        testSource: '#[test]\nfn placeholder_works() { assert!(true); }\n',
+        referenceSolution: 'pub fn is_even(n: u32) -> bool { n % 2 == 0 }',
+        evaluationRubric: STAGE2_RUBRIC,
+      })
+      .returning({ id: exercises.id })
+
+    if (!inserted) throw new Error('expected the inserted exercise')
+
+    try {
+      const learnerId = await getCurrentLearnerId()
+      const outcome = await submitExercise({
+        exerciseId: inserted.id,
+        code: 'pub fn is_even(n: u32) -> bool { n % 2 == 0 }',
+        learnerId,
+      })
+
+      expect(outcome.result.passed).toBe(true)
+      expect(outcome.stage2Review).toBeNull()
 
       await deleteLatestSubmission(learnerId)
     } finally {

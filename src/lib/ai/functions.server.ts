@@ -1,18 +1,23 @@
 import { TeacherEngineError, callTeacherEngine } from './client.server'
 import { buildExplainConceptMessages } from './prompts/explain-concept.prompt'
 import { buildGenerateHintMessages } from './prompts/generate-hint.prompt'
+import { buildReviewSubmissionMessages } from './prompts/review-submission.prompt'
 import { checkPromptShield } from './prompt-shield'
 import {
   ExplainConceptInputSchema,
   ExplainConceptOutputSchema,
   GenerateHintInputSchema,
   HintSchema,
+  ReviewSubmissionInputSchema,
+  ReviewSubmissionOutputSchema,
 } from './schemas'
 import type {
   ExplainConceptInput,
   ExplainConceptOutput,
   GenerateHintInput,
   Hint,
+  ReviewSubmissionInput,
+  ReviewSubmissionOutput,
 } from './schemas'
 import type { ReasoningEffort } from './types'
 
@@ -23,6 +28,7 @@ import type { ReasoningEffort } from './types'
  */
 const REASONING_EFFORT_HINT: ReasoningEffort = 'low'
 const REASONING_EFFORT_EXPLAIN: ReasoningEffort = 'low'
+const REASONING_EFFORT_REVIEW: ReasoningEffort = 'high'
 
 /**
  * The safe fallback served when the Prompt Shield blocks a hint: a generic,
@@ -91,5 +97,25 @@ export async function explainConcept(
     schemaName: 'concept_explanation',
     outputSchema: ExplainConceptOutputSchema,
     messages: buildExplainConceptMessages(validated),
+  })
+}
+
+/**
+ * Reviews a Stage 1-passing submission against the exercise's Stage 2
+ * rubric (SPEC stories 19-21, issue #6). The AI Teacher Engine only
+ * assesses each rubric criterion — whether a violation blocks progress is
+ * derived deterministically app-side from the criterion's kind (only
+ * `required`/`prohibited` block, PRD §18), so pass/fail authority never
+ * rests with the model (SPEC story 28).
+ */
+export async function reviewSubmission(
+  input: ReviewSubmissionInput,
+): Promise<ReviewSubmissionOutput> {
+  const validated = ReviewSubmissionInputSchema.parse(input)
+  return callTeacherEngine({
+    reasoningEffort: REASONING_EFFORT_REVIEW,
+    schemaName: 'stage2_review',
+    outputSchema: ReviewSubmissionOutputSchema,
+    messages: buildReviewSubmissionMessages(validated),
   })
 }
