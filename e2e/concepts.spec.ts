@@ -18,14 +18,23 @@ const IDs = { a: randomUUID(), b: randomUUID(), c: randomUUID() }
 
 /** Removes any rows this spec owns so reruns start from a clean graph. */
 async function cleanupFixture(): Promise<void> {
-  await db
-    .delete(conceptEdges)
-    .where(
-      or(
-        inArray(conceptEdges.fromConceptId, [IDs.a, IDs.b, IDs.c]),
-        inArray(conceptEdges.toConceptId, [IDs.a, IDs.b, IDs.c]),
-      ),
-    )
+  const fixtureRows = await db
+    .select({ id: concepts.id })
+    .from(concepts)
+    .where(inArray(concepts.slug, [...SLUGS]))
+  const fixtureIds = fixtureRows.map((row) => row.id)
+  if (fixtureIds.length > 0) {
+    // Resolved by slug so stale rows from an aborted run (whose ids this
+    // module never saw) are still cleaned up, edges included.
+    await db
+      .delete(conceptEdges)
+      .where(
+        or(
+          inArray(conceptEdges.fromConceptId, fixtureIds),
+          inArray(conceptEdges.toConceptId, fixtureIds),
+        ),
+      )
+  }
   await db.delete(concepts).where(inArray(concepts.slug, [...SLUGS]))
 }
 
