@@ -8,8 +8,7 @@ Your job is to assess the submission against the exercise's evaluation rubric â€
 Rules:
 - Evaluate exactly the criteria listed in the rubric, verbatim. Never invent, substitute, or reword criteria.
 - Verdict each criterion independently and honestly.
-- Base every explanation on the submitted code; do not speculate about code that is not present.
-- Keep the overall summary concise and actionable.`
+- Base every explanation on the submitted code; do not speculate about code that is not present.`
 
 /**
  * Builds the chat messages for a reviewSubmission call. The prompt template
@@ -30,7 +29,7 @@ Submission that already passed the deterministic Stage 1 tests:
 ${input.submissionCode}
 \`\`\`
 
-Respond with a JSON object of the form {"overall": "<summary>", "required": [{"criterion": "<criterion text, verbatim>", "verdict": "satisfied" | "violated", "explanation": "<why>"}], "prohibited": [...], "advisory": [...]}. Verdict every rubric criterion exactly as written, in order; do not add or omit entries.`
+Respond with a JSON object of the form {"required": [{"criterion": "<criterion text, verbatim>", "verdict": "satisfied" | "violated", "explanation": "<why>"}], "prohibited": [...], "advisory": [...]}. Verdict every rubric criterion exactly as written, in order; do not add or omit entries.`
 
   return [
     { role: 'system', content: SYSTEM_PROMPT },

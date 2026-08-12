@@ -19,6 +19,12 @@ import {
   reviewSubmission,
 } from './functions.server'
 import {
+  ADVISORY_CRITERION,
+  PROHIBITED_CRITERION,
+  REQUIRED_CRITERION,
+  STAGE2_RUBRIC,
+} from '../../features/exercise/stage2-review.rubric'
+import {
   ExplainConceptOutputSchema,
   HintSchema,
   ReviewSubmissionOutputSchema,
@@ -237,28 +243,15 @@ describe('explainConcept', () => {
 })
 
 describe('reviewSubmission', () => {
-  const REQUIRED_CRITERION =
-    'Uses the remainder operator (%) to determine parity'
-  const PROHIBITED_CRITERION =
-    'Returns a hardcoded lookup table instead of computing parity'
-  const ADVISORY_CRITERION = 'Keeps the function body minimal and readable'
-
-  const RUBRIC = {
-    required: [REQUIRED_CRITERION],
-    prohibited: [PROHIBITED_CRITERION],
-    advisory: [ADVISORY_CRITERION],
-  }
-
   const REVIEW_INPUT: ReviewSubmissionInput = {
     language: 'rust',
     exerciseTitle: 'Is it even?',
     exercisePrompt: 'Implement is_even.',
-    rubric: RUBRIC,
+    rubric: STAGE2_RUBRIC,
     submissionCode: 'pub fn is_even(n: u32) -> bool { n % 2 == 0 }',
   }
 
   const REVIEW_OUTPUT: ReviewSubmissionOutput = {
-    overall: 'The submission satisfies every rubric criterion.',
     required: [
       {
         criterion: REQUIRED_CRITERION,

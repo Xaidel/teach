@@ -15,6 +15,10 @@ import type { Stage2Review, Stage2ReviewCriterion } from './exercise.schema'
  * here, deterministically: only `required` and `prohibited` violations
  * block progress (PRD §18); `advisory` verdicts are carried through but
  * never block.
+ *
+ * The refactor request is composed app-side from the violated criteria —
+ * the model never writes the blocking headline, so it can never contradict
+ * the deterministic verdict (SPEC story 28).
  */
 export function buildStage2Review(
   rubric: EvaluationRubric,
@@ -26,16 +30,25 @@ export function buildStage2Review(
     ...attachKind(rubric.advisory, output.advisory, 'advisory'),
   ]
 
-  const blocking = criteria.some(
+  const blocking = criteria.filter(
     (criterion) =>
       criterion.kind !== 'advisory' && criterion.verdict === 'violated',
   )
 
   return {
-    passed: !blocking,
-    refactorRequest: blocking ? output.overall : null,
+    passed: blocking.length === 0,
+    refactorRequest:
+      blocking.length > 0 ? buildRefactorRequest(blocking) : null,
     criteria,
   }
+}
+
+/** One deterministic refactor-request headline naming the violated criteria. */
+function buildRefactorRequest(violated: Stage2ReviewCriterion[]): string {
+  const findings = violated
+    .map((criterion) => `"${criterion.criterion}" — ${criterion.explanation}`)
+    .join(' ')
+  return `Refactor the submission to address: ${findings}`
 }
 
 /**

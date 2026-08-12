@@ -1,23 +1,17 @@
 import { describe, expect, it } from 'vitest'
 
 import { TeacherEngineError } from '#/lib/ai/client.server'
-import type { EvaluationRubric, ReviewSubmissionOutput } from '#/lib/ai/schemas'
+import type { ReviewSubmissionOutput } from '#/lib/ai/schemas'
 
-import { buildStage2Review } from './stage2-review'
-
-const REQUIRED_CRITERION = 'Uses the remainder operator (%) to determine parity'
-const PROHIBITED_CRITERION =
-  'Returns a hardcoded lookup table instead of computing parity'
-const ADVISORY_CRITERION = 'Keeps the function body minimal and readable'
-
-const RUBRIC: EvaluationRubric = {
-  required: [REQUIRED_CRITERION],
-  prohibited: [PROHIBITED_CRITERION],
-  advisory: [ADVISORY_CRITERION],
-}
+import {
+  ADVISORY_CRITERION,
+  PROHIBITED_CRITERION,
+  REQUIRED_CRITERION,
+  STAGE2_RUBRIC,
+} from './stage2-review.rubric'
+import { buildStage2Review } from './stage2-review.server'
 
 const PASSING_OUTPUT: ReviewSubmissionOutput = {
-  overall: 'The submission satisfies every rubric criterion.',
   required: [
     {
       criterion: REQUIRED_CRITERION,
@@ -43,7 +37,7 @@ const PASSING_OUTPUT: ReviewSubmissionOutput = {
 
 describe('buildStage2Review', () => {
   it('passes when every required and prohibited criterion is satisfied', () => {
-    const review = buildStage2Review(RUBRIC, PASSING_OUTPUT)
+    const review = buildStage2Review(STAGE2_RUBRIC, PASSING_OUTPUT)
 
     expect(review).toEqual({
       passed: true,
@@ -72,9 +66,8 @@ describe('buildStage2Review', () => {
   })
 
   it('blocks progress with a refactor request on a required-criterion violation', () => {
-    const review = buildStage2Review(RUBRIC, {
+    const review = buildStage2Review(STAGE2_RUBRIC, {
       ...PASSING_OUTPUT,
-      overall: 'Use the remainder operator (%) to compute parity.',
       required: [
         {
           criterion: REQUIRED_CRITERION,
@@ -86,12 +79,12 @@ describe('buildStage2Review', () => {
 
     expect(review.passed).toBe(false)
     expect(review.refactorRequest).toBe(
-      'Use the remainder operator (%) to compute parity.',
+      'Refactor the submission to address: "Uses the remainder operator (%) to determine parity" — The body never uses the remainder operator.',
     )
   })
 
   it('blocks progress on a prohibited-criterion violation', () => {
-    const review = buildStage2Review(RUBRIC, {
+    const review = buildStage2Review(STAGE2_RUBRIC, {
       ...PASSING_OUTPUT,
       prohibited: [
         {
@@ -103,11 +96,13 @@ describe('buildStage2Review', () => {
     })
 
     expect(review.passed).toBe(false)
-    expect(review.refactorRequest).toBe(PASSING_OUTPUT.overall)
+    expect(review.refactorRequest).toBe(
+      'Refactor the submission to address: "Returns a hardcoded lookup table instead of computing parity" — A hardcoded lookup table is returned.',
+    )
   })
 
   it('never blocks on advisory-criterion violations', () => {
-    const review = buildStage2Review(RUBRIC, {
+    const review = buildStage2Review(STAGE2_RUBRIC, {
       ...PASSING_OUTPUT,
       advisory: [
         {
@@ -128,13 +123,13 @@ describe('buildStage2Review', () => {
 
   it('rejects output with a missing verdict as invalid model output', () => {
     expect(() =>
-      buildStage2Review(RUBRIC, { ...PASSING_OUTPUT, prohibited: [] }),
+      buildStage2Review(STAGE2_RUBRIC, { ...PASSING_OUTPUT, prohibited: [] }),
     ).toThrow(TeacherEngineError)
   })
 
   it('rejects output with an extra verdict as invalid model output', () => {
     expect(() =>
-      buildStage2Review(RUBRIC, {
+      buildStage2Review(STAGE2_RUBRIC, {
         ...PASSING_OUTPUT,
         required: [
           ...PASSING_OUTPUT.required,
@@ -150,7 +145,7 @@ describe('buildStage2Review', () => {
 
   it('rejects output that rewords or reorders a criterion as invalid model output', () => {
     expect(() =>
-      buildStage2Review(RUBRIC, {
+      buildStage2Review(STAGE2_RUBRIC, {
         ...PASSING_OUTPUT,
         required: [
           {

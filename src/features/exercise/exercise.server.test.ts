@@ -20,7 +20,7 @@ import { db } from '#/db/client.server'
 import { exercises, results, submissionHints, submissions } from '#/db/schema'
 import { TeacherEngineError } from '#/lib/ai/client.server'
 import { generateHint, reviewSubmission } from '#/lib/ai/functions.server'
-import type { EvaluationRubric, ReviewSubmissionOutput } from '#/lib/ai/schemas'
+import type { ReviewSubmissionOutput } from '#/lib/ai/schemas'
 import { runSandboxSubmission } from '#/lib/sandbox/runner.server'
 import { getCurrentLearnerId } from '../learners/learners.server'
 import {
@@ -29,20 +29,14 @@ import {
   requestHint,
   submitExercise,
 } from './exercise.server'
-
-const REQUIRED_CRITERION = 'Uses the remainder operator (%) to determine parity'
-const PROHIBITED_CRITERION =
-  'Returns a hardcoded lookup table instead of computing parity'
-const ADVISORY_CRITERION = 'Keeps the function body minimal and readable'
-
-const STAGE2_RUBRIC: EvaluationRubric = {
-  required: [REQUIRED_CRITERION],
-  prohibited: [PROHIBITED_CRITERION],
-  advisory: [ADVISORY_CRITERION],
-}
+import {
+  ADVISORY_CRITERION,
+  PROHIBITED_CRITERION,
+  REQUIRED_CRITERION,
+  STAGE2_RUBRIC,
+} from './stage2-review.rubric'
 
 const PASSING_REVIEW_OUTPUT: ReviewSubmissionOutput = {
-  overall: 'The submission satisfies every rubric criterion.',
   required: [
     {
       criterion: REQUIRED_CRITERION,
@@ -867,7 +861,6 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
     })
     reviewSubmissionMock.mockResolvedValue({
       ...PASSING_REVIEW_OUTPUT,
-      overall: 'Use the remainder operator (%) to compute parity.',
       required: [
         {
           criterion: REQUIRED_CRITERION,
@@ -904,7 +897,8 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       expect(outcome.result.passed).toBe(true)
       expect(outcome.stage2Review).toMatchObject({
         passed: false,
-        refactorRequest: 'Use the remainder operator (%) to compute parity.',
+        refactorRequest:
+          'Refactor the submission to address: "Uses the remainder operator (%) to determine parity" — The body never uses the remainder operator.',
       })
       expect(outcome.stage2Review?.criteria[0]).toMatchObject({
         kind: 'required',
@@ -924,7 +918,6 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
     })
     reviewSubmissionMock.mockResolvedValue({
       ...PASSING_REVIEW_OUTPUT,
-      overall: 'Do not return a hardcoded lookup table.',
       prohibited: [
         {
           criterion: PROHIBITED_CRITERION,
@@ -960,7 +953,8 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
 
       expect(outcome.stage2Review).toMatchObject({
         passed: false,
-        refactorRequest: 'Do not return a hardcoded lookup table.',
+        refactorRequest:
+          'Refactor the submission to address: "Returns a hardcoded lookup table instead of computing parity" — A hardcoded lookup table is returned.',
       })
 
       await deleteLatestSubmission(learnerId)

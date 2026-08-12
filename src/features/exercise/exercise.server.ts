@@ -18,7 +18,7 @@ import type {
   SubmitExerciseOutput,
 } from './exercise.schema'
 import { resolveTargetLevel } from './hint-ladder'
-import { buildStage2Review } from './stage2-review'
+import { buildStage2Review } from './stage2-review.server'
 
 /** Slugs of the hardcoded v1 exercises, one per sandbox language (issue #2). */
 export const HARDCODED_EXERCISE_SLUGS = [

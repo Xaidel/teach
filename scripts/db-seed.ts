@@ -4,18 +4,20 @@ import { count, eq } from 'drizzle-orm'
 
 import { db } from '../src/db/client.server'
 import { exercises, learners } from '../src/db/schema'
+import { STAGE2_RUBRIC } from '../src/features/exercise/stage2-review.rubric'
 import type { EvaluationRubric } from '../src/lib/ai/schemas'
+import type { SandboxLanguage } from '../src/lib/sandbox/types'
 
 type HardcodedExercise = {
   slug: string
-  language: string
+  language: SandboxLanguage
   title: string
   prompt: string
   starterCode: string
   referenceSolution: string
   testSource: string
   evaluationRubric: EvaluationRubric
-  status: string
+  status: 'verified'
 }
 
 const HARDCODED_EXERCISES: HardcodedExercise[] = [
@@ -48,13 +50,7 @@ fn handles_zero() {
     assert!(exercise::is_even(0), "0 is even");
 }
 `,
-    evaluationRubric: {
-      required: ['Uses the remainder operator (%) to determine parity'],
-      prohibited: [
-        'Returns a hardcoded lookup table instead of computing parity',
-      ],
-      advisory: ['Keeps the function body minimal and readable'],
-    },
+    evaluationRubric: STAGE2_RUBRIC,
     status: 'verified',
   },
   {
@@ -97,13 +93,7 @@ func TestIsEvenZero(t *testing.T) {
 	}
 }
 `,
-    evaluationRubric: {
-      required: ['Uses the remainder operator (%) to determine parity'],
-      prohibited: [
-        'Returns a hardcoded lookup table instead of computing parity',
-      ],
-      advisory: ['Keeps the function body minimal and readable'],
-    },
+    evaluationRubric: STAGE2_RUBRIC,
     status: 'verified',
   },
   {
@@ -132,13 +122,7 @@ def test_odd_numbers():
 def test_zero():
     assert is_even(0) is True, "0 is even"
 `,
-    evaluationRubric: {
-      required: ['Uses the remainder operator (%) to determine parity'],
-      prohibited: [
-        'Returns a hardcoded lookup table instead of computing parity',
-      ],
-      advisory: ['Keeps the function body minimal and readable'],
-    },
+    evaluationRubric: STAGE2_RUBRIC,
     status: 'verified',
   },
 ]

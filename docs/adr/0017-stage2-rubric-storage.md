@@ -115,6 +115,7 @@ adjacency pattern ADR-0010 already uses for `concept_edges`.
 
 ### Neutral / Risks
 
+- When the Stage 2 review call fails or the model output is invalid, the implementation fails open: the deterministic Stage 1 verdict reaches the learner unchanged and the review is skipped (`stage2Review: null`), mirroring the hint path's fail-open precedent (issue #3, AC 5) — the rubric never blocks progress it did not actually assess.
 - Where the *tests* half of SPEC story 29's "combined evaluation spec" (as opposed to the Stage 2
   rubric this ADR covers) is persisted is untouched here — out of this ticket's scope, and not
   claimed to be resolved elsewhere by this ADR.

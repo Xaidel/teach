@@ -113,12 +113,13 @@ export type CriterionVerdict = z.infer<typeof CriterionVerdictSchema>
  * `advisory` arrays mirror the input rubric's lists entry-for-entry, so the
  * caller attaches pass/fail relevance by position without text matching.
  * The model only assesses each criterion — pass/fail is derived
- * app-side, deterministically, from the criterion kinds (PRD §18).
+ * app-side, deterministically, from the criterion kinds (PRD §18), and the
+ * refactor request is composed app-side from the violated criteria. The
+ * model never writes free-text verdicts or summaries.
  * Parsed strictly: model output is untrusted input.
  */
 export const ReviewSubmissionOutputSchema = z
   .object({
-    overall: z.string().trim().min(1),
     required: z.array(CriterionVerdictSchema),
     prohibited: z.array(CriterionVerdictSchema),
     advisory: z.array(CriterionVerdictSchema),
