@@ -15,7 +15,7 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     services:
       postgres:
         image: postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193 # 17.10-alpine
@@ -49,3 +49,5 @@ jobs:
       - run: pnpm run db:seed
       - run: pnpm run sandbox:build
       - run: pnpm run verify
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm run test:e2e
