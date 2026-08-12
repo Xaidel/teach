@@ -95,9 +95,11 @@ Two further shapes were raised and rejected without changing the outcome:
 
 CI/CD now exists via `.github/workflows/verify.yml` (GitHub Actions): every `pull_request` and
 `push` to `main` runs `pnpm run verify` against a `postgres` service container, after
-`pnpm run db:migrate`, `pnpm run db:seed`, and `pnpm run sandbox:build`. This ADR's local-dev
-decisions (native app, composed Postgres, explicit sandbox build step, fresh-setup sequence)
-remain authoritative and unchanged; its "no CI/CD" framing is now historical context.
+`pnpm run db:migrate`, `pnpm run db:seed`, and `pnpm run sandbox:build`. Since 2026-08-13 the
+job also runs `pnpm exec playwright install --with-deps chromium` then `pnpm run test:e2e`
+after `pnpm run verify` (PR #84). This ADR's local-dev decisions (native app, composed
+Postgres, explicit sandbox build step, fresh-setup sequence) remain authoritative and
+unchanged; its "no CI/CD" framing is now historical context.
 
 ## Relationships and References
 
