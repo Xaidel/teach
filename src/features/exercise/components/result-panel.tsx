@@ -1,16 +1,27 @@
-import { CheckCircle2, Lightbulb, XCircle } from 'lucide-react'
+import {
+  CheckCircle2,
+  Lightbulb,
+  ListChecks,
+  RefreshCcw,
+  XCircle,
+} from 'lucide-react'
 
 import type { Hint } from '#/lib/ai/schemas'
 import { Alert } from '#/shared/components/ui/alert'
 import { Badge } from '#/shared/components/ui/badge'
 import { Button } from '#/shared/components/ui/button'
 
-import type { HintRequestAction, SandboxResult } from '../exercise.schema'
+import type {
+  HintRequestAction,
+  SandboxResult,
+  Stage2Review,
+} from '../exercise.schema'
 import { FULL_SOLUTION_LEVEL, MAX_MANUAL_HINT_LEVEL } from '../hint-ladder'
 
 type ResultPanelProps = {
   result: SandboxResult
   hint?: Hint | null
+  stage2Review?: Stage2Review | null
   isHintPending?: boolean
   onRequestHint?: (action: HintRequestAction) => void
 }
@@ -23,10 +34,15 @@ type ResultPanelProps = {
  * On failure, the learner can escalate the ladder one level per request (0-4)
  * and, once Level 4 is served, opt into the full solution through a distinct
  * action (issue #4).
+ *
+ * On Stage 1 success with a Stage 2 review (issue #6), the rubric verdict is
+ * shown: a refactor request when a required/prohibited criterion was
+ * violated (blocking), and the advisory criteria (never blocking).
  */
 export function ResultPanel({
   result,
   hint = null,
+  stage2Review = null,
   isHintPending = false,
   onRequestHint,
 }: ResultPanelProps): React.JSX.Element {
@@ -106,6 +122,64 @@ export function ResultPanel({
               </Button>
             ) : null}
           </div>
+        </div>
+      ) : null}
+
+      {stage2Review ? (
+        <div className="grid gap-4">
+          {stage2Review.passed ? (
+            <div className="flex items-center gap-3 rounded-2xl border border-primary/30 bg-primary/10 px-4 py-3 text-primary">
+              <ListChecks aria-hidden="true" className="size-5" />
+              <p className="text-sm font-semibold">
+                Code review passed — the submission satisfies the exercise
+                rubric.
+              </p>
+            </div>
+          ) : (
+            <div className="grid gap-1.5 rounded-2xl border border-destructive/30 bg-destructive/8 px-4 py-3">
+              <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-destructive">
+                <RefreshCcw aria-hidden="true" className="size-4" />
+                Refactor requested
+              </p>
+              <p className="text-sm leading-relaxed text-foreground">
+                {stage2Review.refactorRequest}
+              </p>
+            </div>
+          )}
+
+          {stage2Review.criteria.length > 0 ? (
+            <ul className="divide-y divide-border rounded-2xl border border-border bg-card">
+              {stage2Review.criteria.map((criterion) => (
+                <li
+                  className="flex items-start justify-between gap-4 px-4 py-3"
+                  key={`${criterion.kind}:${criterion.criterion}`}
+                >
+                  <div className="min-w-0">
+                    <p className="truncate font-mono text-sm text-foreground">
+                      {criterion.criterion}
+                    </p>
+                    <p className="mt-1 line-clamp-3 text-xs leading-relaxed text-muted-foreground">
+                      {criterion.explanation}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    <Badge className="border-border bg-background text-muted-foreground">
+                      {criterion.kind}
+                    </Badge>
+                    <Badge
+                      className={
+                        criterion.verdict === 'satisfied'
+                          ? 'border-primary/30 bg-primary/10 text-primary'
+                          : 'border-destructive/30 bg-destructive/10 text-destructive'
+                      }
+                    >
+                      {criterion.verdict}
+                    </Badge>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </div>
       ) : null}
 

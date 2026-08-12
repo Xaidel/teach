@@ -13,9 +13,21 @@ vi.mock('./client.server', () => ({
 }))
 
 import { callTeacherEngine } from './client.server'
-import { explainConcept, generateHint } from './functions.server'
-import { ExplainConceptOutputSchema, HintSchema } from './schemas'
-import type { GenerateHintInput } from './schemas'
+import {
+  explainConcept,
+  generateHint,
+  reviewSubmission,
+} from './functions.server'
+import {
+  ExplainConceptOutputSchema,
+  HintSchema,
+  ReviewSubmissionOutputSchema,
+} from './schemas'
+import type {
+  GenerateHintInput,
+  ReviewSubmissionInput,
+  ReviewSubmissionOutput,
+} from './schemas'
 
 const callMock = vi.mocked(callTeacherEngine)
 
@@ -221,5 +233,73 @@ describe('explainConcept', () => {
     expect(userMessage?.content).toContain(
       'Reference frame: as a senior JavaScript developer',
     )
+  })
+})
+
+describe('reviewSubmission', () => {
+  const REQUIRED_CRITERION =
+    'Uses the remainder operator (%) to determine parity'
+  const PROHIBITED_CRITERION =
+    'Returns a hardcoded lookup table instead of computing parity'
+  const ADVISORY_CRITERION = 'Keeps the function body minimal and readable'
+
+  const RUBRIC = {
+    required: [REQUIRED_CRITERION],
+    prohibited: [PROHIBITED_CRITERION],
+    advisory: [ADVISORY_CRITERION],
+  }
+
+  const REVIEW_INPUT: ReviewSubmissionInput = {
+    language: 'rust',
+    exerciseTitle: 'Is it even?',
+    exercisePrompt: 'Implement is_even.',
+    rubric: RUBRIC,
+    submissionCode: 'pub fn is_even(n: u32) -> bool { n % 2 == 0 }',
+  }
+
+  const REVIEW_OUTPUT: ReviewSubmissionOutput = {
+    overall: 'The submission satisfies every rubric criterion.',
+    required: [
+      {
+        criterion: REQUIRED_CRITERION,
+        verdict: 'satisfied',
+        explanation: 'The body computes n % 2 == 0.',
+      },
+    ],
+    prohibited: [
+      {
+        criterion: PROHIBITED_CRITERION,
+        verdict: 'satisfied',
+        explanation: 'No lookup table is present.',
+      },
+    ],
+    advisory: [
+      {
+        criterion: ADVISORY_CRITERION,
+        verdict: 'satisfied',
+        explanation: 'The body is a single expression.',
+      },
+    ],
+  }
+
+  it('calls the client with high effort and the review schema', async () => {
+    callMock.mockResolvedValue(REVIEW_OUTPUT)
+
+    const output = await reviewSubmission(REVIEW_INPUT)
+
+    expect(output).toEqual(REVIEW_OUTPUT)
+
+    const call = callMock.mock.calls[0]?.[0]
+    expect(call?.reasoningEffort).toBe('high')
+    expect(call?.schemaName).toBe('stage2_review')
+    expect(call?.outputSchema).toBe(ReviewSubmissionOutputSchema)
+    const userMessage = call?.messages.find(
+      (message) => message.role === 'user',
+    )
+    expect(userMessage?.content).toContain('Evaluation rubric:')
+    expect(userMessage?.content).toContain(
+      'Returns a hardcoded lookup table instead of computing parity',
+    )
+    expect(userMessage?.content).toContain('n % 2 == 0')
   })
 })

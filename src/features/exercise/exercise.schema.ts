@@ -42,12 +42,37 @@ export type SubmitExerciseInput = z.infer<typeof SubmitExerciseInputSchema>
  * hint when Stage 1 failed and the AI Teacher Engine produced one. The hint
  * is never the pass/fail authority — `result.passed` always is (issue #3).
  * `submissionId` anchors later manual hint requests against the attempt
- * (issue #4).
+ * (issue #4). `stage2Review` carries the qualitative review when Stage 1
+ * passed and the exercise has a rubric (issue #6); it is null when Stage 2
+ * does not apply.
  */
 export type SubmitExerciseOutput = {
   submissionId: string
   result: SandboxResult
   hint: Hint | null
+  stage2Review: Stage2Review | null
+}
+
+/**
+ * The Stage 2 review of a Stage 1-passing submission (issue #6): the AI
+ * Teacher Engine's per-criterion assessment, plus the deterministic
+ * pass/fail derivation — `passed` is false only when a `required` or
+ * `prohibited` criterion was violated (PRD §18). A blocking review carries
+ * the refactor request explaining what to change; `advisory`-kind criteria
+ * are surfaced but never block.
+ */
+export type Stage2Review = {
+  passed: boolean
+  refactorRequest: string | null
+  criteria: Stage2ReviewCriterion[]
+}
+
+/** One assessed rubric criterion in a Stage 2 review. */
+export type Stage2ReviewCriterion = {
+  criterion: string
+  kind: 'required' | 'prohibited' | 'advisory'
+  verdict: 'satisfied' | 'violated'
+  explanation: string
 }
 
 /** The two learner actions that can advance a manual hint ladder (issue #4). */

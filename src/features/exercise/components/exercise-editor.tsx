@@ -111,6 +111,7 @@ export function ExerciseEditor({
           isHintPending={isHintPending}
           onRequestHint={handleHintRequest}
           result={outcome.result}
+          stage2Review={outcome.stage2Review}
         />
       ) : null}
     </form>

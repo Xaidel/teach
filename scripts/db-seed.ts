@@ -4,8 +4,21 @@ import { count, eq } from 'drizzle-orm'
 
 import { db } from '../src/db/client.server'
 import { exercises, learners } from '../src/db/schema'
+import type { EvaluationRubric } from '../src/lib/ai/schemas'
 
-const HARDCODED_EXERCISES = [
+type HardcodedExercise = {
+  slug: string
+  language: string
+  title: string
+  prompt: string
+  starterCode: string
+  referenceSolution: string
+  testSource: string
+  evaluationRubric: EvaluationRubric
+  status: string
+}
+
+const HARDCODED_EXERCISES: HardcodedExercise[] = [
   {
     slug: 'rust-is-even',
     language: 'rust',
@@ -35,6 +48,13 @@ fn handles_zero() {
     assert!(exercise::is_even(0), "0 is even");
 }
 `,
+    evaluationRubric: {
+      required: ['Uses the remainder operator (%) to determine parity'],
+      prohibited: [
+        'Returns a hardcoded lookup table instead of computing parity',
+      ],
+      advisory: ['Keeps the function body minimal and readable'],
+    },
     status: 'verified',
   },
   {
@@ -77,6 +97,13 @@ func TestIsEvenZero(t *testing.T) {
 	}
 }
 `,
+    evaluationRubric: {
+      required: ['Uses the remainder operator (%) to determine parity'],
+      prohibited: [
+        'Returns a hardcoded lookup table instead of computing parity',
+      ],
+      advisory: ['Keeps the function body minimal and readable'],
+    },
     status: 'verified',
   },
   {
@@ -105,9 +132,16 @@ def test_odd_numbers():
 def test_zero():
     assert is_even(0) is True, "0 is even"
 `,
+    evaluationRubric: {
+      required: ['Uses the remainder operator (%) to determine parity'],
+      prohibited: [
+        'Returns a hardcoded lookup table instead of computing parity',
+      ],
+      advisory: ['Keeps the function body minimal and readable'],
+    },
     status: 'verified',
   },
-] as const
+]
 
 async function seedLearner(): Promise<void> {
   const rows = await db.select({ value: count() }).from(learners)
@@ -120,20 +154,25 @@ async function seedLearner(): Promise<void> {
   }
 }
 
-async function seedExercise(
-  exercise: (typeof HARDCODED_EXERCISES)[number],
-): Promise<void> {
+async function seedExercise(exercise: HardcodedExercise): Promise<void> {
   const existing = await db.query.exercises.findFirst({
     where: (table, { eq }) => eq(table.slug, exercise.slug),
   })
   if (existing) {
+    const backfill: Partial<HardcodedExercise> = {}
     if (existing.referenceSolution === null) {
+      backfill.referenceSolution = exercise.referenceSolution
+    }
+    if (existing.evaluationRubric === null) {
+      backfill.evaluationRubric = exercise.evaluationRubric
+    }
+    if (Object.keys(backfill).length > 0) {
       await db
         .update(exercises)
-        .set({ referenceSolution: exercise.referenceSolution })
+        .set(backfill)
         .where(eq(exercises.slug, exercise.slug))
       console.log(
-        `Exercise "${exercise.slug}" already present; backfilled reference solution.`,
+        `Exercise "${exercise.slug}" already present; backfilled missing columns.`,
       )
     } else {
       console.log(`Exercise "${exercise.slug}" already present; skipping.`)

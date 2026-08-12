@@ -1,0 +1,1 @@
+ALTER TABLE "exercises" ADD COLUMN "evaluation_rubric" jsonb;
