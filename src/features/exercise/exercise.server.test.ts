@@ -189,6 +189,29 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
     ])
   })
 
+  it('hides hardcoded exercises whose status is not verified (issue #90)', async () => {
+    await db
+      .update(exercises)
+      .set({ status: 'pending' })
+      .where(eq(exercises.slug, 'go-is-even'))
+
+    try {
+      const available = await getHardcodedExercises()
+
+      expect(available.some((exercise) => exercise.slug === 'go-is-even')).toBe(
+        false,
+      )
+      expect(
+        available.some((exercise) => exercise.slug === 'python-is-even'),
+      ).toBe(true)
+    } finally {
+      await db
+        .update(exercises)
+        .set({ status: 'verified' })
+        .where(eq(exercises.slug, 'go-is-even'))
+    }
+  })
+
   it('persists a submission and its result attributed to the current learner', async () => {
     runSandboxSubmissionMock.mockResolvedValue({
       passed: true,

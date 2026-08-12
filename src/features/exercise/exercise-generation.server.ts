@@ -24,6 +24,26 @@ import { parseSandboxResult } from './exercise.schema'
 import { rowToExercise } from './exercise.server'
 
 /**
+ * The test function names actually defined in a generated Rust test
+ * harness (`#[test] fn <name>`). The model authors both `evaluation.tests`
+ * and `testSource`, so the declared names alone cannot be trusted — a
+ * padded declaration (a name that never appears in the harness) must not
+ * satisfy `failure_matches_concept` (issue #89).
+ */
+function extractRustTestNames(testSource: string): string[] {
+  const names: string[] = []
+  const pattern =
+    /#\[test\]\s*(?:#\[[^\]]*\]\s*)*fn\s+([A-Za-z_][A-Za-z0-9_]*)/g
+  for (const match of testSource.matchAll(pattern)) {
+    const name = match[1]
+    if (name) {
+      names.push(name)
+    }
+  }
+  return names
+}
+
+/**
  * Runs the deterministic Pre-Flight Validation gate over one generated
  * exercise (PRD §14, CONTEXT.md — Pre-Flight Validation): the reference
  * solution must compile and pass every generated test, the intended broken
@@ -51,7 +71,17 @@ async function runPreFlightChecks(input: {
     }).then(parseSandboxResult),
   ])
 
-  const expectedTestNames = new Set(input.generated.evaluation.tests)
+  // Only a test that is both declared AND actually defined in the harness
+  // counts: the model authors both, so a declared-but-absent name must not
+  // satisfy the check (issue #89).
+  const actualTestNames = new Set(
+    extractRustTestNames(input.generated.testSource),
+  )
+  const expectedTestNames = new Set(
+    input.generated.evaluation.tests.filter((name) =>
+      actualTestNames.has(name),
+    ),
+  )
   const failureMatchesConcept = brokenResult.tests.some(
     (test) => test.status === 'failed' && expectedTestNames.has(test.name),
   )
@@ -80,7 +110,7 @@ async function runPreFlightChecks(input: {
         ? {}
         : {
             detail:
-              'No failing test matched one of the generated tests for the target concept.',
+              'No failing test matched a declared test that is actually defined in the harness for the target concept.',
           }),
     },
   ]
@@ -227,6 +257,7 @@ export async function generateExerciseForConcept(input: {
     exercise: rowToExercise(persisted),
     conceptSlug: input.conceptSlug,
     targetConcepts: joinedSlugs,
+    prerequisites: generated.prerequisites,
     estimatedMinutes: generated.estimatedMinutes,
     constraints: generated.constraints,
     preflight: {

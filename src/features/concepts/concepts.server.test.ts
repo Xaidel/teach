@@ -16,6 +16,7 @@ import type {
 } from '#/lib/ai/schemas'
 
 import { ConceptError } from './concepts.schema'
+import type { UsableConceptGraph } from './concepts.schema'
 import {
   addConceptEdge,
   draftConcepts,
@@ -71,6 +72,30 @@ async function insertEdge(
     toConceptId,
     kind,
   })
+}
+
+/**
+ * The usable projection, scoped to this suite's own fixture slugs. Test
+ * files run in parallel against one shared Postgres (issue #92), so a
+ * whole-graph equality assertion would race other suites' rust fixtures.
+ */
+function filterUsableTo(
+  usable: UsableConceptGraph,
+  slugs: readonly string[],
+): UsableConceptGraph {
+  const slugSet = new Set(slugs)
+  const fixtureConcepts = usable.concepts.filter((concept) =>
+    slugSet.has(concept.slug),
+  )
+  const fixtureIds = new Set(fixtureConcepts.map((concept) => concept.id))
+  return {
+    language: usable.language,
+    concepts: fixtureConcepts,
+    edges: usable.edges.filter(
+      (edge) =>
+        fixtureIds.has(edge.fromConceptId) && fixtureIds.has(edge.toConceptId),
+    ),
+  }
 }
 
 afterEach(async () => {
@@ -149,7 +174,10 @@ describe.skipIf(!dbUp)(
       const bId = await insertConcept('test.graph.b', 3, 'approved')
       await insertEdge(aId, bId, 'prerequisite')
 
-      const usable = await getUsableConceptGraph('rust')
+      const usable = filterUsableTo(await getUsableConceptGraph('rust'), [
+        'test.graph.a',
+        'test.graph.b',
+      ])
 
       expect(usable.concepts.map((c) => c.slug).sort()).toEqual([
         'test.graph.a',
@@ -164,7 +192,10 @@ describe.skipIf(!dbUp)(
       await insertEdge(aId, bId, 'prerequisite')
       await insertEdge(bId, aId, 'prerequisite')
 
-      const usable = await getUsableConceptGraph('rust')
+      const usable = filterUsableTo(await getUsableConceptGraph('rust'), [
+        'test.graph.a',
+        'test.graph.b',
+      ])
 
       expect(usable.concepts.map((c) => c.slug).sort()).toEqual([
         'test.graph.a',
@@ -178,7 +209,10 @@ describe.skipIf(!dbUp)(
       const badId = await insertConcept('Test Graph')
       await insertEdge(aId, badId, 'prerequisite')
 
-      const usable = await getUsableConceptGraph('rust')
+      const usable = filterUsableTo(await getUsableConceptGraph('rust'), [
+        'test.graph.a',
+        'Test Graph',
+      ])
 
       expect(usable.concepts.map((c) => c.slug).sort()).toEqual([
         'test.graph.a',
@@ -194,7 +228,11 @@ describe.skipIf(!dbUp)(
       await insertEdge(bId, cId, 'prerequisite')
       await insertEdge(cId, bId, 'prerequisite')
 
-      const usable = await getUsableConceptGraph('rust')
+      const usable = filterUsableTo(await getUsableConceptGraph('rust'), [
+        'test.graph.a',
+        'test.graph.b',
+        'test.graph.c',
+      ])
 
       expect(usable.edges).toHaveLength(1)
       expect(usable.edges[0]?.kind).toBe('prerequisite')
@@ -307,7 +345,11 @@ describe.skipIf(!dbUp)('draftConcepts against Postgres', () => {
     expect(second.duplicateConcepts).toBe(first.conceptsInserted)
     expect(second.duplicateEdges).toBe(first.edgesInserted)
 
-    const usable = await getUsableConceptGraph('rust')
+    const usable = filterUsableTo(await getUsableConceptGraph('rust'), [
+      'test.graph.a',
+      'test.graph.b',
+      'test.graph.c',
+    ])
     expect(usable.concepts).toHaveLength(3)
     expect(usable.edges).toHaveLength(2)
   })

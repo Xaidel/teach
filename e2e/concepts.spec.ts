@@ -18,14 +18,23 @@ const IDs = { a: randomUUID(), b: randomUUID(), c: randomUUID() }
 
 /** Removes any rows this spec owns so reruns start from a clean graph. */
 async function cleanupFixture(): Promise<void> {
-  await db
-    .delete(conceptEdges)
-    .where(
-      or(
-        inArray(conceptEdges.fromConceptId, [IDs.a, IDs.b, IDs.c]),
-        inArray(conceptEdges.toConceptId, [IDs.a, IDs.b, IDs.c]),
-      ),
-    )
+  const fixtureRows = await db
+    .select({ id: concepts.id })
+    .from(concepts)
+    .where(inArray(concepts.slug, [...SLUGS]))
+  const fixtureIds = fixtureRows.map((row) => row.id)
+  if (fixtureIds.length > 0) {
+    // Resolved by slug so stale rows from an aborted run (whose ids this
+    // module never saw) are still cleaned up, edges included.
+    await db
+      .delete(conceptEdges)
+      .where(
+        or(
+          inArray(conceptEdges.fromConceptId, fixtureIds),
+          inArray(conceptEdges.toConceptId, fixtureIds),
+        ),
+      )
+  }
   await db.delete(concepts).where(inArray(concepts.slug, [...SLUGS]))
 }
 
@@ -128,8 +137,9 @@ test('draft trigger surfaces a graceful failure when the AI is unreachable', asy
 
   await page.getByRole('button', { name: 'Draft rust concepts' }).click()
 
-  // The draft hits the AI Teacher Engine, which is unreachable in the e2e
-  // environment; the review UI must show the mapped error, not crash.
+  // E2E_FORCE_AI_FAILURE makes every AI Teacher Engine call fail
+  // deterministically (issue #93) — the review UI must show the mapped
+  // error, not crash, whether or not CI has a live API key.
   await expect(
     page.getByText('The Concept Graph draft could not be generated.'),
   ).toBeVisible({ timeout: 60_000 })

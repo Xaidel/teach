@@ -155,6 +155,8 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
     expect(outcome.exercise.title).toBe('Borrow or move?')
     expect(outcome.exercise.language).toBe('rust')
     expect(outcome.targetConcepts).toEqual([FIXTURE_CONCEPT_SLUG])
+    expect(outcome.prerequisites).toEqual(GENERATED.prerequisites)
+    expect(outcome.estimatedMinutes).toBe(GENERATED.estimatedMinutes)
     expect(outcome.preflight).toEqual({
       attemptNumber: 1,
       passed: true,
@@ -308,6 +310,64 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
       name: 'failure_matches_concept',
       passed: false,
     })
+  })
+
+  it('rejects a failing test whose name is declared but not defined in the harness (issue #89)', async () => {
+    generateExerciseMock.mockResolvedValue({
+      ...GENERATED,
+      evaluation: {
+        tests: ['borrows_its_argument', 'padded_never_defined'],
+        rubric: GENERATED.evaluation.rubric,
+      },
+    })
+    runSandboxSubmissionMock
+      .mockResolvedValueOnce(REFERENCE_PASSES)
+      .mockResolvedValueOnce({
+        passed: false,
+        tests: [
+          {
+            name: 'padded_never_defined',
+            status: 'failed',
+            message: 'assertion failed',
+          },
+        ],
+      })
+
+    await expect(
+      generateExerciseForConcept({
+        language: 'rust',
+        conceptSlug: FIXTURE_CONCEPT_SLUG,
+      }),
+    ).rejects.toMatchObject({ code: 'PREFLIGHT_FAILED' })
+
+    const [attempt] = await db
+      .select()
+      .from(preFlightAttempts)
+      .where(eq(preFlightAttempts.conceptId, FIXTURE_CONCEPT_ID))
+    expect(attempt?.diagnostics.checks[2]).toMatchObject({
+      name: 'failure_matches_concept',
+      passed: false,
+    })
+  })
+
+  it('still accepts a failing test that is declared and defined in the harness alongside a padded name (issue #89)', async () => {
+    generateExerciseMock.mockResolvedValue({
+      ...GENERATED,
+      evaluation: {
+        tests: ['borrows_its_argument', 'padded_never_defined'],
+        rubric: GENERATED.evaluation.rubric,
+      },
+    })
+    runSandboxSubmissionMock
+      .mockResolvedValueOnce(REFERENCE_PASSES)
+      .mockResolvedValueOnce(BROKEN_FAILS_ON_CONCEPT)
+
+    const outcome = await generateExerciseForConcept({
+      language: 'rust',
+      conceptSlug: FIXTURE_CONCEPT_SLUG,
+    })
+
+    expect(outcome.preflight.passed).toBe(true)
   })
 
   it('maps an AI Teacher Engine failure to a stable generation error', async () => {

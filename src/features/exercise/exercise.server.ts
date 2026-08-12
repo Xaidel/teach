@@ -149,10 +149,17 @@ async function getHintContext(input: {
   }
 }
 
-/** Returns all seeded hardcoded exercises, or null before seeding. */
+/**
+ * Returns all seeded hardcoded exercises, or null before seeding. Like the
+ * generated path, only `status = verified` rows are ever surfaced — a
+ * retired seed row must not list (issue #90).
+ */
 export async function getHardcodedExercises(): Promise<Exercise[]> {
   const rows = await db.query.exercises.findMany({
-    where: inArray(exercises.slug, [...HARDCODED_EXERCISE_SLUGS]),
+    where: and(
+      inArray(exercises.slug, [...HARDCODED_EXERCISE_SLUGS]),
+      eq(exercises.status, 'verified'),
+    ),
   })
 
   return rows.map(rowToExercise)

@@ -84,6 +84,15 @@ export type TeacherEngineCall<T> = {
 export async function callTeacherEngine<T>(
   call: TeacherEngineCall<T>,
 ): Promise<T> {
+  // e2e marker (issue #93): forces the failure path deterministically so
+  // the graceful-failure e2e assertions never depend on engine reachability.
+  if (env.E2E_FORCE_AI_FAILURE) {
+    throw new TeacherEngineError(
+      'api_error',
+      'The AI Teacher Engine call was force-failed by E2E_FORCE_AI_FAILURE.',
+    )
+  }
+
   let response: Response
   try {
     response = await fetch(
