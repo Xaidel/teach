@@ -59,7 +59,13 @@ export function ConceptCard({
   const [edgeError, setEdgeError] = useState<string>()
   const [isBusy, setIsBusy] = useState(false)
 
-  const excludedEdge = concept.edges.find((edge) => edge.validation !== 'ok')
+  const excludedValidations = [
+    ...new Set(
+      concept.edges
+        .filter((edge) => edge.validation !== 'ok')
+        .map((edge) => edge.validation),
+    ),
+  ]
   const nextStatus: ConceptStatus =
     concept.status === 'approved' ? 'draft' : 'approved'
   const slugInputId = `concept-slug-${concept.id}`
@@ -162,9 +168,9 @@ export function ConceptCard({
             </h2>
             <Badge>{concept.status}</Badge>
             <Badge>difficulty {String(concept.difficulty)}</Badge>
-            {excludedEdge ? (
+            {excludedValidations.length > 0 ? (
               <Badge className="border-destructive/30 bg-destructive/10 text-destructive">
-                Excluded — {excludedEdge.validation}
+                Excluded — {excludedValidations.join(', ')}
               </Badge>
             ) : null}
           </div>
