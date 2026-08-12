@@ -105,3 +105,12 @@ Start new ADRs from [`template.md`](./template.md).
 
 Keep this table in the same change as any status or relationship update. Every ADR file
 appears here exactly once.
+
+## Parked records
+
+Unnumbered records awaiting an implementation effort — they receive the next available number
+when that effort begins, then join the index.
+
+| Placeholder | Title | Status | Relationships |
+| --- | --- | --- | --- |
+| [ADR-NNNN](./NNNN-shield-blocked-hint-ladder-exhaustion.md) | Shield-blocked hint requests recorded on `submission_hints` as ladder exhaustion (v1 out of scope; parked for v2) | Accepted | Related to ADR-0004, ADR-0008, ADR-0010, ADR-0012 |
