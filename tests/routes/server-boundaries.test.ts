@@ -46,7 +46,7 @@ describe('client and server source boundaries', () => {
     )
 
     expect(exerciseRoute).toContain('ExercisePage')
-    expect(exerciseRoute).toContain('getHardcodedExercisesFn')
+    expect(exerciseRoute).toContain('getAvailableExercisesFn')
     expect(exerciseRoute).not.toContain('<main')
 
     const conceptsRoute = await readFile(

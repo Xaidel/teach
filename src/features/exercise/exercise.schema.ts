@@ -104,7 +104,7 @@ export type ExerciseErrorCode =
 const EXERCISE_ERROR_MESSAGES: Record<ExerciseErrorCode, string> = {
   EXERCISE_NOT_FOUND: 'Exercise not found.',
   EXERCISE_NOT_SUBMITTABLE:
-    'This exercise has no test source and cannot be submitted.',
+    'This exercise is not verified and cannot be submitted.',
   EXERCISE_NOT_HINTABLE:
     'This exercise has no reference solution and cannot serve hints.',
   SANDBOX_RESULT_INVALID:

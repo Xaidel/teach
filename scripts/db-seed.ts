@@ -8,9 +8,17 @@ import { STAGE2_RUBRIC } from '../src/features/exercise/stage2-review.rubric'
 import type { EvaluationRubric } from '../src/lib/ai/schemas'
 import type { SandboxLanguage } from '../src/lib/sandbox/types'
 
+/**
+ * Hardcoded v1 exercises (issue #1). Rust is deliberately absent: the Rust
+ * exercise is now generated through the AI Teacher Engine and verified by
+ * Pre-Flight Validation (issue #8) instead of hardcoded; Go and Python
+ * stay hardcoded until tickets #19/#20.
+ */
 type HardcodedExercise = {
   slug: string
   language: SandboxLanguage
+  mode: 'implement'
+  difficulty: number
   title: string
   prompt: string
   starterCode: string
@@ -22,40 +30,10 @@ type HardcodedExercise = {
 
 const HARDCODED_EXERCISES: HardcodedExercise[] = [
   {
-    slug: 'rust-is-even',
-    language: 'rust',
-    title: 'Is it even?',
-    prompt:
-      'Implement `is_even(n: u32) -> bool`, returning true when n is an even number and false otherwise. Handle zero.',
-    starterCode: `pub fn is_even(n: u32) -> bool {
-    false
-}
-`,
-    referenceSolution: `pub fn is_even(n: u32) -> bool {
-    n % 2 == 0
-}
-`,
-    testSource: `#[test]
-fn returns_true_for_even_numbers() {
-    assert!(exercise::is_even(4), "4 is even");
-}
-
-#[test]
-fn returns_false_for_odd_numbers() {
-    assert!(!exercise::is_even(7), "7 is odd");
-}
-
-#[test]
-fn handles_zero() {
-    assert!(exercise::is_even(0), "0 is even");
-}
-`,
-    evaluationRubric: STAGE2_RUBRIC,
-    status: 'verified',
-  },
-  {
     slug: 'go-is-even',
     language: 'go',
+    mode: 'implement',
+    difficulty: 1,
     title: 'Is it even? (Go)',
     prompt:
       'Implement `IsEven(n uint32) bool`, returning true when n is an even number and false otherwise. Handle zero.',
@@ -99,6 +77,8 @@ func TestIsEvenZero(t *testing.T) {
   {
     slug: 'python-is-even',
     language: 'python',
+    mode: 'implement',
+    difficulty: 1,
     title: 'Is it even? (Python)',
     prompt:
       'Implement `is_even(n: int) -> bool`, returning True when n is an even number and False otherwise. Handle zero.',

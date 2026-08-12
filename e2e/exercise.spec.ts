@@ -1,15 +1,19 @@
 import { expect, test } from '@playwright/test'
+import { eq } from 'drizzle-orm'
+
+import { db } from '../src/db/client.server'
+import {
+  concepts,
+  exerciseConcepts,
+  exercises,
+  results,
+  submissionHints,
+  submissions,
+} from '../src/db/schema'
 
 test.setTimeout(240_000)
 
-const EXERCISES = [
-  {
-    title: 'Is it even?',
-    code: `pub fn is_even(n: u32) -> bool {
-    n % 2 == 0
-}
-`,
-  },
+const HARDCODED_EXERCISES = [
   {
     title: 'Is it even? (Go)',
     code: `package exercise
@@ -27,7 +31,120 @@ func IsEven(n uint32) bool {
   },
 ] as const
 
-test('submits code and receives a pass/fail result end to end for each language', async ({
+/**
+ * Self-contained fixture for the Rust generated-exercise surface (issue
+ * #8): the e2e seeds its own verified exercise + Concept Graph concept +
+ * exercise_concepts join through the shared `src/db` client, so the page
+ * renders and evaluates a generated-style Rust exercise deterministically
+ * without needing the AI Teacher Engine. Slugs are namespaced `e2e.*` and
+ * removed in `afterAll` (by slug, so a crashed run's leftover rows are
+ * found and removed too).
+ */
+const FIXTURE_CONCEPT_SLUG = 'e2e.rust.borrowing'
+const FIXTURE_EXERCISE_SLUG = 'e2e-generated-rust-borrowing'
+
+/** Removes any rows this spec owns so reruns start from a clean state. */
+async function cleanupFixture(): Promise<void> {
+  const fixtureConcept = await db.query.concepts.findFirst({
+    where: eq(concepts.slug, FIXTURE_CONCEPT_SLUG),
+  })
+  if (fixtureConcept) {
+    await db
+      .delete(exerciseConcepts)
+      .where(eq(exerciseConcepts.conceptId, fixtureConcept.id))
+  }
+  const fixtureExercise = await db.query.exercises.findFirst({
+    where: eq(exercises.slug, FIXTURE_EXERCISE_SLUG),
+  })
+  if (fixtureExercise) {
+    const fixtureSubmissions = await db
+      .select({ id: submissions.id })
+      .from(submissions)
+      .where(eq(submissions.exerciseId, fixtureExercise.id))
+    for (const submission of fixtureSubmissions) {
+      await db
+        .delete(submissionHints)
+        .where(eq(submissionHints.submissionId, submission.id))
+      await db.delete(results).where(eq(results.submissionId, submission.id))
+    }
+    await db
+      .delete(submissions)
+      .where(eq(submissions.exerciseId, fixtureExercise.id))
+    await db.delete(exercises).where(eq(exercises.id, fixtureExercise.id))
+  }
+  await db.delete(concepts).where(eq(concepts.slug, FIXTURE_CONCEPT_SLUG))
+}
+
+test.beforeAll(async () => {
+  await cleanupFixture()
+  const conceptRows = await db
+    .insert(concepts)
+    .values({
+      language: 'rust',
+      slug: FIXTURE_CONCEPT_SLUG,
+      difficulty: 2,
+    })
+    .returning({ id: concepts.id })
+  const exerciseRows = await db
+    .insert(exercises)
+    .values({
+      slug: FIXTURE_EXERCISE_SLUG,
+      language: 'rust',
+      title: 'Generated: borrow the vector',
+      prompt:
+        'Implement `first(v: &Vec<u32>) -> u32` returning the first element without consuming the vector.',
+      starterCode: `pub fn first(v: Vec<u32>) -> u32 {
+    v[0]
+}
+`,
+      testSource: `#[test]
+fn borrows_its_argument() {
+    let v = vec![1, 2];
+    assert_eq!(exercise::first(&v), 1);
+    assert_eq!(v.len(), 2, "the vector must not be consumed");
+}
+
+#[test]
+fn handles_single_element() {
+    assert_eq!(exercise::first(&vec![7]), 7);
+}
+
+#[test]
+fn first_of_empty_is_zero() {
+    assert_eq!(exercise::first(&vec![]), 0);
+}
+`,
+      referenceSolution: `pub fn first(v: &Vec<u32>) -> u32 {
+    v.first().copied().unwrap_or(0)
+}
+`,
+      evaluationRubric: {
+        required: ['Takes the vector by reference'],
+        prohibited: ['Consumes the vector with into_iter'],
+        advisory: ['Keeps the body to a single expression'],
+      },
+      mode: 'implement',
+      difficulty: 2,
+      constraints: ['std_only'],
+      status: 'verified',
+    })
+    .returning({ id: exercises.id })
+  const fixtureConceptId = conceptRows[0]?.id
+  const fixtureExerciseId = exerciseRows[0]?.id
+  if (!fixtureConceptId || !fixtureExerciseId) {
+    throw new Error('expected the fixture rows to be inserted')
+  }
+  await db.insert(exerciseConcepts).values({
+    exerciseId: fixtureExerciseId,
+    conceptId: fixtureConceptId,
+  })
+})
+
+test.afterAll(async () => {
+  await cleanupFixture()
+})
+
+test('submits code and receives a pass/fail result end to end for each hardcoded language', async ({
   page,
 }) => {
   await page.goto('/')
@@ -38,7 +155,7 @@ test('submits code and receives a pass/fail result end to end for each language'
     }),
   ).toBeVisible()
 
-  for (const exercise of EXERCISES) {
+  for (const exercise of HARDCODED_EXERCISES) {
     const article = page.getByRole('article', {
       name: exercise.title,
       exact: true,
@@ -59,13 +176,59 @@ test('submits code and receives a pass/fail result end to end for each language'
   }
 })
 
+test('submits a generated-style Rust exercise end to end (issue #8)', async ({
+  page,
+}) => {
+  await page.goto('/')
+
+  const article = page.getByRole('article', {
+    name: 'Generated: borrow the vector',
+    exact: true,
+  })
+  await expect(article).toBeVisible()
+
+  // The generated starter code compiles but fails the concept tests.
+  await article.getByRole('button', { name: 'Submit for evaluation' }).click()
+  await expect(article.getByText(/Failed —/)).toBeVisible({
+    timeout: 120_000,
+  })
+
+  // The correct solution passes every test.
+  await article.getByLabel('Your solution')
+    .fill(`pub fn first(v: &Vec<u32>) -> u32 {
+    v.first().copied().unwrap_or(0)
+}
+`)
+  await article.getByRole('button', { name: 'Submit for evaluation' }).click()
+  await expect(article.getByText(/Passed — all 3 tests/)).toBeVisible({
+    timeout: 120_000,
+  })
+})
+
+test('generation surfaces a graceful failure when the AI is unreachable', async ({
+  page,
+}) => {
+  await page.goto('/')
+
+  await page
+    .getByRole('combobox', { name: 'Target concept' })
+    .selectOption('e2e.rust.borrowing')
+  await page.getByRole('button', { name: 'Generate rust exercise' }).click()
+
+  // The generation hits the AI Teacher Engine, which is unreachable in the
+  // e2e environment; the page must show the mapped error, not crash.
+  await expect(
+    page.getByText('The exercise could not be generated. Try again.'),
+  ).toBeVisible({ timeout: 60_000 })
+})
+
 test('escalates the manual Socratic hint ladder one level at a time', async ({
   page,
 }) => {
   await page.goto('/')
 
   const article = page.getByRole('article', {
-    name: 'Is it even?',
+    name: 'Is it even? (Go)',
     exact: true,
   })
 

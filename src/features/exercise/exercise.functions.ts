@@ -1,22 +1,38 @@
 import { createServerFn } from '@tanstack/react-start'
 
 import { getCurrentLearnerId } from '../learners/learners.server'
+import { GenerateExerciseForConceptInputSchema } from './exercise-generation.schema'
+import { generateExerciseForConcept } from './exercise-generation.server'
 import {
   RequestHintInputSchema,
   SubmitExerciseInputSchema,
 } from './exercise.schema'
 import {
-  getHardcodedExercises,
+  getAvailableExercises,
   requestHint,
   submitExercise,
 } from './exercise.server'
 
-/** Loads the hardcoded v1 exercises (one per sandbox language) for the home route. */
-export const getHardcodedExercisesFn = createServerFn({
+/**
+ * Loads every exercise a learner may attempt — the hardcoded v1 seeds plus
+ * every Pre-Flight-verified generated exercise — for the home route.
+ */
+export const getAvailableExercisesFn = createServerFn({
   method: 'GET',
 }).handler(() => {
-  return getHardcodedExercises()
+  return getAvailableExercises()
 })
+
+/**
+ * Generates an exercise for a Concept Graph concept and runs it through
+ * the deterministic Pre-Flight Validation gate; only a verified exercise
+ * is persisted and shown (issue #8).
+ */
+export const generateExerciseFn = createServerFn({ method: 'POST' })
+  .validator(GenerateExerciseForConceptInputSchema)
+  .handler(({ data }) => {
+    return generateExerciseForConcept(data)
+  })
 
 /** Submits learner code for sandboxed evaluation, persisting the result. */
 export const submitExerciseFn = createServerFn({ method: 'POST' })

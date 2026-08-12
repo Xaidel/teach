@@ -16,6 +16,7 @@ import { callTeacherEngine, TeacherEngineError } from './client.server'
 import {
   draftConceptGraph,
   explainConcept,
+  generateExercise,
   generateHint,
   reviewSubmission,
 } from './functions.server'
@@ -28,6 +29,7 @@ import {
 import {
   DraftConceptGraphOutputSchema,
   ExplainConceptOutputSchema,
+  GeneratedExerciseSchema,
   HintSchema,
   ReviewSubmissionOutputSchema,
 } from './schemas'
@@ -386,5 +388,112 @@ describe('draftConceptGraph', () => {
       concepts: [{ slug: 'rust.ownership', difficulty: 2 }],
       edges: [],
     })
+  })
+})
+
+describe('generateExercise', () => {
+  const GENERATED_OUTPUT = {
+    title: 'Borrow or move?',
+    prompt: 'Implement first(v: &Vec<u32>) -> u32.',
+    starterCode: 'pub fn first(v: Vec<u32>) -> u32 { v[0] }',
+    referenceSolution: 'pub fn first(v: &Vec<u32>) -> u32 { v[0] }',
+    testSource: '#[test]\nfn borrows_its_argument() { assert!(true); }\n',
+    targetConcepts: ['rust.borrowing'],
+    prerequisites: ['rust.references'],
+    difficulty: 3,
+    estimatedMinutes: 8,
+    constraints: ['std_only'],
+    evaluation: {
+      tests: ['borrows_its_argument'],
+      rubric: {
+        required: ['Takes the vector by reference'],
+        prohibited: ['Consumes the vector'],
+        advisory: ['Keeps the body short'],
+      },
+    },
+  }
+
+  /**
+   * Resolves the client call through the passed output schema, mirroring the
+   * real client's app-side validation (client.server.ts) against the task's
+   * actual schema.
+   */
+  function mockGeneratedRawOutput(raw: unknown): void {
+    callMock.mockImplementation((call) => {
+      const parsed = call.outputSchema.safeParse(raw)
+      if (!parsed.success) {
+        throw new TeacherEngineError(
+          'invalid_output',
+          'The AI Teacher Engine returned output that failed schema validation.',
+          { cause: parsed.error },
+        )
+      }
+      return Promise.resolve(parsed.data)
+    })
+  }
+
+  it('calls the client with high effort and the generation schema', async () => {
+    callMock.mockResolvedValue(GENERATED_OUTPUT)
+
+    const output = await generateExercise({
+      language: 'rust',
+      conceptSlug: 'rust.borrowing',
+      conceptDifficulty: 3,
+    })
+
+    expect(output).toEqual(GENERATED_OUTPUT)
+
+    const call = callMock.mock.calls[0]?.[0]
+    expect(call?.reasoningEffort).toBe('high')
+    expect(call?.schemaName).toBe('exercise_generation')
+    expect(call?.outputSchema).toBe(GeneratedExerciseSchema)
+    const userMessage = call?.messages.find(
+      (message) => message.role === 'user',
+    )
+    expect(userMessage?.content).toContain('Language: rust')
+    expect(userMessage?.content).toContain('Target concept: rust.borrowing')
+    expect(userMessage?.content).toContain('Concept difficulty: 3 / 5')
+  })
+
+  it('rejects a draft with an empty test list as invalid output', async () => {
+    mockGeneratedRawOutput({
+      ...GENERATED_OUTPUT,
+      evaluation: { tests: [], rubric: GENERATED_OUTPUT.evaluation.rubric },
+    })
+
+    await expect(
+      generateExercise({
+        language: 'rust',
+        conceptSlug: 'rust.borrowing',
+        conceptDifficulty: 3,
+      }),
+    ).rejects.toMatchObject({ kind: 'invalid_output' })
+  })
+
+  it('rejects a draft with an out-of-range difficulty', async () => {
+    mockGeneratedRawOutput({ ...GENERATED_OUTPUT, difficulty: 9 })
+
+    await expect(
+      generateExercise({
+        language: 'rust',
+        conceptSlug: 'rust.borrowing',
+        conceptDifficulty: 3,
+      }),
+    ).rejects.toMatchObject({ kind: 'invalid_output' })
+  })
+
+  it('rejects a draft with a malformed concept slug', async () => {
+    mockGeneratedRawOutput({
+      ...GENERATED_OUTPUT,
+      targetConcepts: ['Borrowing'],
+    })
+
+    await expect(
+      generateExercise({
+        language: 'rust',
+        conceptSlug: 'rust.borrowing',
+        conceptDifficulty: 3,
+      }),
+    ).rejects.toMatchObject({ kind: 'invalid_output' })
   })
 })

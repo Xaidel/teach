@@ -155,6 +155,79 @@ export const EvaluationRubricSchema = z
 export type EvaluationRubric = z.infer<typeof EvaluationRubricSchema>
 
 /**
+ * Input to `generateExercise`: the language and the concept the exercise
+ * must target, with the concept's persisted difficulty as a difficulty
+ * anchor (SPEC story 29, PRD §13). The caller (Pre-Flight, ticket #8)
+ * resolves the concept from the Concept Graph and passes it down; the
+ * model never invents concepts outside the graph.
+ */
+export const GenerateExerciseInputSchema = z.object({
+  language: z.enum(SANDBOX_LANGUAGES),
+  conceptSlug: z
+    .string()
+    .trim()
+    .regex(CONCEPT_SLUG_PATTERN, 'Concept slug must be dotted lowercase'),
+  conceptDifficulty: z
+    .number()
+    .int()
+    .min(CONCEPT_DIFFICULTY_MIN)
+    .max(CONCEPT_DIFFICULTY_MAX),
+})
+
+export type GenerateExerciseInput = z.infer<typeof GenerateExerciseInputSchema>
+
+/**
+ * Structured output of `generateExercise` (PRD §13's exercise YAML, SPEC
+ * story 29): the learner-facing prompt and code, the Pre-Flight-verifiable
+ * reference solution, the generated test harness, and the exercise's
+ * metadata. `evaluation.tests` names one test function per named test —
+ * the testSource file must define exactly those names, which is what lets
+ * Pre-Flight check that the intended broken state fails on the target
+ * concept's tests rather than incidentally (PRD §14). Parsed strictly:
+ * model output is untrusted input.
+ */
+export const GeneratedExerciseSchema = z
+  .object({
+    title: z.string().trim().min(1),
+    prompt: z.string().trim().min(1),
+    starterCode: z.string().trim().min(1),
+    referenceSolution: z.string().trim().min(1),
+    testSource: z.string().trim().min(1),
+    targetConcepts: z
+      .array(
+        z
+          .string()
+          .trim()
+          .regex(CONCEPT_SLUG_PATTERN, 'Concept slug must be dotted lowercase'),
+      )
+      .min(1),
+    prerequisites: z
+      .array(
+        z
+          .string()
+          .trim()
+          .regex(CONCEPT_SLUG_PATTERN, 'Concept slug must be dotted lowercase'),
+      )
+      .default([]),
+    difficulty: z
+      .number()
+      .int()
+      .min(CONCEPT_DIFFICULTY_MIN)
+      .max(CONCEPT_DIFFICULTY_MAX),
+    estimatedMinutes: z.number().int().min(1),
+    constraints: z.array(z.string().trim().min(1)),
+    evaluation: z
+      .object({
+        tests: z.array(z.string().trim().min(1)).min(1),
+        rubric: EvaluationRubricSchema,
+      })
+      .strict(),
+  })
+  .strict()
+
+export type GeneratedExercise = z.infer<typeof GeneratedExerciseSchema>
+
+/**
  * Input to `reviewSubmission`: the exercise context, the code that already
  * passed the deterministic Stage 1 gate, and the exercise's evaluation
  * rubric. The rubric is passed explicitly so the model evaluates exactly

@@ -1,5 +1,13 @@
 import { desc, eq, sql } from 'drizzle-orm'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest'
 
 import type * as runner from '#/lib/sandbox/runner.server'
 
@@ -27,8 +35,10 @@ import {
   getHardcodedExercises,
   HARDCODED_EXERCISE_SLUGS,
   requestHint,
+  rowToExercise,
   submitExercise,
 } from './exercise.server'
+import type { Exercise } from './exercise.schema'
 import {
   ADVISORY_CRITERION,
   PROHIBITED_CRITERION,
@@ -74,6 +84,70 @@ const runSandboxSubmissionMock = vi.mocked(runSandboxSubmission)
 const generateHintMock = vi.mocked(generateHint)
 const reviewSubmissionMock = vi.mocked(reviewSubmission)
 
+/**
+ * Rust fixture used by the submission/hint tests: the seeded hardcoded
+ * exercises no longer include a Rust one (issue #8 replaced it with
+ * generated exercises), so the tests that need a submittable Rust exercise
+ * insert their own namespaced fixture row.
+ */
+const RUST_FIXTURE_SLUG = 'test-rust-fixture'
+
+async function insertRustFixture(): Promise<void> {
+  await db
+    .insert(exercises)
+    .values({
+      slug: RUST_FIXTURE_SLUG,
+      language: 'rust',
+      title: 'Is it even? (fixture)',
+      prompt: 'Implement is_even(n: u32) -> bool.',
+      starterCode: 'pub fn is_even(n: u32) -> bool {\n    false\n}\n',
+      testSource:
+        '#[test]\nfn handles_zero() { assert!(exercise::is_even(0)); }\n',
+      referenceSolution:
+        'pub fn is_even(n: u32) -> bool {\n    n % 2 == 0\n}\n',
+      difficulty: 1,
+      status: 'verified',
+    })
+    .onConflictDoNothing()
+}
+
+/** Loads the rust fixture row as the shared Exercise shape. */
+async function getRustFixture(): Promise<Exercise> {
+  const row = await db.query.exercises.findFirst({
+    where: eq(exercises.slug, RUST_FIXTURE_SLUG),
+  })
+  if (!row) throw new Error('expected the rust fixture exercise')
+  return rowToExercise(row)
+}
+
+beforeAll(async () => {
+  await insertRustFixture()
+})
+
+afterAll(async () => {
+  // Remove any submissions the fixture exercise accumulated (some tests
+  // clean up by "latest submission for the learner", which can target a
+  // different exercise's row), then the exercise itself.
+  const fixtureRows = await db
+    .select({ id: exercises.id })
+    .from(exercises)
+    .where(eq(exercises.slug, RUST_FIXTURE_SLUG))
+  for (const row of fixtureRows) {
+    const fixtureSubmissionIds = await db
+      .select({ id: submissions.id })
+      .from(submissions)
+      .where(eq(submissions.exerciseId, row.id))
+    for (const submission of fixtureSubmissionIds) {
+      await db
+        .delete(submissionHints)
+        .where(eq(submissionHints.submissionId, submission.id))
+      await db.delete(results).where(eq(results.submissionId, submission.id))
+    }
+    await db.delete(submissions).where(eq(submissions.exerciseId, row.id))
+  }
+  await db.delete(exercises).where(eq(exercises.slug, RUST_FIXTURE_SLUG))
+})
+
 beforeEach(() => {
   runSandboxSubmissionMock.mockReset()
   generateHintMock.mockReset()
@@ -112,7 +186,6 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
     expect(exercises.map((exercise) => exercise.language).sort()).toEqual([
       'go',
       'python',
-      'rust',
     ])
   })
 
@@ -122,11 +195,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       tests: [{ name: 'handles_zero', status: 'passed' }],
     })
 
-    const exercises = await getHardcodedExercises()
-    const rustExercise = exercises.find(
-      (exercise) => exercise.language === 'rust',
-    )
-    if (!rustExercise) throw new Error('expected the seeded rust exercise')
+    const rustExercise = await getRustFixture()
     const learnerId = await getCurrentLearnerId()
 
     const outcome = await submitExercise({
@@ -203,11 +272,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       tests: [{ name: 'handles_zero', status: 'not-a-status' }],
     } as unknown as Awaited<ReturnType<typeof runSandboxSubmission>>)
 
-    const exercises = await getHardcodedExercises()
-    const rustExercise = exercises.find(
-      (exercise) => exercise.language === 'rust',
-    )
-    if (!rustExercise) throw new Error('expected the seeded rust exercise')
+    const rustExercise = await getRustFixture()
     const learnerId = await getCurrentLearnerId()
     const submissionsBefore = await db.$count(submissions)
 
@@ -229,11 +294,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       surpriseField: 'unexpected',
     } as unknown as Awaited<ReturnType<typeof runSandboxSubmission>>)
 
-    const exercises = await getHardcodedExercises()
-    const rustExercise = exercises.find(
-      (exercise) => exercise.language === 'rust',
-    )
-    if (!rustExercise) throw new Error('expected the seeded rust exercise')
+    const rustExercise = await getRustFixture()
     const learnerId = await getCurrentLearnerId()
     const submissionsBefore = await db.$count(submissions)
 
@@ -274,11 +335,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       content: 'What should is_even return when n is even?',
     })
 
-    const exercises = await getHardcodedExercises()
-    const rustExercise = exercises.find(
-      (exercise) => exercise.language === 'rust',
-    )
-    if (!rustExercise) throw new Error('expected the seeded rust exercise')
+    const rustExercise = await getRustFixture()
     const learnerId = await getCurrentLearnerId()
 
     const outcome = await submitExercise({
@@ -328,11 +385,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       new TeacherEngineError('api_error', 'hint service unavailable'),
     )
 
-    const exercises = await getHardcodedExercises()
-    const rustExercise = exercises.find(
-      (exercise) => exercise.language === 'rust',
-    )
-    if (!rustExercise) throw new Error('expected the seeded rust exercise')
+    const rustExercise = await getRustFixture()
     const learnerId = await getCurrentLearnerId()
 
     const outcome = await submitExercise({
@@ -364,11 +417,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       content: 'A conceptual question.',
     })
 
-    const exercises = await getHardcodedExercises()
-    const rustExercise = exercises.find(
-      (exercise) => exercise.language === 'rust',
-    )
-    if (!rustExercise) throw new Error('expected the seeded rust exercise')
+    const rustExercise = await getRustFixture()
     const learnerId = await getCurrentLearnerId()
 
     const outcome = await submitExercise({
@@ -399,11 +448,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       }),
     )
 
-    const exercises = await getHardcodedExercises()
-    const rustExercise = exercises.find(
-      (exercise) => exercise.language === 'rust',
-    )
-    if (!rustExercise) throw new Error('expected the seeded rust exercise')
+    const rustExercise = await getRustFixture()
     const learnerId = await getCurrentLearnerId()
 
     const outcome = await submitExercise({
@@ -468,11 +513,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       }),
     )
 
-    const exercises = await getHardcodedExercises()
-    const rustExercise = exercises.find(
-      (exercise) => exercise.language === 'rust',
-    )
-    if (!rustExercise) throw new Error('expected the seeded rust exercise')
+    const rustExercise = await getRustFixture()
     const learnerId = await getCurrentLearnerId()
 
     const outcome = await submitExercise({
@@ -517,11 +558,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       }),
     )
 
-    const exercises = await getHardcodedExercises()
-    const rustExercise = exercises.find(
-      (exercise) => exercise.language === 'rust',
-    )
-    if (!rustExercise) throw new Error('expected the seeded rust exercise')
+    const rustExercise = await getRustFixture()
     const learnerId = await getCurrentLearnerId()
 
     const outcome = await submitExercise({
@@ -547,11 +584,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       tests: [{ name: 'handles_zero', status: 'passed' }],
     })
 
-    const exercises = await getHardcodedExercises()
-    const rustExercise = exercises.find(
-      (exercise) => exercise.language === 'rust',
-    )
-    if (!rustExercise) throw new Error('expected the seeded rust exercise')
+    const rustExercise = await getRustFixture()
     const learnerId = await getCurrentLearnerId()
 
     const outcome = await submitExercise({
@@ -577,11 +610,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       tests: [{ name: 'handles_zero', status: 'failed' }],
     })
 
-    const exercises = await getHardcodedExercises()
-    const rustExercise = exercises.find(
-      (exercise) => exercise.language === 'rust',
-    )
-    if (!rustExercise) throw new Error('expected the seeded rust exercise')
+    const rustExercise = await getRustFixture()
     const learnerId = await getCurrentLearnerId()
 
     const outcome = await submitExercise({
@@ -613,11 +642,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       }),
     )
 
-    const exercises = await getHardcodedExercises()
-    const rustExercise = exercises.find(
-      (exercise) => exercise.language === 'rust',
-    )
-    if (!rustExercise) throw new Error('expected the seeded rust exercise')
+    const rustExercise = await getRustFixture()
     const learnerId = await getCurrentLearnerId()
 
     const first = await submitExercise({
@@ -657,11 +682,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       ),
     )
 
-    const exercises = await getHardcodedExercises()
-    const rustExercise = exercises.find(
-      (exercise) => exercise.language === 'rust',
-    )
-    if (!rustExercise) throw new Error('expected the seeded rust exercise')
+    const rustExercise = await getRustFixture()
     const learnerId = await getCurrentLearnerId()
 
     const outcome = await submitExercise({
@@ -692,11 +713,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       content: 'What should is_even return when n is even?',
     })
 
-    const exercises = await getHardcodedExercises()
-    const rustExercise = exercises.find(
-      (exercise) => exercise.language === 'rust',
-    )
-    if (!rustExercise) throw new Error('expected the seeded rust exercise')
+    const rustExercise = await getRustFixture()
     const learnerId = await getCurrentLearnerId()
 
     const outcome = await submitExercise({
@@ -771,6 +788,8 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
         prompt: 'Implement a function.',
         starterCode: 'fn placeholder() {}',
         testSource: '#[test]\nfn placeholder_works() { assert!(true); }\n',
+        difficulty: 1,
+        status: 'verified',
       })
       .returning({ id: exercises.id })
 
@@ -819,6 +838,8 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
         testSource: '#[test]\nfn placeholder_works() { assert!(true); }\n',
         referenceSolution: 'pub fn is_even(n: u32) -> bool { n % 2 == 0 }',
         evaluationRubric: STAGE2_RUBRIC,
+        difficulty: 1,
+        status: 'verified',
       })
       .returning({ id: exercises.id })
 
@@ -881,6 +902,8 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
         testSource: '#[test]\nfn placeholder_works() { assert!(true); }\n',
         referenceSolution: 'pub fn is_even(n: u32) -> bool { n % 2 == 0 }',
         evaluationRubric: STAGE2_RUBRIC,
+        difficulty: 1,
+        status: 'verified',
       })
       .returning({ id: exercises.id })
 
@@ -938,6 +961,8 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
         testSource: '#[test]\nfn placeholder_works() { assert!(true); }\n',
         referenceSolution: 'pub fn is_even(n: u32) -> bool { n % 2 == 0 }',
         evaluationRubric: STAGE2_RUBRIC,
+        difficulty: 1,
+        status: 'verified',
       })
       .returning({ id: exercises.id })
 
@@ -990,6 +1015,8 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
         testSource: '#[test]\nfn placeholder_works() { assert!(true); }\n',
         referenceSolution: 'pub fn is_even(n: u32) -> bool { n % 2 == 0 }',
         evaluationRubric: STAGE2_RUBRIC,
+        difficulty: 1,
+        status: 'verified',
       })
       .returning({ id: exercises.id })
 
@@ -1034,6 +1061,8 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
         starterCode: 'fn placeholder() {}',
         testSource: '#[test]\nfn placeholder_works() { assert!(true); }\n',
         referenceSolution: 'fn placeholder() -> bool { true }',
+        difficulty: 1,
+        status: 'verified',
       })
       .returning({ id: exercises.id })
 
@@ -1063,11 +1092,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       tests: [{ name: 'handles_zero', status: 'failed' }],
     })
 
-    const exercises = await getHardcodedExercises()
-    const rustExercise = exercises.find(
-      (exercise) => exercise.language === 'rust',
-    )
-    if (!rustExercise) throw new Error('expected the seeded rust exercise')
+    const rustExercise = await getRustFixture()
     const learnerId = await getCurrentLearnerId()
 
     const outcome = await submitExercise({
@@ -1103,6 +1128,8 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
         testSource: '#[test]\nfn placeholder_works() { assert!(true); }\n',
         referenceSolution: 'pub fn is_even(n: u32) -> bool { n % 2 == 0 }',
         evaluationRubric: STAGE2_RUBRIC,
+        difficulty: 1,
+        status: 'verified',
       })
       .returning({ id: exercises.id })
 
@@ -1152,6 +1179,8 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
         testSource: '#[test]\nfn placeholder_works() { assert!(true); }\n',
         referenceSolution: 'pub fn is_even(n: u32) -> bool { n % 2 == 0 }',
         evaluationRubric: STAGE2_RUBRIC,
+        difficulty: 1,
+        status: 'verified',
       })
       .returning({ id: exercises.id })
 
