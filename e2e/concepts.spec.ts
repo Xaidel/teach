@@ -137,8 +137,9 @@ test('draft trigger surfaces a graceful failure when the AI is unreachable', asy
 
   await page.getByRole('button', { name: 'Draft rust concepts' }).click()
 
-  // The draft hits the AI Teacher Engine, which is unreachable in the e2e
-  // environment; the review UI must show the mapped error, not crash.
+  // E2E_FORCE_AI_FAILURE makes every AI Teacher Engine call fail
+  // deterministically (issue #93) — the review UI must show the mapped
+  // error, not crash, whether or not CI has a live API key.
   await expect(
     page.getByText('The Concept Graph draft could not be generated.'),
   ).toBeVisible({ timeout: 60_000 })

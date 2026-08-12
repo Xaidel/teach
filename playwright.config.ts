@@ -24,6 +24,10 @@ export default defineConfig({
     env: {
       HOST: '127.0.0.1',
       PORT: '3000',
+      // Forces every AI Teacher Engine call to fail deterministically so
+      // the graceful-failure assertions never depend on reachability
+      // (issue #93).
+      E2E_FORCE_AI_FAILURE: 'true',
     },
   },
 })

@@ -237,4 +237,23 @@ describe('callTeacherEngine response_format selection from env (issue #54)', () 
 
     delete process.env.AI_RESPONSE_FORMAT
   })
+
+  it('fails every call before any fetch when E2E_FORCE_AI_FAILURE is set (issue #93)', async () => {
+    process.env.E2E_FORCE_AI_FAILURE = 'true'
+    vi.resetModules()
+    const { callTeacherEngine: callForced } = await import('./client.server')
+
+    await expect(
+      callForced({
+        reasoningEffort: 'low',
+        schemaName: 'socratic_hint',
+        outputSchema: HintSchema,
+        messages: MESSAGES,
+      }),
+    ).rejects.toMatchObject({ kind: 'api_error' })
+
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    delete process.env.E2E_FORCE_AI_FAILURE
+  })
 })
