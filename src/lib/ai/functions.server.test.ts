@@ -12,8 +12,9 @@ vi.mock('./client.server', () => ({
   },
 }))
 
-import { callTeacherEngine } from './client.server'
+import { callTeacherEngine, TeacherEngineError } from './client.server'
 import {
+  draftConceptGraph,
   explainConcept,
   generateHint,
   reviewSubmission,
@@ -25,6 +26,7 @@ import {
   STAGE2_RUBRIC,
 } from '../../features/exercise/stage2-review.rubric'
 import {
+  DraftConceptGraphOutputSchema,
   ExplainConceptOutputSchema,
   HintSchema,
   ReviewSubmissionOutputSchema,
@@ -294,5 +296,95 @@ describe('reviewSubmission', () => {
       'Returns a hardcoded lookup table instead of computing parity',
     )
     expect(userMessage?.content).toContain('n % 2 == 0')
+  })
+})
+
+describe('draftConceptGraph', () => {
+  const DRAFT_OUTPUT = {
+    concepts: [
+      { slug: 'rust.ownership', difficulty: 2 },
+      { slug: 'rust.borrowing', difficulty: 3 },
+    ],
+    edges: [
+      { from: 'rust.ownership', to: 'rust.borrowing', kind: 'prerequisite' },
+    ],
+  }
+
+  /**
+   * Resolves the client call through the passed output schema, mirroring the
+   * real client's app-side validation (client.server.ts) against the task's
+   * actual schema.
+   */
+  function mockDraftRawOutput(raw: unknown): void {
+    callMock.mockImplementation((call) => {
+      const parsed = call.outputSchema.safeParse(raw)
+      if (!parsed.success) {
+        throw new TeacherEngineError(
+          'invalid_output',
+          'The AI Teacher Engine returned output that failed schema validation.',
+          { cause: parsed.error },
+        )
+      }
+      return Promise.resolve(parsed.data)
+    })
+  }
+
+  it('calls the client with high effort and the draft schema', async () => {
+    callMock.mockResolvedValue(DRAFT_OUTPUT)
+
+    const output = await draftConceptGraph({ language: 'rust' })
+
+    expect(output).toEqual(DRAFT_OUTPUT)
+
+    const call = callMock.mock.calls[0]?.[0]
+    expect(call?.reasoningEffort).toBe('high')
+    expect(call?.schemaName).toBe('concept_graph_draft')
+    expect(call?.outputSchema).toBe(DraftConceptGraphOutputSchema)
+    const userMessage = call?.messages.find(
+      (message) => message.role === 'user',
+    )
+    expect(userMessage?.content).toContain('Language: rust')
+  })
+
+  it('rejects a draft with an invalid slug shape as invalid output', async () => {
+    mockDraftRawOutput({
+      concepts: [{ slug: 'Bad Slug', difficulty: 3 }],
+    })
+
+    await expect(draftConceptGraph({ language: 'rust' })).rejects.toMatchObject(
+      { kind: 'invalid_output' },
+    )
+  })
+
+  it('rejects a draft with an out-of-range difficulty', async () => {
+    mockDraftRawOutput({
+      concepts: [{ slug: 'rust.ownership', difficulty: 9 }],
+    })
+
+    await expect(draftConceptGraph({ language: 'rust' })).rejects.toMatchObject(
+      { kind: 'invalid_output' },
+    )
+  })
+
+  it('rejects a draft with an unknown edge kind', async () => {
+    mockDraftRawOutput({
+      concepts: [{ slug: 'rust.ownership', difficulty: 2 }],
+      edges: [{ from: 'rust.a', to: 'rust.b', kind: 'blocks' }],
+    })
+
+    await expect(draftConceptGraph({ language: 'rust' })).rejects.toMatchObject(
+      { kind: 'invalid_output' },
+    )
+  })
+
+  it('accepts a concepts-only draft when no edges are present', async () => {
+    mockDraftRawOutput({
+      concepts: [{ slug: 'rust.ownership', difficulty: 2 }],
+    })
+
+    await expect(draftConceptGraph({ language: 'rust' })).resolves.toEqual({
+      concepts: [{ slug: 'rust.ownership', difficulty: 2 }],
+      edges: [],
+    })
   })
 })

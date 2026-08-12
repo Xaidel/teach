@@ -1,5 +1,11 @@
 import { z } from 'zod'
 
+import {
+  CONCEPT_DIFFICULTY_MAX,
+  CONCEPT_DIFFICULTY_MIN,
+  CONCEPT_EDGE_KINDS,
+  CONCEPT_SLUG_PATTERN,
+} from '#/lib/concept-graph'
 import { HINT_LADDER_MAX_LEVEL } from '#/lib/hint-levels'
 import { SANDBOX_LANGUAGES, SandboxResultSchema } from '#/lib/sandbox/types'
 
@@ -59,6 +65,77 @@ export const ExplainConceptOutputSchema = z
   .strict()
 
 export type ExplainConceptOutput = z.infer<typeof ExplainConceptOutputSchema>
+
+/**
+ * One concept in a drafted graph (ADR-0010): the dotted natural slug (e.g.
+ * `rust.async.send`) and a 1-5 difficulty. Parsed strictly — the model's
+ * structured output is untrusted input, and the slug shape is a DB-level
+ * invariant.
+ */
+export const ConceptDraftSchema = z
+  .object({
+    slug: z
+      .string()
+      .trim()
+      .min(1)
+      .regex(CONCEPT_SLUG_PATTERN, 'Concept slug must be dotted lowercase'),
+    difficulty: z
+      .number()
+      .int()
+      .min(CONCEPT_DIFFICULTY_MIN)
+      .max(CONCEPT_DIFFICULTY_MAX),
+  })
+  .strict()
+
+export type ConceptDraft = z.infer<typeof ConceptDraftSchema>
+
+/**
+ * One edge in a drafted graph, referencing concepts by slug (the model
+ * cannot know persisted ids). `kind` discriminates prerequisite from
+ * related (ADR-0010).
+ */
+export const ConceptEdgeDraftSchema = z
+  .object({
+    from: z
+      .string()
+      .trim()
+      .min(1)
+      .regex(CONCEPT_SLUG_PATTERN, 'Concept slug must be dotted lowercase'),
+    to: z
+      .string()
+      .trim()
+      .min(1)
+      .regex(CONCEPT_SLUG_PATTERN, 'Concept slug must be dotted lowercase'),
+    kind: z.enum(CONCEPT_EDGE_KINDS),
+  })
+  .strict()
+
+export type ConceptEdgeDraft = z.infer<typeof ConceptEdgeDraftSchema>
+
+/** Input to `draftConceptGraph`: the language to draft a broad graph for. */
+export const DraftConceptGraphInputSchema = z.object({
+  language: z.enum(SANDBOX_LANGUAGES),
+})
+
+export type DraftConceptGraphInput = z.infer<
+  typeof DraftConceptGraphInputSchema
+>
+
+/**
+ * Structured output of `draftConceptGraph`: a broad per-language set of
+ * concepts and their prerequisite/related edges. `edges` defaults to empty
+ * so a concepts-only draft stays valid. Parsed strictly as model output.
+ */
+export const DraftConceptGraphOutputSchema = z
+  .object({
+    concepts: z.array(ConceptDraftSchema).min(1),
+    edges: z.array(ConceptEdgeDraftSchema).default([]),
+  })
+  .strict()
+
+export type DraftConceptGraphOutput = z.infer<
+  typeof DraftConceptGraphOutputSchema
+>
 
 /**
  * The Stage 2 evaluation rubric of one exercise (ADR-0017, SPEC story 29):

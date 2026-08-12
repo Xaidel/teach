@@ -1,9 +1,12 @@
 import { TeacherEngineError, callTeacherEngine } from './client.server'
+import { buildDraftConceptGraphMessages } from './prompts/draft-concept-graph.prompt'
 import { buildExplainConceptMessages } from './prompts/explain-concept.prompt'
 import { buildGenerateHintMessages } from './prompts/generate-hint.prompt'
 import { buildReviewSubmissionMessages } from './prompts/review-submission.prompt'
 import { checkPromptShield } from './prompt-shield'
 import {
+  DraftConceptGraphInputSchema,
+  DraftConceptGraphOutputSchema,
   ExplainConceptInputSchema,
   ExplainConceptOutputSchema,
   GenerateHintInputSchema,
@@ -12,6 +15,8 @@ import {
   ReviewSubmissionOutputSchema,
 } from './schemas'
 import type {
+  DraftConceptGraphInput,
+  DraftConceptGraphOutput,
   ExplainConceptInput,
   ExplainConceptOutput,
   GenerateHintInput,
@@ -29,6 +34,7 @@ import type { ReasoningEffort } from './types'
 const REASONING_EFFORT_HINT: ReasoningEffort = 'low'
 const REASONING_EFFORT_EXPLAIN: ReasoningEffort = 'low'
 const REASONING_EFFORT_REVIEW: ReasoningEffort = 'high'
+const REASONING_EFFORT_GENERATION: ReasoningEffort = 'high'
 
 /**
  * The safe fallback served when the Prompt Shield blocks a hint: a generic,
@@ -117,5 +123,25 @@ export async function reviewSubmission(
     schemaName: 'stage2_review',
     outputSchema: ReviewSubmissionOutputSchema,
     messages: buildReviewSubmissionMessages(validated),
+  })
+}
+
+/**
+ * Drafts a broad initial Concept Graph for a language (SPEC stories 38-40,
+ * ADR-0016, issue #7): a wide set of concepts and their prerequisite/related
+ * edges, AI-drafted and then structurally reviewed in-app. Generation is a
+ * high-effort task (ADR-0004). The draft is just raw material — it passes
+ * through the deterministic Concept Validation gate before anything is
+ * usable, and the model never decides what is usable.
+ */
+export async function draftConceptGraph(
+  input: DraftConceptGraphInput,
+): Promise<DraftConceptGraphOutput> {
+  const validated = DraftConceptGraphInputSchema.parse(input)
+  return callTeacherEngine({
+    reasoningEffort: REASONING_EFFORT_GENERATION,
+    schemaName: 'concept_graph_draft',
+    outputSchema: DraftConceptGraphOutputSchema,
+    messages: buildDraftConceptGraphMessages(validated),
   })
 }
