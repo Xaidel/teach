@@ -7,7 +7,7 @@ import { concepts, preFlightAttempts } from '#/db/schema'
 
 import { PRE_FLIGHT_RECENCY_WINDOW_DAYS } from './exercise-generation.schema'
 import type { PreFlightAttemptAggregate } from './exercise-generation.schema'
-import { getPreFlightAttemptAggregates } from './pre-flight-signals.server'
+import { getPreFlightAttemptAggregates } from './pre-flight-attempt-aggregates.server'
 
 async function dbAvailable(): Promise<boolean> {
   try {
@@ -96,7 +96,7 @@ afterAll(async () => {
   await db.delete(concepts).where(inArray(concepts.id, FIXTURE_CONCEPT_IDS))
 })
 
-describe.skipIf(!dbUp)('pre-flight failure signals against Postgres', () => {
+describe.skipIf(!dbUp)('pre-flight attempt aggregates against Postgres', () => {
   it('aggregates total and failed attempts per concept (SPEC story 35)', async () => {
     const conceptA = fixtureConceptId(0)
     const conceptB = fixtureConceptId(1)

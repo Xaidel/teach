@@ -12,7 +12,7 @@ import {
   requestHint,
   submitExercise,
 } from './exercise.server'
-import { getPreFlightAttemptAggregates } from './pre-flight-signals.server'
+import { getPreFlightAttemptAggregates } from './pre-flight-attempt-aggregates.server'
 
 /**
  * Loads every exercise a learner may attempt — the hardcoded v1 seeds plus
