@@ -185,6 +185,34 @@ export type PreFlightDiagnosticsInput = z.infer<
 >
 
 /**
+ * The declared, intentional defect of an adversarial (debug-mode) exercise
+ * (SPEC story 52, PRD §20, issue #11): the machine-readable "known defect"
+ * of the adversarial contract — kind, what it is, where it lives, and the
+ * expected behavior the fixed reference solution exhibits. It is a
+ * generation-contract declaration, not a substitute for verification:
+ * Pre-Flight validates behaviorally that the defect makes the broken state
+ * fail and the reference passes. Parsed strictly as model output.
+ */
+export const ExerciseDefectSchema = z
+  .object({
+    kind: z.enum([
+      'ownership',
+      'lifetime',
+      'race_condition',
+      'broken_invariant',
+      'error_handling',
+      'api_misuse',
+      'other',
+    ]),
+    description: z.string().trim().min(1),
+    location: z.string().trim().min(1),
+    expectedBehavior: z.string().trim().min(1),
+  })
+  .strict()
+
+export type ExerciseDefect = z.infer<typeof ExerciseDefectSchema>
+
+/**
  * Input to `generateExercise`: the language and the concept the exercise
  * must target, with the concept's persisted difficulty as a difficulty
  * anchor (SPEC story 29, PRD §13). The caller (Pre-Flight, ticket #8)
@@ -196,6 +224,11 @@ export type PreFlightDiagnosticsInput = z.infer<
  * first attempt. `simplifiedConstraints` marks the circuit-breaker's
  * terminal fallback regeneration, which uses a reduced constraint set
  * rather than looping (SPEC story 34, PRD §5.2, issue #9).
+ * `adversarial` targets an adversarial (debug-mode) exercise: starterCode
+ * intentionally contains one known defect of a declared kind and the
+ * learner is asked to find and fix it, gated by the same Pre-Flight
+ * Validation as any other exercise (SPEC stories 51-52, PRD §20, issue
+ * #11). When set, the generated output must carry a `defect` declaration.
  */
 export const GenerateExerciseInputSchema = z.object({
   language: z.enum(SANDBOX_LANGUAGES),
@@ -210,6 +243,7 @@ export const GenerateExerciseInputSchema = z.object({
     .max(CONCEPT_DIFFICULTY_MAX),
   previousDiagnostics: PreFlightDiagnosticsInputSchema.optional(),
   simplifiedConstraints: z.boolean().optional(),
+  adversarial: z.boolean().optional(),
 })
 
 export type GenerateExerciseInput = z.infer<typeof GenerateExerciseInputSchema>
@@ -221,8 +255,13 @@ export type GenerateExerciseInput = z.infer<typeof GenerateExerciseInputSchema>
  * metadata. `evaluation.tests` names one test function per named test —
  * the testSource file must define exactly those names, which is what lets
  * Pre-Flight check that the intended broken state fails on the target
- * concept's tests rather than incidentally (PRD §14). Parsed strictly:
- * model output is untrusted input.
+ * concept's tests rather than incidentally (PRD §14). `defect` is the
+ * declared intentional defect of an adversarial (debug-mode) generation
+ * (SPEC stories 51-52, PRD §20, issue #11); it is optional in the schema
+ * and required in practice for adversarial inputs — `generateExercise`
+ * rejects an adversarial call whose output omits it (an invented,
+ * undeclared bug must never ship). Parsed strictly: model output is
+ * untrusted input.
  */
 export const GeneratedExerciseSchema = z
   .object({
@@ -254,6 +293,7 @@ export const GeneratedExerciseSchema = z
       .max(CONCEPT_DIFFICULTY_MAX),
     estimatedMinutes: z.number().int().min(1),
     constraints: z.array(z.string().trim().min(1)),
+    defect: ExerciseDefectSchema.optional(),
     evaluation: z
       .object({
         tests: z.array(z.string().trim().min(1)).min(1),

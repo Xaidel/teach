@@ -156,7 +156,12 @@ export async function draftConceptGraph(
  * issue #8): the learner-facing prompt and code, the reference solution,
  * the test harness, and the exercise metadata (target concepts,
  * prerequisites, difficulty, estimated minutes, constraints, and the
- * evaluation spec — tests plus the Stage 2 rubric, ADR-0017/0019).
+ * evaluation spec — tests plus the Stage 2 rubric, ADR-0017/0019). When
+ * `adversarial` is set, generation targets a debug-mode exercise whose
+ * starterCode intentionally contains one known defect of a declared kind
+ * (SPEC stories 51-52, PRD §20, issue #11) — the output must carry the
+ * `defect` declaration, and an adversarial call whose output omits it is
+ * rejected as invalid output: an invented, undeclared bug never ships.
  * Generation is a high-effort task (ADR-0004). The output is only raw
  * material: it must pass the deterministic Pre-Flight Validation gate
  * (reference compiles and passes, intended broken state fails on the
@@ -167,10 +172,19 @@ export async function generateExercise(
   input: GenerateExerciseInput,
 ): Promise<GeneratedExercise> {
   const validated = GenerateExerciseInputSchema.parse(input)
-  return callTeacherEngine({
+  const output = await callTeacherEngine({
     reasoningEffort: REASONING_EFFORT_GENERATION,
     schemaName: 'exercise_generation',
     outputSchema: GeneratedExerciseSchema,
     messages: buildGenerateExerciseMessages(validated),
   })
+
+  if (validated.adversarial && !output.defect) {
+    throw new TeacherEngineError(
+      'invalid_output',
+      'Adversarial generation returned no defect declaration.',
+    )
+  }
+
+  return output
 }

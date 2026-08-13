@@ -90,6 +90,25 @@ const REFERENCE_PASSES: SandboxResult = {
   tests: [{ name: 'borrows_its_argument', status: 'passed' }],
 }
 
+/**
+ * An adversarial (debug-mode) draft of the same fixture exercise: the same
+ * code, but the starterCode defect is declared — it consumes the vector —
+ * and the learner-facing prompt frames the debugging task (SPEC story 51,
+ * issue #11).
+ */
+const ADVERSARIAL_GENERATED: GeneratedExercise = {
+  ...GENERATED,
+  prompt:
+    'The function `first(v: Vec<u32>)` contains a defect: it consumes the vector instead of borrowing it. Find the defect and fix it so the vector is still usable after the call.',
+  defect: {
+    kind: 'ownership',
+    description: 'first consumes the vector instead of borrowing it',
+    location: 'first',
+    expectedBehavior:
+      'first returns the first element while leaving the vector usable',
+  },
+}
+
 const BROKEN_FAILS_ON_CONCEPT: SandboxResult = {
   passed: false,
   tests: [
@@ -454,6 +473,154 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
       return
     }
     expect(outcome.preflight.passed).toBe(true)
+  })
+
+  it('persists an adversarial exercise as debug mode with the declared defect', async () => {
+    generateExerciseMock.mockResolvedValue(ADVERSARIAL_GENERATED)
+    runSandboxSubmissionMock
+      .mockResolvedValueOnce(REFERENCE_PASSES)
+      .mockResolvedValueOnce(BROKEN_FAILS_ON_CONCEPT)
+
+    const outcome = await generateExerciseForConcept({
+      language: 'rust',
+      conceptSlug: FIXTURE_CONCEPT_SLUG,
+      adversarial: true,
+    })
+
+    expect(outcome.kind).toBe('generated')
+    if (outcome.kind !== 'generated') {
+      return
+    }
+    // The generation contract carries the known defect: kind, description,
+    // location, and the expected behavior of the fix (SPEC story 52).
+    expect(outcome.defect).toEqual(ADVERSARIAL_GENERATED.defect)
+
+    const aiCall = generateExerciseMock.mock.calls[0]?.[0]
+    expect(aiCall).toMatchObject({
+      language: 'rust',
+      conceptSlug: FIXTURE_CONCEPT_SLUG,
+      conceptDifficulty: 2,
+      adversarial: true,
+    })
+
+    // The adversarial gate is the exact same Pre-Flight gate as any other
+    // exercise: one reference run and one broken-state run against the
+    // same test harness, no extra checks.
+    const sandboxCalls = runSandboxSubmissionMock.mock.calls.map(
+      ([call]) => call,
+    )
+    expect(sandboxCalls).toHaveLength(2)
+    expect(sandboxCalls[0]).toMatchObject({
+      language: 'rust',
+      code: ADVERSARIAL_GENERATED.referenceSolution,
+      testSource: ADVERSARIAL_GENERATED.testSource,
+    })
+    expect(sandboxCalls[1]).toMatchObject({
+      language: 'rust',
+      code: ADVERSARIAL_GENERATED.starterCode,
+      testSource: ADVERSARIAL_GENERATED.testSource,
+    })
+
+    const [row] = await db
+      .select()
+      .from(exercises)
+      .where(eq(exercises.id, outcome.exercise.id))
+    expect(row).toMatchObject({
+      mode: 'debug',
+      status: 'verified',
+      referenceSolution: ADVERSARIAL_GENERATED.referenceSolution,
+      testSource: ADVERSARIAL_GENERATED.testSource,
+    })
+
+    const [attempt] = await db
+      .select()
+      .from(preFlightAttempts)
+      .where(eq(preFlightAttempts.conceptId, FIXTURE_CONCEPT_ID))
+    expect(attempt?.attemptNumber).toBe(1)
+    expect(attempt?.passed).toBe(true)
+    expect(attempt?.diagnostics.checks).toHaveLength(3)
+  })
+
+  it('discards and retries a failing adversarial generation exactly like a non-adversarial one', async () => {
+    generateExerciseMock.mockResolvedValue(ADVERSARIAL_GENERATED)
+    // Attempt 1: the reference solution fails to compile.
+    scheduleFailingPreFlight([REFERENCE_FAILS, BROKEN_FAILS_ON_CONCEPT])
+    // Attempt 2: the regenerated adversarial exercise passes every check.
+    runSandboxSubmissionMock
+      .mockResolvedValueOnce(REFERENCE_PASSES)
+      .mockResolvedValueOnce(BROKEN_FAILS_ON_CONCEPT)
+
+    const outcome = await generateExerciseForConcept({
+      language: 'rust',
+      conceptSlug: FIXTURE_CONCEPT_SLUG,
+      adversarial: true,
+    })
+
+    expect(outcome.kind).toBe('generated')
+    if (outcome.kind !== 'generated') {
+      return
+    }
+    expect(outcome.preflight.attemptNumber).toBe(2)
+
+    // The retry was fed the attempt-1 diagnostics and kept the adversarial
+    // target — the failed draft was discarded, never persisted.
+    expect(generateExerciseMock).toHaveBeenCalledTimes(2)
+    const retryInput = generateExerciseMock.mock.calls[1]?.[0]
+    expect(retryInput?.previousDiagnostics?.checks[0]).toMatchObject({
+      name: 'reference_passes',
+      passed: false,
+    })
+    expect(retryInput?.adversarial).toBe(true)
+
+    const attempts = await db
+      .select()
+      .from(preFlightAttempts)
+      .where(eq(preFlightAttempts.conceptId, FIXTURE_CONCEPT_ID))
+      .orderBy(sql`attempt_number asc`)
+    expect(attempts.map((attempt) => attempt.passed)).toEqual([false, true])
+
+    const rows = await db
+      .select()
+      .from(exercises)
+      .where(like(exercises.slug, 'rust-test-rust-borrowing-%'))
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ mode: 'debug', status: 'verified' })
+  })
+
+  it('keeps the adversarial target through the simplified fallback regeneration', async () => {
+    generateExerciseMock.mockResolvedValue(ADVERSARIAL_GENERATED)
+    // Attempts 1-3: every run fails the same way.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      scheduleFailingPreFlight([REFERENCE_FAILS, BROKEN_FAILS_ON_CONCEPT])
+    }
+    // Attempt 4 (simplified constraint set): passes every check.
+    runSandboxSubmissionMock
+      .mockResolvedValueOnce(REFERENCE_PASSES)
+      .mockResolvedValueOnce(BROKEN_FAILS_ON_CONCEPT)
+
+    const outcome = await generateExerciseForConcept({
+      language: 'rust',
+      conceptSlug: FIXTURE_CONCEPT_SLUG,
+      adversarial: true,
+    })
+
+    expect(outcome.kind).toBe('generated')
+    if (outcome.kind !== 'generated') {
+      return
+    }
+    expect(outcome.simplified).toBe(true)
+    expect(outcome.preflight.attemptNumber).toBe(4)
+    expect(outcome.defect).toEqual(ADVERSARIAL_GENERATED.defect)
+
+    const calls = generateExerciseMock.mock.calls.map(([call]) => call)
+    expect(calls[3]?.simplifiedConstraints).toBe(true)
+    expect(calls[3]?.adversarial).toBe(true)
+
+    const [row] = await db
+      .select()
+      .from(exercises)
+      .where(eq(exercises.id, outcome.exercise.id))
+    expect(row).toMatchObject({ mode: 'debug', status: 'verified' })
   })
 
   it('maps an AI Teacher Engine failure to a stable generation error without retrying', async () => {
