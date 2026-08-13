@@ -225,6 +225,49 @@ test('generation surfaces a graceful failure when the AI is unreachable', async 
   ).toBeVisible({ timeout: 60_000 })
 })
 
+test('sets and persists the explanation depth and reference frame (issue #12)', async ({
+  page,
+}) => {
+  await page.goto('/')
+
+  const panel = page.getByRole('region', { name: 'Explanation preferences' })
+  await expect(panel).toBeVisible()
+
+  await panel
+    .getByRole('button', { name: '5 · Runtime/Compiler internals' })
+    .click()
+  await expect(
+    panel.getByRole('button', { name: '5 · Runtime/Compiler internals' }),
+  ).toHaveAttribute('aria-pressed', 'true')
+
+  await panel
+    .getByLabel('Reference frame (optional)')
+    .fill('as a senior JavaScript developer')
+  await panel.getByRole('button', { name: 'Save' }).click()
+
+  // Reloading re-fetches the persisted preferences through the route
+  // loader — a real page load, not just component state.
+  await page.reload()
+
+  const reloadedPanel = page.getByRole('region', {
+    name: 'Explanation preferences',
+  })
+  await expect(
+    reloadedPanel.getByRole('button', {
+      name: '5 · Runtime/Compiler internals',
+    }),
+  ).toHaveAttribute('aria-pressed', 'true')
+  await expect(
+    reloadedPanel.getByLabel('Reference frame (optional)'),
+  ).toHaveValue('as a senior JavaScript developer')
+
+  // Reset back to the default so this spec leaves shared v1 learner state
+  // as it found it for other e2e specs run in the same suite.
+  await reloadedPanel.getByRole('button', { name: '3 · Developer' }).click()
+  await reloadedPanel.getByLabel('Reference frame (optional)').fill('')
+  await reloadedPanel.getByRole('button', { name: 'Save' }).click()
+})
+
 test('escalates the manual Socratic hint ladder one level at a time', async ({
   page,
 }) => {

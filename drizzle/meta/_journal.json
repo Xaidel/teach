@@ -71,6 +71,13 @@
       "when": 1786619830229,
       "tag": "0009_rekey-drop-submissions-results-hints",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1786625627296,
+      "tag": "0010_heavy_the_anarchist",
+      "breakpoints": true
     }
   ]
 }
