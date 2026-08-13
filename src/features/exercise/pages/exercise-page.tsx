@@ -1,4 +1,4 @@
-import { getRouteApi } from '@tanstack/react-router'
+import { Link, getRouteApi } from '@tanstack/react-router'
 
 import type { ExplanationPreferences } from '#/features/learners/learners.schema'
 import { Badge } from '#/shared/components/ui/badge'
@@ -57,6 +57,12 @@ export function ExercisePage(): React.JSX.Element {
             {String(data.exercises.length)} exercises · {languages || 'none'}
           </p>
         </div>
+        <Link
+          className="w-fit text-sm font-semibold text-primary underline"
+          to="/tactical-sprint"
+        >
+          Don&apos;t understand an AI-generated snippet? Try a Tactical Sprint →
+        </Link>
       </header>
 
       <div className="mb-10 grid gap-6">

@@ -32,7 +32,10 @@ export function isExerciseGenerationLanguage(
  * learner must find and fix, gated by the same Pre-Flight Validation as
  * any other exercise (SPEC stories 51-52, PRD §20, issue #11); when set,
  * the persisted row carries `mode = 'debug'` and the generation output
- * declares the defect.
+ * declares the defect. `sprintScoped` targets a Class B Tactical Sprint
+ * exercise (SPEC stories 6-7, ticket #13): a 5-10 minute estimate is
+ * enforced (`EXERCISE_GENERATION_INVALID` otherwise) rather than the
+ * general 1-15 minute range.
  */
 export const GenerateExerciseForConceptInputSchema = z.object({
   language: z.enum(SANDBOX_LANGUAGES),
@@ -42,11 +45,22 @@ export const GenerateExerciseForConceptInputSchema = z.object({
     .min(1)
     .regex(CONCEPT_SLUG_PATTERN, 'Concept slug must be dotted lowercase'),
   adversarial: z.boolean().optional(),
+  sprintScoped: z.boolean().optional(),
 })
 
 export type GenerateExerciseForConceptInput = z.infer<
   typeof GenerateExerciseForConceptInputSchema
 >
+
+/**
+ * The estimated-minutes range a Class B Tactical Sprint exercise must fall
+ * within (SPEC stories 6-7, ticket #13): "5-to-10-minute targeted exercise"
+ * per the spec's own framing. A `sprintScoped` draft outside this range is
+ * rejected the same way an off-target `targetConcepts` draft is (ticket
+ * #8's precedent) — never silently accepted with a misleading estimate.
+ */
+export const SPRINT_MIN_MINUTES = 5
+export const SPRINT_MAX_MINUTES = 10
 
 /**
  * The 3-attempt cap of the Pre-Flight retry loop (SPEC story 33, PRD §5.2,

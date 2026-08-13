@@ -3,6 +3,7 @@ import { buildDraftConceptGraphMessages } from './prompts/draft-concept-graph.pr
 import { buildExplainConceptMessages } from './prompts/explain-concept.prompt'
 import { buildGenerateExerciseMessages } from './prompts/generate-exercise.prompt'
 import { buildGenerateHintMessages } from './prompts/generate-hint.prompt'
+import { buildIdentifySnippetConceptsMessages } from './prompts/identify-snippet-concepts.prompt'
 import { buildReviewSubmissionMessages } from './prompts/review-submission.prompt'
 import { checkPromptShield } from './prompt-shield'
 import {
@@ -14,6 +15,8 @@ import {
   GeneratedExerciseSchema,
   GenerateHintInputSchema,
   HintSchema,
+  IdentifySnippetConceptsInputSchema,
+  IdentifySnippetConceptsOutputSchema,
   ReviewSubmissionInputSchema,
   ReviewSubmissionOutputSchema,
 } from './schemas'
@@ -26,6 +29,8 @@ import type {
   GeneratedExercise,
   GenerateHintInput,
   Hint,
+  IdentifySnippetConceptsInput,
+  IdentifySnippetConceptsOutput,
   ReviewSubmissionInput,
   ReviewSubmissionOutput,
 } from './schemas'
@@ -40,6 +45,7 @@ const REASONING_EFFORT_HINT: ReasoningEffort = 'low'
 const REASONING_EFFORT_EXPLAIN: ReasoningEffort = 'low'
 const REASONING_EFFORT_REVIEW: ReasoningEffort = 'high'
 const REASONING_EFFORT_GENERATION: ReasoningEffort = 'high'
+const REASONING_EFFORT_IDENTIFY: ReasoningEffort = 'high'
 
 /**
  * The safe fallback served when the Prompt Shield blocks a hint: a generic,
@@ -149,6 +155,29 @@ export async function draftConceptGraph(
     schemaName: 'concept_graph_draft',
     outputSchema: DraftConceptGraphOutputSchema,
     messages: buildDraftConceptGraphMessages(validated),
+  })
+}
+
+/**
+ * Identifies the concepts a pasted snippet depends on (SPEC stories 4-5,
+ * ticket #13): the Tactical Sprint (Class B) entry point. `knownConceptSlugs`
+ * biases the model toward matching an existing Concept Graph concept over
+ * minting a new one; the caller resolves each returned slug against the
+ * graph and ad-hoc drafts an unmatched one immediately (ADR-0016's
+ * runtime-gap case) — this function only identifies, it never decides graph
+ * membership or which concept is weakest. Generation-adjacent (feeds
+ * exercise targeting and concept-graph writes), so it runs at high
+ * reasoning effort like the other generation tasks (ADR-0004).
+ */
+export async function identifySnippetConcepts(
+  input: IdentifySnippetConceptsInput,
+): Promise<IdentifySnippetConceptsOutput> {
+  const validated = IdentifySnippetConceptsInputSchema.parse(input)
+  return callTeacherEngine({
+    reasoningEffort: REASONING_EFFORT_IDENTIFY,
+    schemaName: 'snippet_concepts',
+    outputSchema: IdentifySnippetConceptsOutputSchema,
+    messages: buildIdentifySnippetConceptsMessages(validated),
   })
 }
 

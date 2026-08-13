@@ -18,6 +18,7 @@ import {
   explainConcept,
   generateExercise,
   generateHint,
+  identifySnippetConcepts,
   reviewSubmission,
 } from './functions.server'
 import {
@@ -31,6 +32,7 @@ import {
   ExplainConceptOutputSchema,
   GeneratedExerciseSchema,
   HintSchema,
+  IdentifySnippetConceptsOutputSchema,
   ReviewSubmissionOutputSchema,
 } from './schemas'
 import type {
@@ -458,6 +460,115 @@ describe('draftConceptGraph', () => {
       edges: [],
     })
   })
+
+  it('scopes the prompt to a single ad-hoc concept when focusConcept is set (ADR-0016 runtime gap)', async () => {
+    callMock.mockResolvedValue({
+      concepts: [{ slug: 'rust.interior_mutability', difficulty: 4 }],
+      edges: [],
+    })
+
+    const output = await draftConceptGraph({
+      language: 'rust',
+      focusConcept: {
+        slug: 'rust.interior_mutability',
+        description: 'Mutating data through a shared reference via RefCell.',
+      },
+    })
+
+    expect(output).toEqual({
+      concepts: [{ slug: 'rust.interior_mutability', difficulty: 4 }],
+      edges: [],
+    })
+
+    const call = callMock.mock.calls[0]?.[0]
+    const userMessage = call?.messages.find(
+      (message) => message.role === 'user',
+    )
+    expect(userMessage?.content).toContain(
+      'Concept slug (use exactly this slug): rust.interior_mutability',
+    )
+    expect(userMessage?.content).toContain(
+      'Mutating data through a shared reference via RefCell.',
+    )
+    const systemMessage = call?.messages.find(
+      (message) => message.role === 'system',
+    )
+    expect(systemMessage?.content).toContain('EXACTLY ONE concept')
+  })
+})
+
+describe('identifySnippetConcepts', () => {
+  const IDENTIFY_OUTPUT = {
+    concepts: [
+      {
+        slug: 'rust.borrowing',
+        description: 'The function takes a reference instead of ownership.',
+      },
+    ],
+  }
+
+  it('calls the client with high effort and the identification schema', async () => {
+    callMock.mockResolvedValue(IDENTIFY_OUTPUT)
+
+    const output = await identifySnippetConcepts({
+      language: 'rust',
+      snippet: 'pub fn first(v: &Vec<u32>) -> u32 { v[0] }',
+      knownConceptSlugs: ['rust.ownership', 'rust.borrowing'],
+    })
+
+    expect(output).toEqual(IDENTIFY_OUTPUT)
+
+    const call = callMock.mock.calls[0]?.[0]
+    expect(call?.reasoningEffort).toBe('high')
+    expect(call?.schemaName).toBe('snippet_concepts')
+    expect(call?.outputSchema).toBe(IdentifySnippetConceptsOutputSchema)
+    const userMessage = call?.messages.find(
+      (message) => message.role === 'user',
+    )
+    expect(userMessage?.content).toContain('Language: rust')
+    expect(userMessage?.content).toContain(
+      'pub fn first(v: &Vec<u32>) -> u32 { v[0] }',
+    )
+    expect(userMessage?.content).toContain('rust.ownership, rust.borrowing')
+  })
+
+  it('tells the model to propose new slugs when the graph has no known concepts yet', async () => {
+    callMock.mockResolvedValue(IDENTIFY_OUTPUT)
+
+    await identifySnippetConcepts({
+      language: 'rust',
+      snippet: 'pub fn first(v: &Vec<u32>) -> u32 { v[0] }',
+      knownConceptSlugs: [],
+    })
+
+    const call = callMock.mock.calls[0]?.[0]
+    const userMessage = call?.messages.find(
+      (message) => message.role === 'user',
+    )
+    expect(userMessage?.content).toContain('No concepts exist yet')
+  })
+
+  it('rejects an empty concepts list as invalid output', async () => {
+    callMock.mockImplementation((call) => {
+      const parsed = call.outputSchema.safeParse({ concepts: [] })
+      if (!parsed.success) {
+        throw new TeacherEngineError(
+          'invalid_output',
+          'The AI Teacher Engine returned output that failed schema validation.',
+          { cause: parsed.error },
+        )
+      }
+      return Promise.resolve(parsed.data)
+    })
+
+    await expect(
+      identifySnippetConcepts({
+        language: 'rust',
+        snippet: 'fn f() {}',
+        knownConceptSlugs: [],
+      }),
+    ).rejects.toMatchObject({ kind: 'invalid_output' })
+  })
 })
 
 describe('generateExercise', () => {
@@ -675,5 +786,41 @@ describe('generateExercise', () => {
     )
     expect(userMessage?.content).not.toContain('ADVERSARIAL EXERCISE')
     expect(userMessage?.content).not.toContain('"defect":')
+  })
+
+  it('scopes the prompt to a 5-10 minute tactical sprint when sprintScoped is set (ticket #13)', async () => {
+    callMock.mockResolvedValue({ ...GENERATED_OUTPUT, estimatedMinutes: 7 })
+
+    await generateExercise({
+      language: 'rust',
+      conceptSlug: 'rust.borrowing',
+      conceptDifficulty: 3,
+      sprintScoped: true,
+    })
+
+    const call = callMock.mock.calls[0]?.[0]
+    const userMessage = call?.messages.find(
+      (message) => message.role === 'user',
+    )
+    expect(userMessage?.content).toContain('TACTICAL SPRINT')
+    expect(userMessage?.content).toContain('between 5 and 10 inclusive')
+    expect(userMessage?.content).toContain('"estimatedMinutes": <5-10>')
+  })
+
+  it('omits the tactical sprint contract from a non-sprint generation prompt', async () => {
+    callMock.mockResolvedValue(GENERATED_OUTPUT)
+
+    await generateExercise({
+      language: 'rust',
+      conceptSlug: 'rust.borrowing',
+      conceptDifficulty: 3,
+    })
+
+    const call = callMock.mock.calls[0]?.[0]
+    const userMessage = call?.messages.find(
+      (message) => message.role === 'user',
+    )
+    expect(userMessage?.content).not.toContain('TACTICAL SPRINT')
+    expect(userMessage?.content).toContain('"estimatedMinutes": <1-15>')
   })
 })

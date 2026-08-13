@@ -194,31 +194,29 @@ function isSelfLoop(edge: ConceptEdgeDraft): boolean {
 }
 
 /**
- * Drafts a broad initial Concept Graph for one language through the AI
- * Teacher Engine and persists it directly into the `concepts`/`concept_edges`
- * tables (ADR-0016): every drafted concept lands as `status: draft`; edges
- * with both endpoints present are persisted (cycle edges stay visible for
- * correction), while self-loops and dangling references are dropped and
- * reported. Every written row is covered by Concept Validation — failing
- * edges are persisted but excluded from Class A/Class B use regardless of
- * status. The model output is only raw material; it never decides usability.
+ * Shared persist step for a drafted graph, broad or single-concept: writes
+ * every new concept and edge into `concepts`/`concept_edges`, reporting
+ * what was inserted, duplicated, or dropped (ADR-0016). Every drafted
+ * concept lands as `status: draft`; edges with both endpoints present are
+ * persisted (cycle edges stay visible for correction), while self-loops and
+ * dangling references are dropped and reported. Every written row is
+ * covered by Concept Validation — failing edges are persisted but excluded
+ * from Class A/Class B use regardless of status. The model output is only
+ * raw material; it never decides usability. Shared by `draftConcepts`
+ * (broad, ticket #7) and `draftFocusedConcept` (Class B runtime-gap, ticket
+ * #13) so both write paths run the exact same insert/validation-report
+ * logic; the returned `slugToId` map lets a focused caller resolve the one
+ * concept id it actually needs.
  */
-export async function draftConcepts(
+async function persistDraftedGraph(
   language: SandboxLanguage,
-): Promise<DraftConceptsOutput> {
-  let draft: DraftConceptGraphOutput
-  try {
-    draft = await draftConceptGraph({ language })
-  } catch (error) {
-    if (error instanceof TeacherEngineError) {
-      throw new ConceptError('CONCEPT_DRAFT_FAILED')
-    }
-    throw error
-  }
-
+  draft: DraftConceptGraphOutput,
+): Promise<
+  Omit<DraftConceptsOutput, 'language'> & { slugToId: Map<string, string> }
+> {
   const report = validateConceptGraph(draft.concepts, draft.edges)
 
-  const result = await db.transaction(async (tx) => {
+  return db.transaction(async (tx) => {
     const existing = await tx
       .select({ id: concepts.id, slug: concepts.slug })
       .from(concepts)
@@ -302,10 +300,81 @@ export async function draftConcepts(
       cycleEdges,
       droppedSelfLoops,
       droppedDanglingEdges,
+      slugToId,
     }
   })
+}
 
-  return { language, ...result }
+/**
+ * Drafts a broad initial Concept Graph for one language through the AI
+ * Teacher Engine and persists it (see `persistDraftedGraph` for the
+ * write/validation-report semantics, ADR-0016).
+ */
+export async function draftConcepts(
+  language: SandboxLanguage,
+): Promise<DraftConceptsOutput> {
+  let draft: DraftConceptGraphOutput
+  try {
+    draft = await draftConceptGraph({ language })
+  } catch (error) {
+    if (error instanceof TeacherEngineError) {
+      throw new ConceptError('CONCEPT_DRAFT_FAILED')
+    }
+    throw error
+  }
+
+  const persisted = await persistDraftedGraph(language, draft)
+  return {
+    language,
+    conceptsInserted: persisted.conceptsInserted,
+    edgesInserted: persisted.edgesInserted,
+    duplicateConcepts: persisted.duplicateConcepts,
+    duplicateEdges: persisted.duplicateEdges,
+    cycleEdges: persisted.cycleEdges,
+    droppedSelfLoops: persisted.droppedSelfLoops,
+    droppedDanglingEdges: persisted.droppedDanglingEdges,
+  }
+}
+
+/**
+ * Ad-hoc single-concept draft for the Class B runtime gap (ADR-0016, ticket
+ * #13): when a Tactical Sprint identifies a concept from a pasted snippet
+ * with no match in the existing Concept Graph, this drafts and persists
+ * that one concept immediately — `status: draft`, usable right away, no
+ * blocking on review. The slug is fixed by the caller (the identification
+ * step's own output) and never renamed by the model; a draft whose output
+ * omits it is invalid model output and rejected the same way an off-target
+ * `generateExercise` draft is (ticket #8's precedent).
+ */
+export async function draftFocusedConcept(input: {
+  language: SandboxLanguage
+  slug: string
+  description: string
+}): Promise<{ conceptId: string; slug: string }> {
+  let draft: DraftConceptGraphOutput
+  try {
+    draft = await draftConceptGraph({
+      language: input.language,
+      focusConcept: { slug: input.slug, description: input.description },
+    })
+  } catch (error) {
+    if (error instanceof TeacherEngineError) {
+      throw new ConceptError('CONCEPT_DRAFT_FAILED')
+    }
+    throw error
+  }
+
+  if (!draft.concepts.some((concept) => concept.slug === input.slug)) {
+    throw new ConceptError('CONCEPT_DRAFT_FAILED')
+  }
+
+  const { slugToId } = await persistDraftedGraph(input.language, draft)
+  const conceptId = slugToId.get(input.slug)
+  if (!conceptId) {
+    throw new ConceptError('CONCEPT_DRAFT_FAILED')
+  }
+
+  return { conceptId, slug: input.slug }
 }
 
 /** Marks a concept approved (or back to draft) through the review UI. */

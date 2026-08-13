@@ -23,6 +23,8 @@ import {
   isExerciseGenerationLanguage,
   MAX_PREFLIGHT_ATTEMPTS,
   SIMPLIFIED_FALLBACK_ATTEMPT_NUMBER,
+  SPRINT_MAX_MINUTES,
+  SPRINT_MIN_MINUTES,
 } from './exercise-generation.schema'
 import type {
   ExerciseGenerationLanguage,
@@ -315,6 +317,7 @@ export async function generateExerciseForConcept(input: {
   language: string
   conceptSlug: string
   adversarial?: boolean | undefined
+  sprintScoped?: boolean | undefined
 }): Promise<GenerateExerciseOutput> {
   if (!isExerciseGenerationLanguage(input.language)) {
     throw new GenerationError('EXERCISE_GENERATION_UNSUPPORTED')
@@ -345,6 +348,7 @@ export async function generateExerciseForConcept(input: {
       previousDiagnostics,
       simplifiedConstraints: false,
       adversarial: input.adversarial,
+      sprintScoped: input.sprintScoped,
     })
     if (attempt.kind === 'succeeded') {
       return attempt.outcome
@@ -372,6 +376,7 @@ export async function generateExerciseForConcept(input: {
     previousDiagnostics,
     simplifiedConstraints: true,
     adversarial: input.adversarial,
+    sprintScoped: input.sprintScoped,
   })
   if (finalAttempt.kind === 'succeeded') {
     return finalAttempt.outcome
@@ -400,6 +405,7 @@ async function runGenerationAttempt(input: {
   previousDiagnostics: PreFlightDiagnosticsInput | undefined
   simplifiedConstraints: boolean
   adversarial: boolean | undefined
+  sprintScoped: boolean | undefined
 }): Promise<
   | {
       kind: 'succeeded'
@@ -416,6 +422,7 @@ async function runGenerationAttempt(input: {
       previousDiagnostics: input.previousDiagnostics,
       simplifiedConstraints: input.simplifiedConstraints,
       adversarial: input.adversarial,
+      sprintScoped: input.sprintScoped,
     })
   } catch (error) {
     if (error instanceof TeacherEngineError) {
@@ -428,6 +435,18 @@ async function runGenerationAttempt(input: {
   // about something else is not usable raw material, whatever else it got
   // right (PRD §13 — generation is always scoped).
   if (!generated.targetConcepts.includes(input.conceptSlug)) {
+    throw new GenerationError('EXERCISE_GENERATION_INVALID')
+  }
+
+  // A Tactical Sprint (Class B) exercise must stay in the spec's own
+  // 5-10 minute window (SPEC stories 6-7, ticket #13) — a draft outside it
+  // is discarded the same way an off-target draft is, never silently kept
+  // with a misleading estimate.
+  if (
+    input.sprintScoped &&
+    (generated.estimatedMinutes < SPRINT_MIN_MINUTES ||
+      generated.estimatedMinutes > SPRINT_MAX_MINUTES)
+  ) {
     throw new GenerationError('EXERCISE_GENERATION_INVALID')
   }
 

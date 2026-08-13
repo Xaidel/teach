@@ -7,8 +7,15 @@ import type { masteryState } from '#/db/schema'
 
 export type MasteryState = (typeof masteryState.enumValues)[number]
 
-/** Total order over the five mastery states (ADR-0010, SPEC story 41). */
-const MASTERY_STATE_ORDER: Record<MasteryState, number> = {
+/**
+ * Total order over the five mastery states (ADR-0010, SPEC story 41).
+ * Exported as the narrow, named entry point `tactical-sprint.server.ts`
+ * imports (`arch_docs/dependency-rules.md`'s Feature Dependencies exception;
+ * the import is one-way and `learners` never imports back) so the Tactical
+ * Sprint (Class B, ticket #13) can rank a snippet's identified concepts by
+ * mastery and pick the weakest without duplicating the ordering here.
+ */
+export const MASTERY_STATE_ORDER: Record<MasteryState, number> = {
   unknown: 0,
   introduced: 1,
   practiced: 2,
