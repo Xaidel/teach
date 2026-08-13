@@ -105,6 +105,7 @@ Start new ADRs from [`template.md`](./template.md).
 | [ADR-0021](./0021-attempts-rekey-reconciliation.md) | `attempts` rekey reconciliation: closes ADR-0010's staging deviation, pins `outcome`/`time_to_solution`/`compiler_errors` semantics | Accepted | Refines ADR-0010; related to ADR-0008, ADR-0014, ADR-NNNN |
 | [ADR-0022](./0022-adversarial-exercises-debug-mode-generation.md) | Adversarial exercises as debug-mode generation with contract-only defect metadata | Proposed | Refines ADR-0010; related to ADR-0017, ADR-0019 |
 | [ADR-0023](./0023-defect-metadata-persistence-for-fallback-labeling.md) | Defect metadata persistence on `exercises` for fallback labeling fidelity | Proposed | Refines ADR-0022; related to ADR-0010, ADR-0017, ADR-0019 |
+| [ADR-0024](./0024-curriculum-lesson-caching.md) | Curriculum lesson caching: persist generated lessons keyed by generation inputs | Accepted | Related to ADR-0007, ADR-0010, ADR-0014 |
 
 Keep this table in the same change as any status or relationship update. Every ADR file
 appears here exactly once.

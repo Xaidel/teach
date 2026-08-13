@@ -1,7 +1,7 @@
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, isNull } from 'drizzle-orm'
 
 import { db } from '#/db/client.server'
-import { exerciseConcepts, exercises } from '#/db/schema'
+import { curriculumLessons, exerciseConcepts, exercises } from '#/db/schema'
 import { TeacherEngineError } from '#/lib/ai/client.server'
 import { explainConcept } from '#/lib/ai/functions.server'
 
@@ -278,10 +278,13 @@ export async function generateStepExercise(input: {
  * Generates the step's lesson (SPEC story 2, issue #14): the AI Teacher
  * Engine explains the concept, phrased at the learner's current explanation
  * depth and reference frame (issue #12) — presentation only, never a gate.
- * The lesson is generated on demand and never persisted: it is
- * presentation content with no deterministic evaluation role, so the step
- * view simply regenerates it when asked. Generation failures surface as a
- * stable `LESSON_GENERATION_FAILED` error.
+ * The lesson is cached durably per learner/concept/explanation-settings
+ * (issue #135): a revisiting learner is served the cached text instead of
+ * paying a fresh generation call, and the cache key includes the
+ * explanation depth and reference frame, so a change in either setting
+ * naturally misses and regenerates. Only a successful generation is
+ * persisted — a failed call never poisons the cache. Generation failures
+ * surface as a stable `LESSON_GENERATION_FAILED` error.
  */
 export async function generateCurriculumLesson(input: {
   learnerId: string
@@ -293,6 +296,23 @@ export async function generateCurriculumLesson(input: {
   await assertStepUnlocked(input.learnerId, input.language, concept.id)
 
   const preferences = await getExplanationPreferences(input.learnerId)
+
+  const cached = await db.query.curriculumLessons.findFirst({
+    where: and(
+      eq(curriculumLessons.learnerId, input.learnerId),
+      eq(curriculumLessons.conceptId, concept.id),
+      eq(curriculumLessons.explanationDepth, preferences.depth),
+      // A nullable reference frame must match with `IS NULL`, not `= NULL`.
+      ...(preferences.referenceFrame === null
+        ? [isNull(curriculumLessons.referenceFrame)]
+        : [eq(curriculumLessons.referenceFrame, preferences.referenceFrame)]),
+    ),
+  })
+  if (cached) {
+    return { concept: input.conceptSlug, explanation: cached.explanation }
+  }
+
+  let explanation: string
   try {
     const output = await explainConcept({
       language: input.language,
@@ -302,11 +322,20 @@ export async function generateCurriculumLesson(input: {
         ? {}
         : { referenceFrame: preferences.referenceFrame }),
     })
-    return { concept: input.conceptSlug, explanation: output.explanation }
+    explanation = output.explanation
   } catch (error) {
     if (error instanceof TeacherEngineError) {
       throw new CurriculumError('LESSON_GENERATION_FAILED')
     }
     throw error
   }
+
+  await db.insert(curriculumLessons).values({
+    learnerId: input.learnerId,
+    conceptId: concept.id,
+    explanationDepth: preferences.depth,
+    referenceFrame: preferences.referenceFrame,
+    explanation,
+  })
+  return { concept: input.conceptSlug, explanation }
 }

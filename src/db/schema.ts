@@ -382,6 +382,51 @@ export type PreFlightDiagnostics = {
 }
 
 /**
+ * One generated curriculum lesson, persisted so a learner revisiting an
+ * already-generated step doesn't pay a fresh AI generation call (issue
+ * #135). Presentation-only content (SPEC story 2) with no evaluation role,
+ * cached durably in Postgres per ADR-0007/0010. The cache key is the
+ * complete set of generation inputs — `(learner_id, concept_id,
+ * explanation_depth, reference_frame)` — so a change in the learner's
+ * explanation preferences naturally misses the cache (issue #12) and a
+ * fresh lesson is generated at the new settings; the old row is left in
+ * place and serves again if the learner switches back. No TTL: the content
+ * is deterministic given the inputs, so the only staleness that matters is
+ * an input change, which the key already captures.
+ */
+export const curriculumLessons = pgTable(
+  'curriculum_lessons',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .$defaultFn(() => uuidv7()),
+    learnerId: uuid('learner_id')
+      .notNull()
+      .references(() => learners.id),
+    conceptId: uuid('concept_id')
+      .notNull()
+      .references(() => concepts.id),
+    explanationDepth: integer('explanation_depth').notNull(),
+    referenceFrame: text('reference_frame'),
+    explanation: text('explanation').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    // `reference_frame` is nullable, so the uniqueness key must coalesce it
+    // to a non-null sentinel — a bare unique index would treat two NULLs as
+    // distinct and allow duplicate cache rows for a learner without a frame.
+    uniqueIndex('curriculum_lessons_cache_key_unique').on(
+      table.learnerId,
+      table.conceptId,
+      table.explanationDepth,
+      sql`coalesce(${table.referenceFrame}, '')`,
+    ),
+  ],
+)
+
+/**
  * The generation-time Pre-Flight log (ADR-0010): one row per Pre-Flight
  * run, keyed by concept — a failed run may never produce a savable
  * `exercises` row at all, and this table is where its record lives. A

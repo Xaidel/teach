@@ -21,17 +21,21 @@ import { db } from '#/db/client.server'
 import {
   conceptEdges,
   concepts,
+  curriculumLessons,
   exerciseConcepts,
   exercises,
   learnerConceptMastery,
+  learners,
 } from '#/db/schema'
 import { TeacherEngineError } from '#/lib/ai/client.server'
 import { explainConcept } from '#/lib/ai/functions.server'
+import { DEFAULT_EXPLANATION_DEPTH } from '#/lib/explanation-depth'
 import { generateExerciseForConcept } from '../exercise/exercise-generation.server'
 import type { GenerateExerciseOutput } from '../exercise/exercise-generation.schema'
 
 import { advanceMastery } from '../learners/mastery.server'
 import { getCurrentLearnerId } from '../learners/learners.server'
+import { updateExplanationPreferences } from '../learners/learners.server'
 
 import {
   generateCurriculumLesson,
@@ -161,6 +165,7 @@ describe.skipIf(!dbUp)('curriculum.server', () => {
           inArray(learnerConceptMastery.conceptId, FIXTURE_CONCEPT_IDS),
         ),
       )
+    await db.delete(curriculumLessons)
     await db
       .delete(exerciseConcepts)
       .where(inArray(exerciseConcepts.conceptId, FIXTURE_CONCEPT_IDS))
@@ -185,6 +190,13 @@ describe.skipIf(!dbUp)('curriculum.server', () => {
           inArray(learnerConceptMastery.conceptId, FIXTURE_CONCEPT_IDS),
         ),
       )
+    await db.delete(curriculumLessons)
+    // Tests may raise the shared learner's explanation depth (issue #135);
+    // restore the seeded default so later tests see a clean learner.
+    await db
+      .update(learners)
+      .set({ explanationDepth: DEFAULT_EXPLANATION_DEPTH })
+      .where(eq(learners.id, learnerId))
     generateExerciseForConceptMock.mockReset()
     explainConceptMock.mockReset()
   })
@@ -348,6 +360,60 @@ describe.skipIf(!dbUp)('curriculum.server', () => {
         conceptSlug: CONCEPT_BASIC.slug,
       }),
     ).rejects.toBeInstanceOf(CurriculumError)
+  })
+
+  it('serves a cached lesson without a fresh AI call on revisit (issue #135)', async () => {
+    await advanceMastery(learnerId, [CONCEPT_ROOT.id], 'practiced')
+    explainConceptMock.mockResolvedValue({
+      explanation: 'Borrowing transfers access for a while.',
+    })
+
+    const first = await generateCurriculumLesson({
+      learnerId,
+      language: 'rust',
+      conceptSlug: CONCEPT_BASIC.slug,
+    })
+    expect(explainConceptMock).toHaveBeenCalledTimes(1)
+
+    // The mock would throw if called again — a fresh call must not happen.
+    explainConceptMock.mockRejectedValue(
+      new Error('unexpected second AI call'),
+    )
+    const second = await generateCurriculumLesson({
+      learnerId,
+      language: 'rust',
+      conceptSlug: CONCEPT_BASIC.slug,
+    })
+
+    expect(second).toEqual(first)
+    expect(explainConceptMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('regenerates the lesson when the explanation depth changes (issue #135)', async () => {
+    await advanceMastery(learnerId, [CONCEPT_ROOT.id], 'practiced')
+    explainConceptMock.mockResolvedValueOnce({
+      explanation: 'Shallow explanation.',
+    })
+    explainConceptMock.mockResolvedValueOnce({
+      explanation: 'Deep explanation.',
+    })
+
+    const shallow = await generateCurriculumLesson({
+      learnerId,
+      language: 'rust',
+      conceptSlug: CONCEPT_BASIC.slug,
+    })
+    expect(shallow.explanation).toBe('Shallow explanation.')
+
+    await updateExplanationPreferences(learnerId, { depth: 5 })
+
+    const deep = await generateCurriculumLesson({
+      learnerId,
+      language: 'rust',
+      conceptSlug: CONCEPT_BASIC.slug,
+    })
+    expect(deep.explanation).toBe('Deep explanation.')
+    expect(explainConceptMock).toHaveBeenCalledTimes(2)
   })
 
   it('rejects concepts outside the usable graph', async () => {
