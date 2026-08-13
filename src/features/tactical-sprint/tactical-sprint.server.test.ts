@@ -71,7 +71,13 @@ const runSandboxSubmissionMock = vi.mocked(runSandboxSubmission)
 const KNOWN_PRACTICED_SLUG = 'test.tactical.known_practiced'
 const KNOWN_UNKNOWN_SLUG = 'test.tactical.known_unknown'
 const UNMATCHED_SLUG = 'test.tactical.unmatched'
-const TEST_SLUGS = [KNOWN_PRACTICED_SLUG, KNOWN_UNKNOWN_SLUG, UNMATCHED_SLUG]
+const UNMATCHED_LOSING_SLUG = 'test.tactical.unmatched_losing'
+const TEST_SLUGS = [
+  KNOWN_PRACTICED_SLUG,
+  KNOWN_UNKNOWN_SLUG,
+  UNMATCHED_SLUG,
+  UNMATCHED_LOSING_SLUG,
+]
 
 const REFERENCE_PASSES: SandboxResult = {
   passed: true,
@@ -308,6 +314,64 @@ describe.skipIf(!dbUp)(
         .where(eq(concepts.slug, UNMATCHED_SLUG))
       expect(persisted?.status).toBe('draft')
       expect(persisted?.difficulty).toBe(3)
+    })
+
+    it('drafts only the weakest of two unmatched identified concepts, leaving the loser undrafted (issue #125)', async () => {
+      identifySnippetConceptsMock.mockResolvedValue({
+        concepts: [
+          { slug: UNMATCHED_SLUG, description: 'The tie-break winner.' },
+          { slug: UNMATCHED_LOSING_SLUG, description: 'Never drafted.' },
+        ],
+      })
+      draftConceptGraphMock.mockResolvedValue({
+        concepts: [{ slug: UNMATCHED_SLUG, difficulty: 3 }],
+        edges: [],
+      })
+      generateExerciseMock.mockResolvedValue(generatedFor(UNMATCHED_SLUG))
+      runSandboxSubmissionMock
+        .mockResolvedValueOnce(REFERENCE_PASSES)
+        .mockResolvedValueOnce(BROKEN_FAILS_ON_CONCEPT)
+
+      const result = await runTacticalSprint({
+        learnerId,
+        language: 'rust',
+        snippet: 'pub fn f() -> u32 { 0 }',
+      })
+
+      // Both unmatched candidates tie at `unknown` (the lowest rank); the
+      // first-identified one wins the tie-break and is the only one drafted.
+      expect(result.targetConceptSlug).toBe(UNMATCHED_SLUG)
+      expect(draftConceptGraphMock).toHaveBeenCalledTimes(1)
+      expect(draftConceptGraphMock.mock.calls[0]?.[0]).toEqual({
+        language: 'rust',
+        focusConcept: {
+          slug: UNMATCHED_SLUG,
+          description: 'The tie-break winner.',
+        },
+      })
+
+      const winnerView = result.identifiedConcepts.find(
+        (concept) => concept.slug === UNMATCHED_SLUG,
+      )
+      const loserView = result.identifiedConcepts.find(
+        (concept) => concept.slug === UNMATCHED_LOSING_SLUG,
+      )
+      expect(winnerView).toMatchObject({
+        matched: false,
+        masteryState: 'unknown',
+      })
+      expect(typeof winnerView?.conceptId).toBe('string')
+      expect(loserView).toMatchObject({
+        matched: false,
+        conceptId: undefined,
+        masteryState: 'unknown',
+      })
+
+      const [losingRow] = await db
+        .select()
+        .from(concepts)
+        .where(eq(concepts.slug, UNMATCHED_LOSING_SLUG))
+      expect(losingRow).toBeUndefined()
     })
 
     it('collapses duplicate identified slugs into one candidate', async () => {

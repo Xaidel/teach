@@ -122,7 +122,7 @@ export function TacticalSprintCard({
                     return (
                       <li
                         className="flex flex-wrap items-center gap-2 rounded-2xl border border-border bg-muted/40 px-4 py-3 text-sm"
-                        key={concept.conceptId}
+                        key={concept.slug}
                       >
                         <span className="font-mono font-semibold text-foreground">
                           {concept.slug}
