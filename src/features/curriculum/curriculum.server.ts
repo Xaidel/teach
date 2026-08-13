@@ -297,16 +297,21 @@ export async function generateCurriculumLesson(input: {
 
   const preferences = await getExplanationPreferences(input.learnerId)
 
+  // The cache key is the complete generation-input tuple (ADR-0024). Shared
+  // by the read, the insert, and the post-insert re-read below so all three
+  // necessarily agree.
+  const cacheKey = and(
+    eq(curriculumLessons.learnerId, input.learnerId),
+    eq(curriculumLessons.conceptId, concept.id),
+    eq(curriculumLessons.explanationDepth, preferences.depth),
+    // A nullable reference frame must match with `IS NULL`, not `= NULL`.
+    ...(preferences.referenceFrame === null
+      ? [isNull(curriculumLessons.referenceFrame)]
+      : [eq(curriculumLessons.referenceFrame, preferences.referenceFrame)]),
+  )
+
   const cached = await db.query.curriculumLessons.findFirst({
-    where: and(
-      eq(curriculumLessons.learnerId, input.learnerId),
-      eq(curriculumLessons.conceptId, concept.id),
-      eq(curriculumLessons.explanationDepth, preferences.depth),
-      // A nullable reference frame must match with `IS NULL`, not `= NULL`.
-      ...(preferences.referenceFrame === null
-        ? [isNull(curriculumLessons.referenceFrame)]
-        : [eq(curriculumLessons.referenceFrame, preferences.referenceFrame)]),
-    ),
+    where: cacheKey,
   })
   if (cached) {
     return { concept: input.conceptSlug, explanation: cached.explanation }
@@ -330,12 +335,28 @@ export async function generateCurriculumLesson(input: {
     throw error
   }
 
-  await db.insert(curriculumLessons).values({
-    learnerId: input.learnerId,
-    conceptId: concept.id,
-    explanationDepth: preferences.depth,
-    referenceFrame: preferences.referenceFrame,
-    explanation,
+  // Two concurrent misses for the same key can both reach this insert;
+  // the unique cache key (ADR-0024) admits one row per input tuple, so a
+  // loser must not surface the unique violation as a raw 500 — it drops
+  // the write and serves the winner's persisted row below.
+  await db
+    .insert(curriculumLessons)
+    .values({
+      learnerId: input.learnerId,
+      conceptId: concept.id,
+      explanationDepth: preferences.depth,
+      referenceFrame: preferences.referenceFrame,
+      explanation,
+    })
+    .onConflictDoNothing()
+
+  // The winner's row (ours, or a concurrent request's) is what the cache
+  // now holds — serve its text so the response always matches the cache.
+  const persisted = await db.query.curriculumLessons.findFirst({
+    where: cacheKey,
   })
-  return { concept: input.conceptSlug, explanation }
+  return {
+    concept: input.conceptSlug,
+    explanation: persisted?.explanation ?? explanation,
+  }
 }

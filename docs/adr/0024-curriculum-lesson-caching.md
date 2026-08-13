@@ -112,8 +112,10 @@ Rows expire after a fixed window regardless of settings.
 ## Confirmation
 
 - `src/features/curriculum/curriculum.server.test.ts`: a revisit serves the cached lesson
-  with no second `explainConcept` call; a depth change regenerates (two calls); the
-  existing failure test asserts a failed call never writes a row.
+  with no second `explainConcept` call; a depth change regenerates (two calls); a
+  reference-frame change takes the `eq(referenceFrame, …)` lookup branch; and the failed
+  call test asserts both the stable `LESSON_GENERATION_FAILED` error and that no cache row
+  was written — a failed call never persists a lesson.
 - Migration `drizzle/0014_*.sql` creates `curriculum_lessons` with the coalesced unique
   key, reviewed as part of the PR.
 

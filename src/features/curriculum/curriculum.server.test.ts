@@ -98,6 +98,14 @@ const FIXTURE_CONCEPT_IDS = [
 describe.skipIf(!dbUp)('curriculum.server', () => {
   let learnerId: string
 
+  // The shared learner's preferences this suite mutated (issue #135), so
+  // `afterEach` can restore exactly what it set — and only while that value
+  // still holds. A plain unconditional restore would clobber a preference a
+  // concurrent suite is mid-way through changing on the same learner row
+  // (issue #115).
+  let mutatedExplanationDepth: number | null = null
+  let mutatedReferenceFrame: string | null = null
+
   beforeAll(async () => {
     learnerId = await getCurrentLearnerId()
 
@@ -165,7 +173,17 @@ describe.skipIf(!dbUp)('curriculum.server', () => {
           inArray(learnerConceptMastery.conceptId, FIXTURE_CONCEPT_IDS),
         ),
       )
-    await db.delete(curriculumLessons)
+    // Scoped to this suite's own (learner, fixture-concept) rows (issue
+    // #115): an unscoped delete would race concurrent curriculum suites'
+    // cached lessons for the same seeded learner.
+    await db
+      .delete(curriculumLessons)
+      .where(
+        and(
+          eq(curriculumLessons.learnerId, learnerId),
+          inArray(curriculumLessons.conceptId, FIXTURE_CONCEPT_IDS),
+        ),
+      )
     await db
       .delete(exerciseConcepts)
       .where(inArray(exerciseConcepts.conceptId, FIXTURE_CONCEPT_IDS))
@@ -190,13 +208,42 @@ describe.skipIf(!dbUp)('curriculum.server', () => {
           inArray(learnerConceptMastery.conceptId, FIXTURE_CONCEPT_IDS),
         ),
       )
-    await db.delete(curriculumLessons)
-    // Tests may raise the shared learner's explanation depth (issue #135);
-    // restore the seeded default so later tests see a clean learner.
+    // Scoped to this suite's own rows (issue #115), like the afterAll above.
     await db
-      .update(learners)
-      .set({ explanationDepth: DEFAULT_EXPLANATION_DEPTH })
-      .where(eq(learners.id, learnerId))
+      .delete(curriculumLessons)
+      .where(
+        and(
+          eq(curriculumLessons.learnerId, learnerId),
+          inArray(curriculumLessons.conceptId, FIXTURE_CONCEPT_IDS),
+        ),
+      )
+    // Restore only the preference this suite set, and only while it still
+    // holds — never clobber a value another suite changed concurrently on
+    // the shared learner (issue #115).
+    if (mutatedExplanationDepth !== null) {
+      await db
+        .update(learners)
+        .set({ explanationDepth: DEFAULT_EXPLANATION_DEPTH })
+        .where(
+          and(
+            eq(learners.id, learnerId),
+            eq(learners.explanationDepth, mutatedExplanationDepth),
+          ),
+        )
+      mutatedExplanationDepth = null
+    }
+    if (mutatedReferenceFrame !== null) {
+      await db
+        .update(learners)
+        .set({ referenceFrame: null })
+        .where(
+          and(
+            eq(learners.id, learnerId),
+            eq(learners.referenceFrame, mutatedReferenceFrame),
+          ),
+        )
+      mutatedReferenceFrame = null
+    }
     generateExerciseForConceptMock.mockReset()
     explainConceptMock.mockReset()
   })
@@ -360,6 +407,19 @@ describe.skipIf(!dbUp)('curriculum.server', () => {
         conceptSlug: CONCEPT_BASIC.slug,
       }),
     ).rejects.toBeInstanceOf(CurriculumError)
+
+    // A failed call never writes a cache row (ADR-0024) — the request never
+    // reaches the insert, so no lesson is persisted for this key.
+    const rows = await db
+      .select({ id: curriculumLessons.id })
+      .from(curriculumLessons)
+      .where(
+        and(
+          eq(curriculumLessons.learnerId, learnerId),
+          eq(curriculumLessons.conceptId, CONCEPT_BASIC.id),
+        ),
+      )
+    expect(rows).toHaveLength(0)
   })
 
   it('serves a cached lesson without a fresh AI call on revisit (issue #135)', async () => {
@@ -403,6 +463,7 @@ describe.skipIf(!dbUp)('curriculum.server', () => {
     })
     expect(shallow.explanation).toBe('Shallow explanation.')
 
+    mutatedExplanationDepth = 5
     await updateExplanationPreferences(learnerId, { depth: 5 })
 
     const deep = await generateCurriculumLesson({
@@ -412,6 +473,41 @@ describe.skipIf(!dbUp)('curriculum.server', () => {
     })
     expect(deep.explanation).toBe('Deep explanation.')
     expect(explainConceptMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('serves a cached lesson under the same non-null reference frame (issue #135)', async () => {
+    await advanceMastery(learnerId, [CONCEPT_ROOT.id], 'practiced')
+    // The seeded learner has a NULL frame; set one so the cache lookup
+    // exercises the `eq(referenceFrame, ...)` branch (the `isNull` branch
+    // is the one every other test's seeded learner takes).
+    mutatedReferenceFrame = 'as a Go developer'
+    await updateExplanationPreferences(learnerId, {
+      referenceFrame: 'as a Go developer',
+    })
+    explainConceptMock.mockResolvedValue({
+      explanation: 'Frame-shaped explanation.',
+    })
+
+    const first = await generateCurriculumLesson({
+      learnerId,
+      language: 'rust',
+      conceptSlug: CONCEPT_BASIC.slug,
+    })
+    expect(explainConceptMock).toHaveBeenCalledTimes(1)
+    expect(explainConceptMock).toHaveBeenCalledWith(
+      expect.objectContaining({ referenceFrame: 'as a Go developer' }),
+    )
+
+    // The mock would throw if called again — a fresh call must not happen.
+    explainConceptMock.mockRejectedValue(new Error('unexpected second AI call'))
+    const second = await generateCurriculumLesson({
+      learnerId,
+      language: 'rust',
+      conceptSlug: CONCEPT_BASIC.slug,
+    })
+
+    expect(second).toEqual(first)
+    expect(explainConceptMock).toHaveBeenCalledTimes(1)
   })
 
   it('rejects concepts outside the usable graph', async () => {
