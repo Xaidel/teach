@@ -4,7 +4,8 @@ import type { AnalyzeMisconceptionsOutput } from '#/lib/ai/schemas'
 // Shared constant (src/lib/mastery-states.ts): the five Learner Model
 // mastery states (ADR-0010, SPEC story 41) for display only — importing the
 // single source keeps this browser-reachable schema module from duplicating
-// (and drifting from) the ordering `learners` and `tactical-sprint` use.
+// (and drifting from) the mastery-state vocabulary `learners` and
+// `tactical-sprint` use.
 import type { MasteryState } from '#/lib/mastery-states'
 import type { SandboxLanguage } from '#/lib/sandbox/types'
 

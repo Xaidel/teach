@@ -4,8 +4,8 @@ import { SNIPPET_MAX_LENGTH } from '#/lib/ai/schemas'
 // Shared constant (src/lib/mastery-states.ts): the five Learner Model
 // mastery states (ADR-0010, SPEC story 41) for display only — importing the
 // single source keeps this browser-reachable schema module from duplicating
-// (and drifting from) the ordering `learners` and `explanation-assessment`
-// use.
+// (and drifting from) the mastery-state vocabulary `learners` and
+// `explanation-assessment` use.
 import type { MasteryState } from '#/lib/mastery-states'
 // Narrow, client-safe entry point from the `exercise` feature (see
 // arch_docs/dependency-rules.md's Feature Dependencies section): a Tactical
