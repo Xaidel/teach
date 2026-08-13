@@ -1,0 +1,1 @@
+ALTER TABLE "attempts" ALTER COLUMN "outcome" DROP NOT NULL;

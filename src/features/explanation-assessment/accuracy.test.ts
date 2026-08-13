@@ -14,10 +14,13 @@ const NO_FINDINGS: AnalyzeMisconceptionsOutput = {
   conflated: [],
 }
 
+const TARGET = 'rust.borrowing'
+
 describe('computeExplanationAccuracy (issue #16 formula)', () => {
   it('scores a flawless explanation 1', () => {
     expect(
       computeExplanationAccuracy({
+        conceptSlug: TARGET,
         prerequisiteSlugs: ['rust.ownership'],
         analysis: NO_FINDINGS,
       }),
@@ -27,6 +30,7 @@ describe('computeExplanationAccuracy (issue #16 formula)', () => {
   it('is a simple average over required sub-concepts: one missing of two = 0.5', () => {
     expect(
       computeExplanationAccuracy({
+        conceptSlug: TARGET,
         prerequisiteSlugs: ['rust.ownership'],
         analysis: {
           ...NO_FINDINGS,
@@ -39,6 +43,7 @@ describe('computeExplanationAccuracy (issue #16 formula)', () => {
   it('one missing of four required sub-concepts = 0.75', () => {
     expect(
       computeExplanationAccuracy({
+        conceptSlug: TARGET,
         prerequisiteSlugs: ['a', 'b', 'c'],
         analysis: {
           ...NO_FINDINGS,
@@ -51,6 +56,7 @@ describe('computeExplanationAccuracy (issue #16 formula)', () => {
   it('a leaf concept with no prerequisites has the concept itself as its one required sub-concept', () => {
     expect(
       computeExplanationAccuracy({
+        conceptSlug: 'rust.intro',
         prerequisiteSlugs: [],
         analysis: {
           ...NO_FINDINGS,
@@ -60,8 +66,38 @@ describe('computeExplanationAccuracy (issue #16 formula)', () => {
     ).toBe(0)
   })
 
+  it('drops a missing finding naming a concept outside the required vocabulary', () => {
+    expect(
+      computeExplanationAccuracy({
+        conceptSlug: TARGET,
+        prerequisiteSlugs: ['rust.ownership'],
+        analysis: {
+          ...NO_FINDINGS,
+          missing: [{ concept: 'rust.lifetimes', detail: 'omitted' }],
+        },
+      }),
+    ).toBe(1)
+  })
+
+  it('counts only in-vocabulary missing findings toward coverage', () => {
+    expect(
+      computeExplanationAccuracy({
+        conceptSlug: TARGET,
+        prerequisiteSlugs: ['rust.ownership'],
+        analysis: {
+          ...NO_FINDINGS,
+          missing: [
+            { concept: 'rust.ownership', detail: 'omitted' },
+            { concept: 'rust.lifetimes', detail: 'omitted' },
+          ],
+        },
+      }),
+    ).toBe(0.5)
+  })
+
   it('penalizes each incorrect claim by a fixed weight', () => {
     const oneWrong = computeExplanationAccuracy({
+      conceptSlug: TARGET,
       prerequisiteSlugs: [],
       analysis: {
         ...NO_FINDINGS,
@@ -71,6 +107,7 @@ describe('computeExplanationAccuracy (issue #16 formula)', () => {
     expect(oneWrong).toBe(1 - INCORRECT_CLAIM_PENALTY)
 
     const twoWrong = computeExplanationAccuracy({
+      conceptSlug: TARGET,
       prerequisiteSlugs: [],
       analysis: {
         ...NO_FINDINGS,
@@ -85,6 +122,7 @@ describe('computeExplanationAccuracy (issue #16 formula)', () => {
 
   it('penalizes each conflation by a fixed weight', () => {
     const oneConflation = computeExplanationAccuracy({
+      conceptSlug: TARGET,
       prerequisiteSlugs: [],
       analysis: {
         ...NO_FINDINGS,
@@ -98,6 +136,7 @@ describe('computeExplanationAccuracy (issue #16 formula)', () => {
 
   it('combines coverage, incorrect, and conflated penalties additively', () => {
     const score = computeExplanationAccuracy({
+      conceptSlug: TARGET,
       prerequisiteSlugs: ['rust.ownership'],
       analysis: {
         missing: [{ concept: 'rust.ownership', detail: 'omitted' }],
@@ -111,6 +150,7 @@ describe('computeExplanationAccuracy (issue #16 formula)', () => {
   it('clamps at 0 when penalties exceed coverage', () => {
     expect(
       computeExplanationAccuracy({
+        conceptSlug: TARGET,
         prerequisiteSlugs: [],
         analysis: {
           ...NO_FINDINGS,
@@ -126,13 +166,17 @@ describe('computeExplanationAccuracy (issue #16 formula)', () => {
     ).toBe(0)
   })
 
-  it('clamps coverage at 0 when missing meets or exceeds required sub-concepts', () => {
+  it('clamps coverage at 0 when in-vocabulary missing meets or exceeds required sub-concepts', () => {
     expect(
       computeExplanationAccuracy({
-        prerequisiteSlugs: [],
+        conceptSlug: TARGET,
+        prerequisiteSlugs: ['rust.ownership'],
         analysis: {
           ...NO_FINDINGS,
-          missing: [{ concept: 'none', detail: 'over-reported' }],
+          missing: [
+            { concept: TARGET, detail: 'omitted' },
+            { concept: 'rust.ownership', detail: 'omitted' },
+          ],
         },
       }),
     ).toBe(0)
@@ -141,6 +185,7 @@ describe('computeExplanationAccuracy (issue #16 formula)', () => {
   it('never exceeds 1', () => {
     expect(
       computeExplanationAccuracy({
+        conceptSlug: TARGET,
         prerequisiteSlugs: ['a'],
         analysis: NO_FINDINGS,
       }),
@@ -155,6 +200,7 @@ describe('EXPLANATION_ACCURACY_PASS_THRESHOLD', () => {
 
   it('a two-sub-concept concept with one omission (0.5) does not pass', () => {
     const score = computeExplanationAccuracy({
+      conceptSlug: TARGET,
       prerequisiteSlugs: ['rust.ownership'],
       analysis: {
         ...NO_FINDINGS,
@@ -166,6 +212,7 @@ describe('EXPLANATION_ACCURACY_PASS_THRESHOLD', () => {
 
   it('a four-sub-concept concept with one omission (0.75) passes', () => {
     const score = computeExplanationAccuracy({
+      conceptSlug: TARGET,
       prerequisiteSlugs: ['a', 'b', 'c'],
       analysis: {
         ...NO_FINDINGS,
@@ -177,6 +224,7 @@ describe('EXPLANATION_ACCURACY_PASS_THRESHOLD', () => {
 
   it('one incorrect claim on a leaf concept (0.75) still passes', () => {
     const score = computeExplanationAccuracy({
+      conceptSlug: TARGET,
       prerequisiteSlugs: [],
       analysis: {
         ...NO_FINDINGS,

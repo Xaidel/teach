@@ -311,7 +311,10 @@ describe.skipIf(!dbUp)('explanation-assessment.server', () => {
             eq(attempts.exerciseId, exercise?.id ?? ''),
           ),
         )
-      expect(attemptRow?.outcome).toBe('pass')
+      // Explain-mode attempts carry no Stage 1 sandbox verdict: outcome is
+      // NULL and the payload alone holds the accuracy signal (ADR-0010,
+      // ADR-0021, review S1/P2).
+      expect(attemptRow?.outcome).toBeNull()
       expect(attemptRow?.code).toBe(
         'Borrowing lets code use a value without owning it.',
       )
@@ -321,7 +324,7 @@ describe.skipIf(!dbUp)('explanation-assessment.server', () => {
       })
     })
 
-    it('persists a failing assessment with outcome fail and keeps the concept at Practiced', async () => {
+    it('persists a failing assessment with a NULL outcome and keeps the concept at Practiced', async () => {
       analyzeMock.mockResolvedValue({
         ...NO_FINDINGS,
         missing: [
@@ -353,7 +356,7 @@ describe.skipIf(!dbUp)('explanation-assessment.server', () => {
             eq(attempts.exerciseId, exercise?.id ?? ''),
           ),
         )
-      expect(attemptRow?.outcome).toBe('fail')
+      expect(attemptRow?.outcome).toBeNull()
       expect(attemptRow?.explanationAssessment).toEqual({
         accuracyScore: 0,
         analysis: {

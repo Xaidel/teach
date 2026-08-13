@@ -1,6 +1,12 @@
 import { z } from 'zod'
 
 import { SNIPPET_MAX_LENGTH } from '#/lib/ai/schemas'
+// Shared constant (src/lib/mastery-states.ts): the five Learner Model
+// mastery states (ADR-0010, SPEC story 41) for display only — importing the
+// single source keeps this browser-reachable schema module from duplicating
+// (and drifting from) the ordering `learners` and `explanation-assessment`
+// use.
+import { MASTERY_STATES } from '#/lib/mastery-states'
 // Narrow, client-safe entry point from the `exercise` feature (see
 // arch_docs/dependency-rules.md's Feature Dependencies section): a Tactical
 // Sprint can only ever finish by generating an exercise, so it is scoped
@@ -12,6 +18,10 @@ import {
   EXERCISE_GENERATION_LANGUAGES,
   type GenerateExerciseOutput,
 } from '#/features/exercise/exercise-generation.schema'
+
+export { MASTERY_STATES }
+
+export type MasteryStateView = (typeof MASTERY_STATES)[number]
 
 /**
  * Input to start a Tactical Sprint (SPEC stories 4, 6-7, ticket #13): the
@@ -32,21 +42,6 @@ export const StartTacticalSprintInputSchema = z.object({
 export type StartTacticalSprintInput = z.infer<
   typeof StartTacticalSprintInputSchema
 >
-
-/**
- * The five Learner Model mastery states (ADR-0010, SPEC story 41), for
- * display only — mirrors the ordering `learners/mastery.server.ts` owns
- * without importing it into this browser-reachable schema module.
- */
-export const MASTERY_STATES = [
-  'unknown',
-  'introduced',
-  'practiced',
-  'demonstrated',
-  'retained',
-] as const
-
-export type MasteryStateView = (typeof MASTERY_STATES)[number]
 
 /**
  * One concept identified in the pasted snippet (SPEC stories 4-5), resolved

@@ -59,7 +59,12 @@ We will:
    recorded pre-rekey. A Stage 2 rubric violation is reported to the learner
    through `stage2Review` and does not flip `outcome`; hint eligibility
    (`requestHint`) keys off this same Stage 1 verdict, unchanged from the
-   walking skeleton's behavior.
+   walking skeleton's behavior. **Explain-mode attempts (Explanation
+   Assessment, #16) write NULL** — they have no Stage 1 sandbox verdict, and
+   ADR-0010 says their score + findings live in the jsonb payload "in place
+   of a pass/fail outcome"; the ADR-0015 gate read re-derives "passed" from
+   that payload's score against the shared threshold, never from
+   `outcome`.
 3. **`attempts.compiler_errors` carries the full Sandbox Result diagnostic**,
    `{ tests: SandboxTest[], message: string | null }` — the same detail
    `results` split across its `tests` and `message` columns, on every attempt

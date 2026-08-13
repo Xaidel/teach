@@ -1,13 +1,8 @@
 import type { AnalyzeMisconceptionsOutput } from '#/lib/ai/schemas'
-
-/**
- * The threshold an explanation's accuracy score must meet or exceed for the
- * explanation to count as a passed Explanation Assessment (issue #16, SPEC
- * stories 44-45). ADR-0015's Practiced → Demonstrated gate is satisfied
- * only by a passed assessment; a score below this threshold leaves the
- * concept at Practiced with a retry available.
- */
-export const EXPLANATION_ACCURACY_PASS_THRESHOLD = 0.7
+// Shared home for the threshold (see src/lib/explanation-accuracy.ts): the
+// Learner Model's gate evidence read re-derives "passed" from the payload
+// with it, so the constant cannot live in this feature alone.
+export { EXPLANATION_ACCURACY_PASS_THRESHOLD } from '#/lib/explanation-accuracy'
 
 /**
  * Per-finding penalty weights of the accuracy formula (issue #16). A claim
@@ -38,18 +33,32 @@ export const CONFLATED_PAIR_PENALTY = 0.25
  * concept with many prerequisites is more forgiving of a single omission
  * than a leaf concept with none.
  *
+ * `missing` findings are constrained to the required vocabulary — the
+ * concept itself plus its prerequisites — before counting. The model's
+ * finding schema leaves `concept` a free string, so an out-of-vocabulary
+ * finding (a related concept, a made-up slug) would otherwise silently cost
+ * a full `1/requiredCount` of coverage on a deterministic formula the
+ * ticket owns; such findings are dropped from the count (the raw analysis
+ * still surfaces in the recorded payload and result for display).
+ *
  * Every term is a multiple of 0.25 (one finding = one quarter of a
  * sub-concept at minimum), so the result is exactly representable as a
  * binary float — deterministic equality in tests, no rounding needed.
  */
 export function computeExplanationAccuracy(input: {
+  conceptSlug: string
   prerequisiteSlugs: string[]
   analysis: AnalyzeMisconceptionsOutput
 }): number {
+  const requiredSlugs = new Set([input.conceptSlug, ...input.prerequisiteSlugs])
+  const requiredMissingCount = input.analysis.missing.filter((finding) =>
+    requiredSlugs.has(finding.concept),
+  ).length
+
   const requiredCount = input.prerequisiteSlugs.length + 1
   const coverage = Math.max(
     0,
-    (requiredCount - input.analysis.missing.length) / requiredCount,
+    (requiredCount - requiredMissingCount) / requiredCount,
   )
 
   const accuracy =

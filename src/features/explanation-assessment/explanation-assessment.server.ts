@@ -1,13 +1,7 @@
-import { and, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 
 import { db } from '#/db/client.server'
-import {
-  attempts,
-  conceptEdges,
-  concepts,
-  exerciseConcepts,
-  exercises,
-} from '#/db/schema'
+import { attempts, concepts, exerciseConcepts, exercises } from '#/db/schema'
 import { TeacherEngineError } from '#/lib/ai/client.server'
 import { analyzeMisconceptions } from '#/lib/ai/functions.server'
 import type { AnalyzeMisconceptionsOutput } from '#/lib/ai/schemas'
@@ -18,6 +12,7 @@ import { isSandboxLanguage } from '#/lib/sandbox/types'
 // deterministic usability gate — one-way, `concepts` never imports back
 // from `explanation-assessment`.
 import { getUsableConceptGraph } from '#/features/concepts/concepts.server'
+import type { UsableConceptGraph } from '#/features/concepts/concepts.schema'
 // Same exception: the assessment's pass feeds the Learner Model's
 // Practiced → Demonstrated gate (ADR-0015), so this feature reports through
 // the single named entry point `learners/mastery.server.ts` exposes for it
@@ -49,7 +44,9 @@ const ASSESSMENT_LANGUAGE = 'rust' as const
 /**
  * The Concept Graph's definition of one concept (SPEC story 45): the slug
  * plus the slugs of the concepts it is related to — prerequisite and
- * related edges, the graph's only definition content (ADR-0010).
+ * related edges, the graph's only definition content (ADR-0010). Built from
+ * the usable graph projection the eligibility check already loads, so the
+ * AI prompt always sees the same validated graph the feature gates on.
  */
 type ConceptGraphDefinition = {
   conceptSlug: string
@@ -57,32 +54,25 @@ type ConceptGraphDefinition = {
   relatedSlugs: string[]
 }
 
-/** Loads one concept's graph definition: outgoing edges, resolved to slugs. */
-async function getConceptGraphDefinition(input: {
-  conceptId: string
-  conceptSlug: string
-  language: string
-}): Promise<ConceptGraphDefinition> {
-  const rows = await db
-    .select({ slug: concepts.slug, kind: conceptEdges.kind })
-    .from(conceptEdges)
-    .innerJoin(concepts, eq(concepts.id, conceptEdges.toConceptId))
-    .where(
-      and(
-        eq(conceptEdges.fromConceptId, input.conceptId),
-        eq(concepts.language, input.language),
-      ),
-    )
-
-  return {
-    conceptSlug: input.conceptSlug,
-    prerequisiteSlugs: rows
-      .filter((row) => row.kind === 'prerequisite')
-      .map((row) => row.slug),
-    relatedSlugs: rows
-      .filter((row) => row.kind === 'related')
-      .map((row) => row.slug),
+/** Loads one concept's definition from the usable graph projection. */
+function getConceptGraphDefinition(
+  graph: UsableConceptGraph,
+  conceptId: string,
+  conceptSlug: string,
+): ConceptGraphDefinition {
+  const slugById = new Map(
+    graph.concepts.map((concept) => [concept.id, concept.slug]),
+  )
+  const prerequisiteSlugs: string[] = []
+  const relatedSlugs: string[] = []
+  for (const edge of graph.edges) {
+    if (edge.fromConceptId !== conceptId) continue
+    const slug = slugById.get(edge.toConceptId)
+    if (slug === undefined) continue
+    if (edge.kind === 'prerequisite') prerequisiteSlugs.push(slug)
+    else relatedSlugs.push(slug)
   }
+  return { conceptSlug, prerequisiteSlugs, relatedSlugs }
 }
 
 /**
@@ -229,11 +219,11 @@ export async function submitExplanationAssessment(input: {
     throw new ExplanationAssessmentError('CONCEPT_NOT_ELIGIBLE')
   }
 
-  const definition = await getConceptGraphDefinition({
-    conceptId: concept.id,
-    conceptSlug: concept.slug,
-    language: concept.language,
-  })
+  const definition = getConceptGraphDefinition(
+    usableGraph,
+    concept.id,
+    concept.slug,
+  )
 
   let analysis: AnalyzeMisconceptionsOutput
   try {
@@ -252,6 +242,7 @@ export async function submitExplanationAssessment(input: {
   }
 
   const accuracyScore = computeExplanationAccuracy({
+    conceptSlug: definition.conceptSlug,
     prerequisiteSlugs: definition.prerequisiteSlugs,
     analysis,
   })
@@ -263,9 +254,12 @@ export async function submitExplanationAssessment(input: {
     learnerId: input.learnerId,
     exerciseId,
     code: input.explanation,
-    outcome: passed ? 'pass' : 'fail',
-    // No meaningful time-to-solution for an assessment: the evidence story
-    // 42 asks for is the accuracy signal, not how long the explanation took.
+    // No `outcome` for an explain-mode attempt: it has no Stage 1 sandbox
+    // verdict, and the pass/fail signal lives in the payload alone
+    // (ADR-0010, ADR-0021 — the column is NULL for these rows).
+    // No meaningful time-to-solution for an assessment either: the evidence
+    // story 42 asks for is the accuracy signal, not how long the
+    // explanation took.
     timeToSolution: 0,
     explanationAssessment: { accuracyScore, analysis },
   })

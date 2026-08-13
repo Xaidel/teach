@@ -227,7 +227,11 @@ export const attempts = pgTable(
       .notNull()
       .references(() => exercises.id),
     code: text('code').notNull(),
-    outcome: attemptOutcome('outcome').notNull(),
+    // Stage 1's sandbox verdict only (ADR-0021) — `pass`/`fail` for
+    // implement/debug-mode attempts. Explain-mode attempts (Explanation
+    // Assessment) have no sandbox Stage 1 and write NULL: their evidence is
+    // the `explanation_assessment` payload alone (ADR-0010).
+    outcome: attemptOutcome('outcome'),
     timeToSolution: integer('time_to_solution').notNull(),
     compilerErrors: jsonb('compiler_errors').$type<AttemptCompilerErrors>(),
     explanationAssessment: jsonb(

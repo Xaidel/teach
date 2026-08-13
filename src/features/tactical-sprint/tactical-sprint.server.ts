@@ -1,6 +1,10 @@
 import { TeacherEngineError } from '#/lib/ai/client.server'
 import { identifySnippetConcepts } from '#/lib/ai/functions.server'
 import type { SnippetConcept } from '#/lib/ai/schemas'
+// Shared constant (src/lib/mastery-states.ts): ranking identified concepts
+// by weakness reads the learner's current mastery state ordering, which
+// `learners` now publishes from lib rather than a feature-to-feature import.
+import { MASTERY_STATE_ORDER, type MasteryState } from '#/lib/mastery-states'
 // Narrow, documented cross-feature dependency (arch_docs/dependency-rules.md
 // "Feature Dependencies" exception): a Tactical Sprint resolves each
 // identified concept against the Concept Graph, deferring drafting until the
@@ -23,11 +27,7 @@ import type { ExerciseGenerationLanguage } from '#/features/exercise/exercise-ge
 // "Feature Dependencies" exception): ranking identified concepts by
 // weakness reads the learner's current Learner Model mastery — one-way,
 // `learners` never imports back from `tactical-sprint`.
-import {
-  getMasteryStates,
-  MASTERY_STATE_ORDER,
-} from '#/features/learners/mastery.server'
-import type { MasteryState } from '#/features/learners/mastery.server'
+import { getMasteryStates } from '#/features/learners/mastery.server'
 
 import { TacticalSprintError } from './tactical-sprint.schema'
 import type {
@@ -95,7 +95,7 @@ type RankedConcept = ResolvedConcept & { masteryState: MasteryState }
 /**
  * Picks the mastery-weakest concept among the ranked candidates for this
  * learner (SPEC story 5): the lowest-ranked mastery state
- * (`MASTERY_STATE_ORDER`, `learners/mastery.server.ts`), breaking ties by
+ * (`MASTERY_STATE_ORDER`, `src/lib/mastery-states.ts`), breaking ties by
  * keeping the first-identified candidate — deterministic and stable rather
  * than arbitrary. An unmatched candidate's `unknown` mastery state
  * (`runTacticalSprint`) is deterministically the lowest rank, so ranking

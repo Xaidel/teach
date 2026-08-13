@@ -1,7 +1,16 @@
 import { z } from 'zod'
 
 import type { AnalyzeMisconceptionsOutput } from '#/lib/ai/schemas'
+// Shared constant (src/lib/mastery-states.ts): the five Learner Model
+// mastery states (ADR-0010, SPEC story 41) for display only — importing the
+// single source keeps this browser-reachable schema module from duplicating
+// (and drifting from) the ordering `learners` and `tactical-sprint` use.
+import { MASTERY_STATES } from '#/lib/mastery-states'
 import type { SandboxLanguage } from '#/lib/sandbox/types'
+
+export { MASTERY_STATES }
+
+export type MasteryStateView = (typeof MASTERY_STATES)[number]
 
 /**
  * Input to submitting an Explanation Assessment (SPEC stories 44-45, issue
@@ -46,21 +55,6 @@ export type ExplanationAssessmentOverview = {
   language: SandboxLanguage
   concepts: ExplanationAssessmentEligibleConcept[]
 }
-
-/**
- * The five Learner Model mastery states (ADR-0010, SPEC story 41), for
- * display only — mirrors the ordering `learners/mastery.server.ts` owns
- * without importing it into this browser-reachable schema module.
- */
-export const MASTERY_STATES = [
-  'unknown',
-  'introduced',
-  'practiced',
-  'demonstrated',
-  'retained',
-] as const
-
-export type MasteryStateView = (typeof MASTERY_STATES)[number]
 
 /**
  * Outcome of one submitted Explanation Assessment (issue #16): the

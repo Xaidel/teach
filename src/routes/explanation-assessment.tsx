@@ -4,9 +4,6 @@ import { getExplanationAssessmentOverviewFn } from '../features/explanation-asse
 import { ExplanationAssessmentPage } from '../features/explanation-assessment/pages/explanation-assessment-page'
 import type { ExplanationAssessmentOverview } from '../features/explanation-assessment/explanation-assessment.schema'
 
-/** Loader data for the explanation-assessment route (issue #16). */
-export type ExplanationAssessmentPageData = ExplanationAssessmentOverview
-
 export const Route = createFileRoute('/explanation-assessment')({
   head: () => ({
     meta: [
@@ -17,7 +14,7 @@ export const Route = createFileRoute('/explanation-assessment')({
   }),
   loader: async () => getExplanationAssessmentOverviewFn(),
   component: () => {
-    const overview: ExplanationAssessmentPageData = Route.useLoaderData()
+    const overview: ExplanationAssessmentOverview = Route.useLoaderData()
     return <ExplanationAssessmentPage overview={overview} />
   },
 })
