@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader } from '#/shared/components/ui/card'
 import { Label } from '#/shared/components/ui/label'
 
 import { generateExerciseFn } from '../exercise.functions'
+import { MAX_PREFLIGHT_ATTEMPTS } from '../exercise-generation.schema'
 import type { GenerateExerciseOutput } from '../exercise-generation.schema'
 import type { SandboxLanguage } from '#/lib/sandbox/types'
 import { errorMessage } from '../client-utils'
@@ -111,12 +112,25 @@ export function ExerciseGenerationCard({
               ) : null}
               {error ? <Alert>{error}</Alert> : null}
               {result ? (
-                <p className="text-sm leading-relaxed text-muted-foreground">
-                  Verified — {result.exercise.title} (~
-                  {String(result.estimatedMinutes)} min). Pre-Flight passed all{' '}
-                  {String(result.preflight.checks.length)} checks. The exercise
-                  now appears in the practice list below.
-                </p>
+                result.kind === 'verified-fallback' ? (
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    Fell back to a previously verified exercise —{' '}
+                    {result.exercise.title}. All{' '}
+                    {String(MAX_PREFLIGHT_ATTEMPTS)} generation attempts failed
+                    Pre-Flight, so the stored verified exercise for this concept
+                    is served as-is (issue #9).
+                  </p>
+                ) : (
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    Verified — {result.exercise.title} (~
+                    {String(result.estimatedMinutes)} min). Pre-Flight passed
+                    all {String(result.preflight.checks.length)} checks
+                    {result.simplified
+                      ? ' after a fallback regeneration with a simplified constraint set'
+                      : ''}
+                    . The exercise now appears in the practice list below.
+                  </p>
+                )
               ) : null}
             </div>
           </div>

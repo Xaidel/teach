@@ -1,5 +1,6 @@
 import type { GenerateExerciseInput } from '../schemas'
 import type { ChatMessage } from '../types'
+import type { SandboxResult } from '#/lib/sandbox/types'
 
 const SYSTEM_PROMPT = `You are the AI Teacher in a programming practice platform, generating a practice exercise for one target concept in one programming language.
 
@@ -21,17 +22,73 @@ Rules:
 - Keep the exercise small and focused: one function or a tiny set of functions, a handful of tests, no cleverness.`
 
 /**
+ * Renders one failed Pre-Flight run as a compact, deterministic
+ * diagnostics block the model can act on (SPEC story 32, issue #9):
+ * every check verdict with its detail, plus both sandbox runs' verdicts
+ * and failing tests. The whole diagnostics object from the persisted
+ * `pre_flight_attempts` row is fed forward verbatim — nothing is
+ * summarized or cherry-picked by the caller.
+ */
+function renderPreFlightDiagnostics(input: GenerateExerciseInput): string {
+  const diagnostics = input.previousDiagnostics
+  if (!diagnostics) {
+    return ''
+  }
+
+  const checks = diagnostics.checks
+    .map((check) => {
+      const verdict = check.passed ? 'PASSED' : 'FAILED'
+      return `- ${check.name}: ${verdict}${check.detail ? ` — ${check.detail}` : ''}`
+    })
+    .join('\n')
+
+  const renderRun = (run: SandboxResult, label: string): string => {
+    const failingTests = run.tests
+      .filter((test) => test.status !== 'passed')
+      .map((test) => {
+        const parts = [`- ${test.name} (${test.status})`]
+        if (test.message) {
+          parts.push(`  ${test.message}`)
+        }
+        return parts.join('\n')
+      })
+    const lines = [`${label}: passed=${String(run.passed)}`]
+    if (run.message) {
+      lines.push(`  message: ${run.message}`)
+    }
+    if (failingTests.length > 0) {
+      lines.push('  failing tests:', ...failingTests)
+    }
+    return lines.join('\n')
+  }
+
+  return `Previous generation attempt FAILED Pre-Flight Validation. Fix the failure; do not repeat the same mistakes. The previous failure's structured diagnostics:
+
+${checks}
+
+${renderRun(diagnostics.referenceResult, 'Reference-solution run')}
+${renderRun(diagnostics.brokenResult, 'Intended-broken-state run')}
+`
+}
+
+/**
  * Builds the chat messages for a generateExercise call. The prompt template
  * lives here, separate from its schema and function (issue #23 contract).
  */
 export function buildGenerateExerciseMessages(
   input: GenerateExerciseInput,
 ): ChatMessage[] {
+  const diagnosticsBlock = renderPreFlightDiagnostics(input)
+  const simplifiedBlock = input.simplifiedConstraints
+    ? `SIMPLIFIED CONSTRAINT SET (final fallback attempt): this is the last regeneration after repeated failures. Produce the simplest possible exercise for the target concept: ONE tiny function, 1-2 tests, difficulty at or below the requested difficulty, and the smallest constraint set (only "std_only"). Simplify the task rather than exercising edge cases.
+`
+    : ''
+
   const userPrompt = `Language: ${input.language}
 Target concept: ${input.conceptSlug}
 Concept difficulty: ${String(input.conceptDifficulty)} / 5
 
-Generate a practice exercise targeting this concept. Respond with a JSON object of the form {
+${simplifiedBlock}${diagnosticsBlock}Generate a practice exercise targeting this concept. Respond with a JSON object of the form {
   "title": "<short exercise title>",
   "prompt": "<learner instructions>",
   "starterCode": "<compiling but wrong implementation>",

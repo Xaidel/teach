@@ -1,0 +1,2 @@
+ALTER TABLE "pre_flight_attempts" DROP CONSTRAINT "pre_flight_attempts_number_check";--> statement-breakpoint
+ALTER TABLE "pre_flight_attempts" ADD CONSTRAINT "pre_flight_attempts_number_check" CHECK ("pre_flight_attempts"."attempt_number" between 1 and 4);

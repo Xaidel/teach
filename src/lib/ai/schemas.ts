@@ -155,11 +155,47 @@ export const EvaluationRubricSchema = z
 export type EvaluationRubric = z.infer<typeof EvaluationRubricSchema>
 
 /**
+ * Structured diagnostics of one failed Pre-Flight run, fed into the next
+ * generation attempt so retries are informed, not blind repeats (SPEC story
+ * 32, PRD §5.2, issue #9). A structural mirror of the persisted
+ * `PreFlightDiagnostics` shape (ADR-0010); defined here so the AI layer
+ * stays self-contained — the model receives a serialized summary of the
+ * previous failure, never a live reference to the persisted row.
+ */
+export const PreFlightDiagnosticsInputSchema = z.object({
+  checks: z.array(
+    z
+      .object({
+        name: z.enum([
+          'reference_passes',
+          'broken_state_fails',
+          'failure_matches_concept',
+        ]),
+        passed: z.boolean(),
+        detail: z.string().optional(),
+      })
+      .strict(),
+  ),
+  referenceResult: SandboxResultSchema,
+  brokenResult: SandboxResultSchema,
+})
+
+export type PreFlightDiagnosticsInput = z.infer<
+  typeof PreFlightDiagnosticsInputSchema
+>
+
+/**
  * Input to `generateExercise`: the language and the concept the exercise
  * must target, with the concept's persisted difficulty as a difficulty
  * anchor (SPEC story 29, PRD §13). The caller (Pre-Flight, ticket #8)
  * resolves the concept from the Concept Graph and passes it down; the
  * model never invents concepts outside the graph.
+ *
+ * `previousDiagnostics` carries the failed Pre-Flight run's structured
+ * diagnostics into a retry (SPEC story 32, issue #9); it is absent on the
+ * first attempt. `simplifiedConstraints` marks the circuit-breaker's
+ * terminal fallback regeneration, which uses a reduced constraint set
+ * rather than looping (SPEC story 34, PRD §5.2, issue #9).
  */
 export const GenerateExerciseInputSchema = z.object({
   language: z.enum(SANDBOX_LANGUAGES),
@@ -172,6 +208,8 @@ export const GenerateExerciseInputSchema = z.object({
     .int()
     .min(CONCEPT_DIFFICULTY_MIN)
     .max(CONCEPT_DIFFICULTY_MAX),
+  previousDiagnostics: PreFlightDiagnosticsInputSchema.optional(),
+  simplifiedConstraints: z.boolean().optional(),
 })
 
 export type GenerateExerciseInput = z.infer<typeof GenerateExerciseInputSchema>

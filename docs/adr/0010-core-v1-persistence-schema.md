@@ -48,6 +48,8 @@ We will use the following schema for v1's core persistence, all in the single Po
 - **`retrieval_queue`**: `learner_id`, `concept_id`, `schedule_stage` (0–4, mapping to the fixed 24h → 3d → 7d → 21d → 60d schedule), `due_at`, `priority_score`. Materialized — not computed at read time — and upserted **synchronously**, inline with the code path that records an attempt or a mastery change. No background job, trigger, or async queue for v1.
 - **`pre_flight_attempts`**: `concept_id`, `attempt_number` (1–3), `passed`, `diagnostics` (jsonb), `created_at`. A generation-time log, independent of `exercises` — a failed generation attempt may never produce a savable `exercises` row at all.
 
+  > **Amendment (issue #9, PR #99):** `attempt_number`'s range widens to **1–4**. SPEC story 34 / PRD §5.2's circuit breaker allows ONE terminal fallback regeneration with a simplified constraint set after the 3-attempt cap trips; that run is also Pre-Flight-validated and logged, so it is the fourth and final `pre_flight_attempts` row a request can produce. The retry loop itself remains capped at 3 (SPEC story 33).
+
 ## Alternatives Considered
 
 ### Option A: Natural string keys (concept `slug` as primary key)

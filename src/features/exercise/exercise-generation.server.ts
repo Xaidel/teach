@@ -1,4 +1,4 @@
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq, inArray } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
 
 import { db } from '#/db/client.server'
@@ -11,15 +11,23 @@ import {
 import type { PreFlightCheck, PreFlightDiagnostics } from '#/db/schema'
 import { TeacherEngineError } from '#/lib/ai/client.server'
 import { generateExercise } from '#/lib/ai/functions.server'
-import type { GeneratedExercise } from '#/lib/ai/schemas'
+import type {
+  GeneratedExercise,
+  PreFlightDiagnosticsInput,
+} from '#/lib/ai/schemas'
 import { runSandboxSubmission } from '#/lib/sandbox/runner.server'
 import type { SandboxLanguage } from '#/lib/sandbox/types'
 
 import {
   GenerationError,
   isExerciseGenerationLanguage,
+  MAX_PREFLIGHT_ATTEMPTS,
+  SIMPLIFIED_FALLBACK_ATTEMPT_NUMBER,
 } from './exercise-generation.schema'
-import type { GenerateExerciseOutput } from './exercise-generation.schema'
+import type {
+  ExerciseGenerationLanguage,
+  GenerateExerciseOutput,
+} from './exercise-generation.schema'
 import { parseSandboxResult } from './exercise.schema'
 import { rowToExercise } from './exercise.server'
 
@@ -131,14 +139,152 @@ function generatedExerciseSlug(language: string, conceptSlug: string): string {
 }
 
 /**
+ * Persists one Pre-Flight-passed generation as a verified exercise, joined
+ * to its target concepts, and logs the passing run — the single write path
+ * shared by the retry loop and the circuit-breaker's simplified fallback
+ * regeneration (issue #9).
+ */
+async function persistVerifiedExercise(input: {
+  language: string
+  conceptSlug: string
+  conceptId: string
+  generated: GeneratedExercise
+  attemptNumber: number
+  diagnostics: PreFlightDiagnostics
+}): Promise<GenerateExerciseOutput & { kind: 'generated' }> {
+  // Persist only the join rows whose concepts exist in the graph; the
+  // requested concept is guaranteed among them.
+  const targetRows = await db
+    .select({ id: concepts.id, slug: concepts.slug })
+    .from(concepts)
+    .where(
+      and(
+        eq(concepts.language, input.language),
+        inArray(concepts.slug, input.generated.targetConcepts),
+      ),
+    )
+  const conceptSlugToId = new Map(targetRows.map((row) => [row.slug, row.id]))
+  const joinedConcepts = input.generated.targetConcepts
+    .map((slug) => ({ slug, id: conceptSlugToId.get(slug) }))
+    .filter(
+      (entry): entry is { slug: string; id: string } => entry.id !== undefined,
+    )
+  const joinedSlugs = joinedConcepts.map((entry) => entry.slug)
+
+  const persisted = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(exercises)
+      .values({
+        slug: generatedExerciseSlug(input.language, input.conceptSlug),
+        language: input.language,
+        title: input.generated.title,
+        prompt: input.generated.prompt,
+        starterCode: input.generated.starterCode,
+        testSource: input.generated.testSource,
+        referenceSolution: input.generated.referenceSolution,
+        evaluationRubric: input.generated.evaluation.rubric,
+        mode: 'implement',
+        difficulty: input.generated.difficulty,
+        constraints: input.generated.constraints,
+        status: 'verified',
+      })
+      .returning()
+    if (!row) {
+      throw new Error('The exercise insert returned no row.')
+    }
+
+    await tx.insert(exerciseConcepts).values(
+      joinedConcepts.map((entry) => ({
+        exerciseId: row.id,
+        conceptId: entry.id,
+      })),
+    )
+
+    await tx.insert(preFlightAttempts).values({
+      conceptId: input.conceptId,
+      attemptNumber: input.attemptNumber,
+      passed: true,
+      diagnostics: input.diagnostics,
+    })
+
+    return row
+  })
+
+  return {
+    kind: 'generated',
+    exercise: rowToExercise(persisted),
+    conceptSlug: input.conceptSlug,
+    targetConcepts: joinedSlugs,
+    prerequisites: input.generated.prerequisites,
+    estimatedMinutes: input.generated.estimatedMinutes,
+    constraints: input.generated.constraints,
+    preflight: {
+      attemptNumber: input.attemptNumber,
+      passed: true,
+      checks: input.diagnostics.checks,
+    },
+    simplified: input.attemptNumber === SIMPLIFIED_FALLBACK_ATTEMPT_NUMBER,
+  }
+}
+
+/**
+ * The circuit-breaker's first fallback (SPEC story 34, PRD §5.2, issue #9):
+ * a previously verified exercise on the same concept, if one exists in the
+ * bank. Its stored row is served as-is — `test_source` and
+ * `reference_solution` are reused without regenerating (ADR-0019) and no
+ * new Pre-Flight run happens, because the row was verified when it entered
+ * the bank. Most recent first, so repeat generations of the same concept
+ * keep surfacing the newest verified exercise.
+ */
+async function findVerifiedFallback(input: {
+  conceptId: string
+  conceptSlug: string
+}): Promise<GenerateExerciseOutput | null> {
+  const row = await db.query.exercises.findFirst({
+    where: and(
+      eq(exercises.status, 'verified'),
+      inArray(
+        exercises.id,
+        db
+          .select({ exerciseId: exerciseConcepts.exerciseId })
+          .from(exerciseConcepts)
+          .where(eq(exerciseConcepts.conceptId, input.conceptId)),
+      ),
+    ),
+    orderBy: desc(exercises.createdAt),
+  })
+  if (!row) {
+    return null
+  }
+
+  const targetRows = await db
+    .select({ slug: concepts.slug })
+    .from(exerciseConcepts)
+    .innerJoin(concepts, eq(concepts.id, exerciseConcepts.conceptId))
+    .where(eq(exerciseConcepts.exerciseId, row.id))
+
+  return {
+    kind: 'verified-fallback',
+    exercise: rowToExercise(row),
+    conceptSlug: input.conceptSlug,
+    targetConcepts: targetRows.map((entry) => entry.slug),
+    constraints: row.constraints ?? [],
+  }
+}
+
+/**
  * Generates one exercise for a Concept Graph concept and runs it through
- * the deterministic Pre-Flight Validation gate (SPEC stories 29-31, PRD
- * §13-14, issue #8). Only a Pre-Flight-passed exercise is persisted — with
- * `status = verified`, its test harness, reference solution, and Stage 2
- * rubric (ADR-0017/0019) — and joined to its target concepts. Every run,
- * passed or failed, is recorded in `pre_flight_attempts`; a failed run
- * never produces an `exercises` row at all (ADR-0010), and the retry loop
- * with its 3-attempt cap is ticket #9.
+ * the deterministic Pre-Flight Validation gate (SPEC stories 29-33, PRD
+ * §13-14, issues #8, #9). Up to `MAX_PREFLIGHT_ATTEMPTS` generations run,
+ * each retry fed the previous failure's structured diagnostics (SPEC story
+ * 32); every run, passed or failed, is recorded in `pre_flight_attempts`
+ * (ADR-0010). After the cap trips (SPEC story 33), the circuit breaker
+ * falls back (SPEC story 34, PRD §5.2): a previously verified exercise on
+ * the same concept is served as-is when one exists, otherwise one final
+ * regeneration with a simplified constraint set runs — and if even that
+ * fails Pre-Flight, the request fails rather than looping indefinitely.
+ * Only a Pre-Flight-passed exercise is persisted — with `status = verified`
+ * (ADR-0010/0017/0019) — and a learner is never shown a failed exercise.
  */
 export async function generateExerciseForConcept(input: {
   language: string
@@ -158,12 +304,84 @@ export async function generateExerciseForConcept(input: {
     throw new GenerationError('CONCEPT_NOT_FOUND')
   }
 
+  let previousDiagnostics: PreFlightDiagnosticsInput | undefined
+  for (
+    let attemptNumber = 1;
+    attemptNumber <= MAX_PREFLIGHT_ATTEMPTS;
+    attemptNumber++
+  ) {
+    const attempt = await runGenerationAttempt({
+      language: input.language,
+      conceptSlug: input.conceptSlug,
+      conceptId: concept.id,
+      conceptDifficulty: concept.difficulty,
+      attemptNumber,
+      previousDiagnostics,
+      simplifiedConstraints: false,
+    })
+    if (attempt.kind === 'succeeded') {
+      return attempt.outcome
+    }
+    previousDiagnostics = attempt.failureDiagnostics
+  }
+
+  // Circuit breaker (SPEC story 33): every attempt within the cap failed.
+  const fallback = await findVerifiedFallback({
+    conceptId: concept.id,
+    conceptSlug: input.conceptSlug,
+  })
+  if (fallback) {
+    return fallback
+  }
+
+  // Terminal fallback regeneration with a simplified constraint set (SPEC
+  // story 34): one run beyond the cap, never looped further.
+  const finalAttempt = await runGenerationAttempt({
+    language: input.language,
+    conceptSlug: input.conceptSlug,
+    conceptId: concept.id,
+    conceptDifficulty: concept.difficulty,
+    attemptNumber: SIMPLIFIED_FALLBACK_ATTEMPT_NUMBER,
+    previousDiagnostics,
+    simplifiedConstraints: true,
+  })
+  if (finalAttempt.kind === 'succeeded') {
+    return finalAttempt.outcome
+  }
+  throw new GenerationError('PREFLIGHT_FAILED')
+}
+
+/**
+ * One generation + Pre-Flight cycle: calls the AI Teacher Engine, rejects
+ * drafts that do not target the requested concept, runs the deterministic
+ * gate, and logs the run in `pre_flight_attempts` — passed or failed,
+ * every run is recorded (SPEC story 35, ADR-0010). Returns the persisted
+ * verified exercise on success, or the failure's structured diagnostics
+ * for the next attempt.
+ */
+async function runGenerationAttempt(input: {
+  language: ExerciseGenerationLanguage
+  conceptSlug: string
+  conceptId: string
+  conceptDifficulty: number
+  attemptNumber: number
+  previousDiagnostics: PreFlightDiagnosticsInput | undefined
+  simplifiedConstraints: boolean
+}): Promise<
+  | {
+      kind: 'succeeded'
+      outcome: GenerateExerciseOutput & { kind: 'generated' }
+    }
+  | { kind: 'failed'; failureDiagnostics: PreFlightDiagnostics }
+> {
   let generated: GeneratedExercise
   try {
     generated = await generateExercise({
       language: input.language,
       conceptSlug: input.conceptSlug,
-      conceptDifficulty: concept.difficulty,
+      conceptDifficulty: input.conceptDifficulty,
+      previousDiagnostics: input.previousDiagnostics,
+      simplifiedConstraints: input.simplifiedConstraints,
     })
   } catch (error) {
     if (error instanceof TeacherEngineError) {
@@ -179,7 +397,6 @@ export async function generateExerciseForConcept(input: {
     throw new GenerationError('EXERCISE_GENERATION_INVALID')
   }
 
-  const attemptNumber = 1
   const preflight = await runPreFlightChecks({
     language: input.language,
     generated,
@@ -187,83 +404,23 @@ export async function generateExerciseForConcept(input: {
 
   if (!preflight.passed) {
     await db.insert(preFlightAttempts).values({
-      conceptId: concept.id,
-      attemptNumber,
+      conceptId: input.conceptId,
+      attemptNumber: input.attemptNumber,
       passed: false,
       diagnostics: preflight.diagnostics,
     })
-    throw new GenerationError('PREFLIGHT_FAILED')
+    return { kind: 'failed', failureDiagnostics: preflight.diagnostics }
   }
 
-  // Persist only the join rows whose concepts exist in the graph; the
-  // requested concept is guaranteed among them.
-  const targetRows = await db
-    .select({ id: concepts.id, slug: concepts.slug })
-    .from(concepts)
-    .where(
-      and(
-        eq(concepts.language, input.language),
-        inArray(concepts.slug, generated.targetConcepts),
-      ),
-    )
-  const conceptSlugToId = new Map(targetRows.map((row) => [row.slug, row.id]))
-  const joinedConcepts = generated.targetConcepts
-    .map((slug) => ({ slug, id: conceptSlugToId.get(slug) }))
-    .filter(
-      (entry): entry is { slug: string; id: string } => entry.id !== undefined,
-    )
-  const joinedSlugs = joinedConcepts.map((entry) => entry.slug)
-
-  const persisted = await db.transaction(async (tx) => {
-    const [row] = await tx
-      .insert(exercises)
-      .values({
-        slug: generatedExerciseSlug(input.language, input.conceptSlug),
-        language: input.language,
-        title: generated.title,
-        prompt: generated.prompt,
-        starterCode: generated.starterCode,
-        testSource: generated.testSource,
-        referenceSolution: generated.referenceSolution,
-        evaluationRubric: generated.evaluation.rubric,
-        mode: 'implement',
-        difficulty: generated.difficulty,
-        constraints: generated.constraints,
-        status: 'verified',
-      })
-      .returning()
-    if (!row) {
-      throw new Error('The exercise insert returned no row.')
-    }
-
-    await tx.insert(exerciseConcepts).values(
-      joinedConcepts.map((entry) => ({
-        exerciseId: row.id,
-        conceptId: entry.id,
-      })),
-    )
-
-    await tx.insert(preFlightAttempts).values({
-      conceptId: concept.id,
-      attemptNumber,
-      passed: true,
-      diagnostics: preflight.diagnostics,
-    })
-
-    return row
-  })
-
   return {
-    exercise: rowToExercise(persisted),
-    conceptSlug: input.conceptSlug,
-    targetConcepts: joinedSlugs,
-    prerequisites: generated.prerequisites,
-    estimatedMinutes: generated.estimatedMinutes,
-    constraints: generated.constraints,
-    preflight: {
-      attemptNumber,
-      passed: true,
-      checks: preflight.diagnostics.checks,
-    },
+    kind: 'succeeded',
+    outcome: await persistVerifiedExercise({
+      language: input.language,
+      conceptSlug: input.conceptSlug,
+      conceptId: input.conceptId,
+      generated,
+      attemptNumber: input.attemptNumber,
+      diagnostics: preflight.diagnostics,
+    }),
   }
 }

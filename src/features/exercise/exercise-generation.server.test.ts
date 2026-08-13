@@ -101,6 +101,40 @@ const BROKEN_FAILS_ON_CONCEPT: SandboxResult = {
   ],
 }
 
+/** The reference solution fails to compile and pass its tests. */
+const REFERENCE_FAILS: SandboxResult = {
+  passed: false,
+  tests: [],
+  message: 'reference solution does not compile',
+}
+
+/** The intended broken state does not fail. */
+const BROKEN_PASSES: SandboxResult = {
+  passed: true,
+  tests: [{ name: 'borrows_its_argument', status: 'passed' }],
+}
+
+/** The intended broken state fails only an unrelated, undeclared test. */
+const BROKEN_FAILS_UNRELATED: SandboxResult = {
+  passed: false,
+  tests: [
+    {
+      name: 'an_unrelated_test',
+      status: 'failed',
+      message: 'assertion failed',
+    },
+  ],
+}
+
+/** Schedules the sandbox mocks for one failing pre-flight run. */
+function scheduleFailingPreFlight(
+  sequence: [SandboxResult, SandboxResult],
+): void {
+  runSandboxSubmissionMock
+    .mockResolvedValueOnce(sequence[0])
+    .mockResolvedValueOnce(sequence[1])
+}
+
 beforeAll(async () => {
   await db.insert(concepts).values({
     id: FIXTURE_CONCEPT_ID,
@@ -152,11 +186,16 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
       conceptSlug: FIXTURE_CONCEPT_SLUG,
     })
 
+    expect(outcome.kind).toBe('generated')
+    if (outcome.kind !== 'generated') {
+      return
+    }
     expect(outcome.exercise.title).toBe('Borrow or move?')
     expect(outcome.exercise.language).toBe('rust')
     expect(outcome.targetConcepts).toEqual([FIXTURE_CONCEPT_SLUG])
     expect(outcome.prerequisites).toEqual(GENERATED.prerequisites)
     expect(outcome.estimatedMinutes).toBe(GENERATED.estimatedMinutes)
+    expect(outcome.simplified).toBe(false)
     expect(outcome.preflight).toEqual({
       attemptNumber: 1,
       passed: true,
@@ -173,6 +212,9 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
       conceptSlug: FIXTURE_CONCEPT_SLUG,
       conceptDifficulty: 2,
     })
+    // A first attempt is never fed previous diagnostics.
+    expect(aiCall?.previousDiagnostics).toBeUndefined()
+    expect(aiCall?.simplifiedConstraints).toBe(false)
 
     const sandboxCalls = runSandboxSubmissionMock.mock.calls.map(
       ([call]) => call,
@@ -218,101 +260,123 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
     expect(attempt?.diagnostics.checks).toHaveLength(3)
   })
 
-  it('logs a failed attempt and persists no exercise when the reference solution fails', async () => {
+  it("feeds the failed attempt's diagnostics into the retry and persists on the second attempt", async () => {
     generateExerciseMock.mockResolvedValue(GENERATED)
+    // Attempt 1: the reference solution fails to compile.
+    scheduleFailingPreFlight([REFERENCE_FAILS, BROKEN_FAILS_ON_CONCEPT])
+    // Attempt 2: the regenerated exercise passes every check.
     runSandboxSubmissionMock
-      .mockResolvedValueOnce({
-        passed: false,
-        tests: [],
-        message: 'reference solution does not compile',
-      })
+      .mockResolvedValueOnce(REFERENCE_PASSES)
       .mockResolvedValueOnce(BROKEN_FAILS_ON_CONCEPT)
 
-    await expect(
-      generateExerciseForConcept({
-        language: 'rust',
-        conceptSlug: FIXTURE_CONCEPT_SLUG,
-      }),
-    ).rejects.toMatchObject({ code: 'PREFLIGHT_FAILED' })
+    const outcome = await generateExerciseForConcept({
+      language: 'rust',
+      conceptSlug: FIXTURE_CONCEPT_SLUG,
+    })
 
-    const [attempt] = await db
+    expect(outcome.kind).toBe('generated')
+    if (outcome.kind !== 'generated') {
+      return
+    }
+    expect(outcome.preflight.attemptNumber).toBe(2)
+
+    // The retry received the attempt-1 failure's structured diagnostics.
+    expect(generateExerciseMock).toHaveBeenCalledTimes(2)
+    const retryInput = generateExerciseMock.mock.calls[1]?.[0]
+    expect(retryInput?.previousDiagnostics).toMatchObject({
+      checks: [
+        { name: 'reference_passes', passed: false },
+        { name: 'broken_state_fails', passed: true },
+        { name: 'failure_matches_concept', passed: true },
+      ],
+      referenceResult: { passed: false },
+    })
+    expect(retryInput?.simplifiedConstraints).toBe(false)
+
+    const attempts = await db
       .select()
       .from(preFlightAttempts)
       .where(eq(preFlightAttempts.conceptId, FIXTURE_CONCEPT_ID))
-    expect(attempt?.passed).toBe(false)
-    expect(attempt?.diagnostics.checks[0]).toMatchObject({
+      .orderBy(sql`attempt_number asc`)
+    expect(attempts).toHaveLength(2)
+    expect(attempts[0]).toMatchObject({
+      attemptNumber: 1,
+      passed: false,
+    })
+    expect(attempts[0]?.diagnostics.checks[0]).toMatchObject({
       name: 'reference_passes',
       passed: false,
     })
-    expect(
-      await db.$count(
-        exercises,
-        like(exercises.slug, 'rust-test-rust-borrowing-%'),
-      ),
-    ).toBe(0)
-  })
-
-  it('rejects an exercise whose broken state does not fail', async () => {
-    generateExerciseMock.mockResolvedValue(GENERATED)
-    runSandboxSubmissionMock
-      .mockResolvedValueOnce(REFERENCE_PASSES)
-      .mockResolvedValueOnce({
-        passed: true,
-        tests: [{ name: 'borrows_its_argument', status: 'passed' }],
-      })
-
-    await expect(
-      generateExerciseForConcept({
-        language: 'rust',
-        conceptSlug: FIXTURE_CONCEPT_SLUG,
-      }),
-    ).rejects.toMatchObject({ code: 'PREFLIGHT_FAILED' })
-
-    const [attempt] = await db
-      .select()
-      .from(preFlightAttempts)
-      .where(eq(preFlightAttempts.conceptId, FIXTURE_CONCEPT_ID))
-    expect(attempt?.passed).toBe(false)
-    expect(attempt?.diagnostics.checks[1]).toMatchObject({
-      name: 'broken_state_fails',
-      passed: false,
+    expect(attempts[1]).toMatchObject({
+      attemptNumber: 2,
+      passed: true,
     })
   })
 
-  it('rejects an exercise whose broken state fails only unrelated tests', async () => {
+  it('retries when the intended broken state does not fail', async () => {
     generateExerciseMock.mockResolvedValue(GENERATED)
+    scheduleFailingPreFlight([REFERENCE_PASSES, BROKEN_PASSES])
     runSandboxSubmissionMock
       .mockResolvedValueOnce(REFERENCE_PASSES)
-      .mockResolvedValueOnce({
-        passed: false,
-        tests: [
-          {
-            name: 'an_unrelated_test',
-            status: 'failed',
-            message: 'assertion failed',
-          },
-        ],
-      })
+      .mockResolvedValueOnce(BROKEN_FAILS_ON_CONCEPT)
 
-    await expect(
-      generateExerciseForConcept({
-        language: 'rust',
-        conceptSlug: FIXTURE_CONCEPT_SLUG,
-      }),
-    ).rejects.toMatchObject({ code: 'PREFLIGHT_FAILED' })
+    const outcome = await generateExerciseForConcept({
+      language: 'rust',
+      conceptSlug: FIXTURE_CONCEPT_SLUG,
+    })
 
-    const [attempt] = await db
+    expect(outcome.kind).toBe('generated')
+    if (outcome.kind !== 'generated') {
+      return
+    }
+    expect(outcome.preflight.attemptNumber).toBe(2)
+
+    const attempts = await db
       .select()
       .from(preFlightAttempts)
       .where(eq(preFlightAttempts.conceptId, FIXTURE_CONCEPT_ID))
-    expect(attempt?.passed).toBe(false)
-    expect(attempt?.diagnostics.checks[2]).toMatchObject({
+      .orderBy(sql`attempt_number asc`)
+    expect(attempts[0]).toMatchObject({
+      attemptNumber: 1,
+      passed: false,
+    })
+    expect(attempts[0]?.diagnostics.checks[1]).toMatchObject({
+      name: 'broken_state_fails',
+      passed: false,
+    })
+    expect(attempts[1]?.passed).toBe(true)
+  })
+
+  it('retries when the broken state fails only unrelated tests', async () => {
+    generateExerciseMock.mockResolvedValue(GENERATED)
+    scheduleFailingPreFlight([REFERENCE_PASSES, BROKEN_FAILS_UNRELATED])
+    runSandboxSubmissionMock
+      .mockResolvedValueOnce(REFERENCE_PASSES)
+      .mockResolvedValueOnce(BROKEN_FAILS_ON_CONCEPT)
+
+    const outcome = await generateExerciseForConcept({
+      language: 'rust',
+      conceptSlug: FIXTURE_CONCEPT_SLUG,
+    })
+
+    expect(outcome.kind).toBe('generated')
+    if (outcome.kind !== 'generated') {
+      return
+    }
+    expect(outcome.preflight.attemptNumber).toBe(2)
+
+    const attempts = await db
+      .select()
+      .from(preFlightAttempts)
+      .where(eq(preFlightAttempts.conceptId, FIXTURE_CONCEPT_ID))
+      .orderBy(sql`attempt_number asc`)
+    expect(attempts[0]?.diagnostics.checks[2]).toMatchObject({
       name: 'failure_matches_concept',
       passed: false,
     })
   })
 
-  it('rejects a failing test whose name is declared but not defined in the harness (issue #89)', async () => {
+  it('retries a failing test whose name is declared but not defined in the harness (issue #89)', async () => {
     generateExerciseMock.mockResolvedValue({
       ...GENERATED,
       evaluation: {
@@ -320,9 +384,9 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
         rubric: GENERATED.evaluation.rubric,
       },
     })
-    runSandboxSubmissionMock
-      .mockResolvedValueOnce(REFERENCE_PASSES)
-      .mockResolvedValueOnce({
+    scheduleFailingPreFlight([
+      REFERENCE_PASSES,
+      {
         passed: false,
         tests: [
           {
@@ -331,20 +395,29 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
             message: 'assertion failed',
           },
         ],
-      })
+      },
+    ])
+    runSandboxSubmissionMock
+      .mockResolvedValueOnce(REFERENCE_PASSES)
+      .mockResolvedValueOnce(BROKEN_FAILS_ON_CONCEPT)
 
-    await expect(
-      generateExerciseForConcept({
-        language: 'rust',
-        conceptSlug: FIXTURE_CONCEPT_SLUG,
-      }),
-    ).rejects.toMatchObject({ code: 'PREFLIGHT_FAILED' })
+    const outcome = await generateExerciseForConcept({
+      language: 'rust',
+      conceptSlug: FIXTURE_CONCEPT_SLUG,
+    })
 
-    const [attempt] = await db
+    expect(outcome.kind).toBe('generated')
+    if (outcome.kind !== 'generated') {
+      return
+    }
+    expect(outcome.preflight.attemptNumber).toBe(2)
+
+    const attempts = await db
       .select()
       .from(preFlightAttempts)
       .where(eq(preFlightAttempts.conceptId, FIXTURE_CONCEPT_ID))
-    expect(attempt?.diagnostics.checks[2]).toMatchObject({
+      .orderBy(sql`attempt_number asc`)
+    expect(attempts[0]?.diagnostics.checks[2]).toMatchObject({
       name: 'failure_matches_concept',
       passed: false,
     })
@@ -367,10 +440,14 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
       conceptSlug: FIXTURE_CONCEPT_SLUG,
     })
 
+    expect(outcome.kind).toBe('generated')
+    if (outcome.kind !== 'generated') {
+      return
+    }
     expect(outcome.preflight.passed).toBe(true)
   })
 
-  it('maps an AI Teacher Engine failure to a stable generation error', async () => {
+  it('maps an AI Teacher Engine failure to a stable generation error without retrying', async () => {
     generateExerciseMock.mockRejectedValue(
       new TeacherEngineError('api_error', 'engine unreachable'),
     )
@@ -382,6 +459,7 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
       }),
     ).rejects.toMatchObject({ code: 'EXERCISE_GENERATION_FAILED' })
 
+    expect(generateExerciseMock).toHaveBeenCalledTimes(1)
     expect(runSandboxSubmissionMock).not.toHaveBeenCalled()
     const attempts = await db
       .select()
@@ -390,7 +468,7 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
     expect(attempts).toHaveLength(0)
   })
 
-  it('rejects a draft that does not target the requested concept', async () => {
+  it('rejects a draft that does not target the requested concept without retrying', async () => {
     generateExerciseMock.mockResolvedValue({
       ...GENERATED,
       targetConcepts: ['test.rust.other'],
@@ -402,6 +480,7 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
         conceptSlug: FIXTURE_CONCEPT_SLUG,
       }),
     ).rejects.toMatchObject({ code: 'EXERCISE_GENERATION_INVALID' })
+    expect(generateExerciseMock).toHaveBeenCalledTimes(1)
     expect(runSandboxSubmissionMock).not.toHaveBeenCalled()
   })
 
@@ -437,6 +516,10 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
       conceptSlug: FIXTURE_CONCEPT_SLUG,
     })
 
+    expect(outcome.kind).toBe('generated')
+    if (outcome.kind !== 'generated') {
+      return
+    }
     expect(outcome.targetConcepts).toEqual([FIXTURE_CONCEPT_SLUG])
     const joins = await db
       .select()
@@ -444,6 +527,167 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
       .where(eq(exerciseConcepts.exerciseId, outcome.exercise.id))
     expect(joins).toHaveLength(1)
     expect(joins[0]?.conceptId).toBe(FIXTURE_CONCEPT_ID)
+  })
+
+  it('caps retries at 3 and persists the simplified fallback regeneration on attempt 4', async () => {
+    generateExerciseMock.mockResolvedValue(GENERATED)
+    // Attempts 1-3: every run fails the same way.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      scheduleFailingPreFlight([REFERENCE_FAILS, BROKEN_FAILS_ON_CONCEPT])
+    }
+    // Attempt 4 (simplified constraint set): passes every check.
+    runSandboxSubmissionMock
+      .mockResolvedValueOnce(REFERENCE_PASSES)
+      .mockResolvedValueOnce(BROKEN_FAILS_ON_CONCEPT)
+
+    const outcome = await generateExerciseForConcept({
+      language: 'rust',
+      conceptSlug: FIXTURE_CONCEPT_SLUG,
+    })
+
+    expect(outcome.kind).toBe('generated')
+    if (outcome.kind !== 'generated') {
+      return
+    }
+    expect(outcome.simplified).toBe(true)
+    expect(outcome.preflight.attemptNumber).toBe(4)
+
+    // Exactly 4 AI calls; every retry carries the previous diagnostics and
+    // only the terminal attempt carries the simplified-constraints marker.
+    expect(generateExerciseMock).toHaveBeenCalledTimes(4)
+    const calls = generateExerciseMock.mock.calls.map(([call]) => call)
+    expect(calls[0]?.previousDiagnostics).toBeUndefined()
+    for (const call of calls.slice(1)) {
+      expect(call.previousDiagnostics).toBeDefined()
+    }
+    expect(calls[0]?.simplifiedConstraints).toBe(false)
+    expect(calls[1]?.simplifiedConstraints).toBe(false)
+    expect(calls[2]?.simplifiedConstraints).toBe(false)
+    expect(calls[3]?.simplifiedConstraints).toBe(true)
+
+    const attempts = await db
+      .select()
+      .from(preFlightAttempts)
+      .where(eq(preFlightAttempts.conceptId, FIXTURE_CONCEPT_ID))
+      .orderBy(sql`attempt_number asc`)
+    expect(attempts).toHaveLength(4)
+    expect(attempts.map((attempt) => attempt.attemptNumber)).toEqual([
+      1, 2, 3, 4,
+    ])
+    expect(attempts.map((attempt) => attempt.passed)).toEqual([
+      false,
+      false,
+      false,
+      true,
+    ])
+
+    const [row] = await db
+      .select()
+      .from(exercises)
+      .where(eq(exercises.id, outcome.exercise.id))
+    expect(row?.status).toBe('verified')
+  })
+
+  it('falls back to a previously verified exercise on the same concept after 3 failures', async () => {
+    const [fallbackRow] = await db
+      .insert(exercises)
+      .values({
+        slug: 'fallback-seeded-exercise',
+        language: 'rust',
+        title: 'Seeded verified',
+        prompt: 'Do the thing.',
+        starterCode: 'pub fn seeded() {}',
+        testSource: '#[test]\nfn works() { assert!(true); }\n',
+        referenceSolution: 'pub fn seeded() {}',
+        evaluationRubric: {
+          required: ['Does the thing'],
+          prohibited: [],
+          advisory: [],
+        },
+        mode: 'implement',
+        difficulty: 1,
+        constraints: ['std_only'],
+        status: 'verified',
+      })
+      .returning()
+    if (!fallbackRow) {
+      throw new Error('expected the fallback fixture exercise')
+    }
+    await db.insert(exerciseConcepts).values({
+      exerciseId: fallbackRow.id,
+      conceptId: FIXTURE_CONCEPT_ID,
+    })
+
+    generateExerciseMock.mockResolvedValue(GENERATED)
+    for (let attempt = 0; attempt < 3; attempt++) {
+      scheduleFailingPreFlight([REFERENCE_FAILS, BROKEN_FAILS_ON_CONCEPT])
+    }
+
+    const outcome = await generateExerciseForConcept({
+      language: 'rust',
+      conceptSlug: FIXTURE_CONCEPT_SLUG,
+    })
+
+    // The stored verified exercise is served as-is: no 4th generation, no
+    // new exercise row, no new Pre-Flight run (ADR-0019).
+    expect(outcome.kind).toBe('verified-fallback')
+    if (outcome.kind !== 'verified-fallback') {
+      return
+    }
+    expect(outcome.exercise.id).toBe(fallbackRow.id)
+    expect(outcome.exercise.title).toBe('Seeded verified')
+    expect(outcome.targetConcepts).toEqual([FIXTURE_CONCEPT_SLUG])
+    expect(outcome.constraints).toEqual(['std_only'])
+    expect(generateExerciseMock).toHaveBeenCalledTimes(3)
+
+    const attempts = await db
+      .select()
+      .from(preFlightAttempts)
+      .where(eq(preFlightAttempts.conceptId, FIXTURE_CONCEPT_ID))
+      .orderBy(sql`attempt_number asc`)
+    expect(attempts).toHaveLength(3)
+    expect(attempts.every((attempt) => !attempt.passed)).toBe(true)
+    expect(
+      await db.$count(
+        exercises,
+        like(exercises.slug, 'rust-test-rust-borrowing-%'),
+      ),
+    ).toBe(0)
+
+    await db
+      .delete(exerciseConcepts)
+      .where(eq(exerciseConcepts.exerciseId, fallbackRow.id))
+    await db.delete(exercises).where(eq(exercises.id, fallbackRow.id))
+  })
+
+  it('throws a stable error when the simplified fallback regeneration also fails', async () => {
+    generateExerciseMock.mockResolvedValue(GENERATED)
+    for (let attempt = 0; attempt < 4; attempt++) {
+      scheduleFailingPreFlight([REFERENCE_FAILS, BROKEN_FAILS_ON_CONCEPT])
+    }
+
+    await expect(
+      generateExerciseForConcept({
+        language: 'rust',
+        conceptSlug: FIXTURE_CONCEPT_SLUG,
+      }),
+    ).rejects.toMatchObject({ code: 'PREFLIGHT_FAILED' })
+
+    expect(generateExerciseMock).toHaveBeenCalledTimes(4)
+    const attempts = await db
+      .select()
+      .from(preFlightAttempts)
+      .where(eq(preFlightAttempts.conceptId, FIXTURE_CONCEPT_ID))
+      .orderBy(sql`attempt_number asc`)
+    expect(attempts).toHaveLength(4)
+    expect(attempts.every((attempt) => !attempt.passed)).toBe(true)
+    // A learner is never shown an exercise that failed Pre-Flight.
+    expect(
+      await db.$count(
+        exercises,
+        like(exercises.slug, 'rust-test-rust-borrowing-%'),
+      ),
+    ).toBe(0)
   })
 
   it('exposes only verified generated exercises as available', async () => {
