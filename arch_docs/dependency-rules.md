@@ -9,7 +9,7 @@ Production imports form a directed acyclic graph.
 | `src/features/<feature>/pages`          | same feature, shared UI/hooks/types, `src/lib`                       |
 | `src/features/<feature>/components`     | same feature client-safe modules, shared UI/hooks/types, `src/lib`   |
 | `src/features/<feature>/*.functions.ts` | same feature schemas and server-only operations                      |
-| `src/features/<feature>/*.server.ts`    | same feature, server-only `src/lib`, private infrastructure packages |
+| `src/features/<feature>/*.server.ts`    | same feature, server-only `src/lib`, private infrastructure packages, a narrow named entry point from another feature's `*.server.ts` (Feature Dependencies exception below) |
 | `src/shared/*`                          | other shared code and `src/lib` only                                 |
 | `src/db`                                | server-only `src/lib` modules                                       |
 | `src/lib`                               | other focused `src/lib` modules only                                 |
@@ -42,6 +42,19 @@ Avoid feature-to-feature imports. When a real capability dependency exists, expo
 narrow client-safe public module from the owning feature, document the direction, and
 keep the graph acyclic. Move a contract to `shared` only when it has no single feature
 owner.
+
+A `*.server.ts` module may instead import a **named, narrow entry point** from another
+feature's `*.server.ts` — not the whole module, not internal helpers — when: the
+dependency is genuinely one-way (the owning feature never imports back), the graph stays
+acyclic, and the import is documented with a comment at the call site naming this
+exception and the direction. Both sides of the import are already server-only, so this
+carries no client-bundling risk (unlike importing a browser-reachable module); the bar
+exists to keep the coupling deliberate and reviewable rather than silent. Example:
+`src/features/exercise/exercise.server.ts` importing
+`recordAttemptOutcome` from `src/features/learners/mastery.server.ts` — exercise
+completion is the one place attempt outcomes drive Learner Model mastery, and `learners`
+exposes that as a single intent-level function rather than exercise reaching into
+mastery's low-level primitives.
 
 ## Enforcement
 

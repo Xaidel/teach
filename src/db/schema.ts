@@ -61,6 +61,31 @@ export const exerciseMode = pgEnum('exercise_mode', [
   'explain',
 ])
 
+/**
+ * Learner Model mastery state (ADR-0010, SPEC story 41): Unknown is the
+ * implicit absence of a `learner_concept_mastery` row, not a stored value —
+ * a row is created no earlier than `introduced`, on a concept's first
+ * attempt. `unknown` stays in the enum for a future explicit downgrade path
+ * (SPEC story 50, ticket #18), even though this ticket never writes it.
+ */
+export const masteryState = pgEnum('mastery_state', [
+  'unknown',
+  'introduced',
+  'practiced',
+  'demonstrated',
+  'retained',
+])
+
+/**
+ * Attempt outcome (ADR-0010): the deterministic Stage 1 sandbox verdict —
+ * Stage 1 stays the authoritative gate (ADR-0008); a Stage 2 rubric
+ * violation is reported to the learner (`stage2Review`) without flipping
+ * this column, matching the pre-rekey `results.passed` boolean it replaces.
+ * Mastery advancement additionally requires Stage 2 to pass where the
+ * exercise has a rubric (`advanceMasteryOnCompletion`, exercise.server.ts).
+ */
+export const attemptOutcome = pgEnum('attempt_outcome', ['pass', 'fail'])
+
 /** The single learner the platform serves in v1 (ADR-0001, ADR-0014). */
 export const learners = pgTable('learners', {
   id: uuid('id')
@@ -128,9 +153,24 @@ export const exerciseConcepts = pgTable(
   (table) => [primaryKey({ columns: [table.exerciseId, table.conceptId] })],
 )
 
-/** One learner submission of an exercise, attributed to the current learner (ADR-0014). */
-export const submissions = pgTable(
-  'submissions',
+/** Compiler/test diagnostics preserved per attempt (ADR-0010): the same
+ * Sandbox Result detail the pre-rekey `results` table split across `tests`
+ * and `message`, now the ADR's single `compiler_errors` jsonb column. */
+export type AttemptCompilerErrors = {
+  tests: SandboxTest[]
+  message: string | null
+}
+
+/**
+ * One learner attempt at an exercise (ADR-0010, ADR-0014): merges the
+ * walking skeleton's `submissions` + `results` tables (staging deviation
+ * recorded in ADR-0010, reconciled by ADR-0021) into the durable shape this
+ * ADR specifies. `time_to_solution` is seconds elapsed since the learner's
+ * first attempt at this exercise — 0 on that first attempt — the evidence
+ * granularity SPEC story 42 asks for.
+ */
+export const attempts = pgTable(
+  'attempts',
   {
     id: uuid('id')
       .primaryKey()
@@ -142,44 +182,32 @@ export const submissions = pgTable(
       .notNull()
       .references(() => exercises.id),
     code: text('code').notNull(),
+    outcome: attemptOutcome('outcome').notNull(),
+    timeToSolution: integer('time_to_solution').notNull(),
+    compilerErrors: jsonb('compiler_errors').$type<AttemptCompilerErrors>(),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
-  (table) => [index('submissions_learner_idx').on(table.learnerId)],
+  (table) => [
+    index('attempts_learner_idx').on(table.learnerId),
+    index('attempts_exercise_idx').on(table.exerciseId),
+  ],
 )
 
-/** The normalized Sandbox Result produced for one submission. */
-export const results = pgTable(
-  'results',
+/**
+ * One Socratic hint served against an exercise attempt (issue #4), rekeyed
+ * from `submission_hints` onto `attempts` (ADR-0010, ADR-0021).
+ */
+export const attemptHints = pgTable(
+  'attempt_hints',
   {
     id: uuid('id')
       .primaryKey()
       .$defaultFn(() => uuidv7()),
-    submissionId: uuid('submission_id')
+    attemptId: uuid('attempt_id')
       .notNull()
-      .references(() => submissions.id),
-    passed: boolean('passed').notNull(),
-    tests: jsonb('tests').$type<SandboxTest[]>().notNull(),
-    /** Result-level diagnostics, persisted so later hint context can be rebuilt. */
-    message: text('message'),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-  },
-  (table) => [uniqueIndex('results_submission_unique').on(table.submissionId)],
-)
-
-/** One Socratic hint served against an exercise attempt (issue #4). */
-export const submissionHints = pgTable(
-  'submission_hints',
-  {
-    id: uuid('id')
-      .primaryKey()
-      .$defaultFn(() => uuidv7()),
-    submissionId: uuid('submission_id')
-      .notNull()
-      .references(() => submissions.id),
+      .references(() => attempts.id),
     hintLevel: integer('hint_level').notNull(),
     content: text('content').notNull(),
     servedAt: timestamp('served_at', { withTimezone: true })
@@ -187,16 +215,40 @@ export const submissionHints = pgTable(
       .defaultNow(),
   },
   (table) => [
-    index('submission_hints_submission_idx').on(table.submissionId),
-    uniqueIndex('submission_hints_level_unique').on(
-      table.submissionId,
+    index('attempt_hints_attempt_idx').on(table.attemptId),
+    uniqueIndex('attempt_hints_level_unique').on(
+      table.attemptId,
       table.hintLevel,
     ),
     check(
-      'submission_hints_level_check',
+      'attempt_hints_level_check',
       sql`${table.hintLevel} between 0 and ${sql.raw(String(HINT_LADDER_MAX_LEVEL))}`,
     ),
   ],
+)
+
+/**
+ * Current per-learner, per-concept mastery state (ADR-0010, SPEC story 41):
+ * overwritten in place on every state change, never appended to — mastery
+ * *transition* history is reconstructed from `attempts.created_at` if ever
+ * needed (ADR-0010 Alternatives Considered). No row exists for a concept
+ * the learner has never attempted; that absence *is* the Unknown state.
+ */
+export const learnerConceptMastery = pgTable(
+  'learner_concept_mastery',
+  {
+    learnerId: uuid('learner_id')
+      .notNull()
+      .references(() => learners.id),
+    conceptId: uuid('concept_id')
+      .notNull()
+      .references(() => concepts.id),
+    state: masteryState('state').notNull().default('introduced'),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.learnerId, table.conceptId] })],
 )
 
 /**

@@ -42,6 +42,10 @@ We will use the following schema for v1's core persistence, all in the single Po
 > the reconciliation record ticket #10 must consume. [ADR-NNNN](./NNNN-shield-blocked-hint-ladder-exhaustion.md)
 > (parked, unnumbered) adds a shield-blocked marker column to `submission_hints`; the rekey migration must carry that
 > column forward into the durable shape.
+>
+> **Reconciled (2026-08-13) by [ADR-0021](./0021-attempts-rekey-reconciliation.md):** the rekey landed —
+> `submissions`/`results`/`submission_hints` no longer exist; `attempts`/`attempt_hints` are the durable shape this
+> ADR specified. ADR-NNNN's marker column was never implemented, so nothing was carried forward for it.
 - **`exercises`**: `id`, `mode` (enum: `implement` | `debug` | `explain`), `difficulty`, `constraints`, `reference_solution`, `status` (enum: `pending` | `verified` | `failed` | `retired`).
 - **`exercise_concepts`**: `exercise_id`, `concept_id` — join table; an exercise may target more than one concept.
 - **Explanation Assessment and Transfer Testing** are not separate entities: they are `exercises`/`attempts` rows with `mode = explain` or a structurally different exercise (`debug`) on an already-passed concept. An `explain`-mode attempt stores its accuracy score and detected missing/incorrect/conflated concepts as jsonb in place of a pass/fail outcome, and skips Pre-Flight validation, which does not apply to it.
@@ -161,5 +165,6 @@ No code implements this yet as of this writing; there is no automated check to p
 - Related to: [ADR-0001](./0001-single-user-mvp-multi-user-ready-data-model.md) — the `learners` table and every `learner_id` foreign key in this schema implement ADR-0001's learner-scoping mandate.
 - Related to: [ADR-0003](./0003-multi-language-from-v1.md) — the per-language `concepts.language` column is how this schema stores the three v1 languages ADR-0003 establishes.
 - Related to: [ADR-0016](./0016-concept-graph-review-workflow.md), [ADR-0017](./0017-stage2-rubric-storage.md), [ADR-0019](./0019-generated-test-source-storage.md) — each adds a single column to a table this ADR defines (`concepts.status`, `exercises.evaluation_rubric`, `exercises.test_source` respectively) without reopening this ADR's schema otherwise.
+- Refined by: [ADR-0021](./0021-attempts-rekey-reconciliation.md) — consumes this ADR's staging-deviation reconciliation note (above) and adds `attempt_hints.content`, one column beyond this ADR's original three-column `attempt_hints` shape, needed to store the AI Teacher Engine's generated hint text.
 - Supporting evidence: [docs/SPEC.md](../SPEC.md) (Concept Graph, Learner Model, Explanation Assessment & Transfer Testing, Spaced Retrieval, and Pre-Flight Validation sections); wayfinder ticket #22 on map #21 (resolution session this ADR records).
 - Owning implementation package: none yet — no code implements this as of this writing.

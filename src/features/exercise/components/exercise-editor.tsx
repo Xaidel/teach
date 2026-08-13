@@ -53,7 +53,7 @@ export function ExerciseEditor({
     setIsHintPending(true)
     try {
       const response = await requestHintFn({
-        data: { submissionId: outcome.submissionId, action },
+        data: { attemptId: outcome.attemptId, action },
       })
       setOutcome((current) =>
         current ? { ...current, hint: response.hint } : current,

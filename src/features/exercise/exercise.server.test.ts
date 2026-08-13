@@ -1,6 +1,7 @@
 import { desc, eq, sql } from 'drizzle-orm'
 import {
   afterAll,
+  afterEach,
   beforeAll,
   beforeEach,
   describe,
@@ -25,12 +26,20 @@ vi.mock('#/lib/ai/functions.server', () => ({
 }))
 
 import { db } from '#/db/client.server'
-import { exercises, results, submissionHints, submissions } from '#/db/schema'
+import {
+  concepts,
+  exerciseConcepts,
+  exercises,
+  attemptHints,
+  attempts,
+  learnerConceptMastery,
+} from '#/db/schema'
 import { TeacherEngineError } from '#/lib/ai/client.server'
 import { generateHint, reviewSubmission } from '#/lib/ai/functions.server'
 import type { ReviewSubmissionOutput } from '#/lib/ai/schemas'
 import { runSandboxSubmission } from '#/lib/sandbox/runner.server'
 import { getCurrentLearnerId } from '../learners/learners.server'
+import { getMasteryStates } from '../learners/mastery.server'
 import {
   getHardcodedExercises,
   HARDCODED_EXERCISE_SLUGS,
@@ -85,7 +94,7 @@ const generateHintMock = vi.mocked(generateHint)
 const reviewSubmissionMock = vi.mocked(reviewSubmission)
 
 /**
- * Rust fixture used by the submission/hint tests: the seeded hardcoded
+ * Rust fixture used by the attempt/hint tests: the seeded hardcoded
  * exercises no longer include a Rust one (issue #8 replaced it with
  * generated exercises), so the tests that need a submittable Rust exercise
  * insert their own namespaced fixture row.
@@ -125,25 +134,24 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  // Remove any submissions the fixture exercise accumulated (some tests
-  // clean up by "latest submission for the learner", which can target a
+  // Remove any attempts the fixture exercise accumulated (some tests
+  // clean up by "latest attempt for the learner", which can target a
   // different exercise's row), then the exercise itself.
   const fixtureRows = await db
     .select({ id: exercises.id })
     .from(exercises)
     .where(eq(exercises.slug, RUST_FIXTURE_SLUG))
   for (const row of fixtureRows) {
-    const fixtureSubmissionIds = await db
-      .select({ id: submissions.id })
-      .from(submissions)
-      .where(eq(submissions.exerciseId, row.id))
-    for (const submission of fixtureSubmissionIds) {
+    const fixtureAttemptIds = await db
+      .select({ id: attempts.id })
+      .from(attempts)
+      .where(eq(attempts.exerciseId, row.id))
+    for (const attempt of fixtureAttemptIds) {
       await db
-        .delete(submissionHints)
-        .where(eq(submissionHints.submissionId, submission.id))
-      await db.delete(results).where(eq(results.submissionId, submission.id))
+        .delete(attemptHints)
+        .where(eq(attemptHints.attemptId, attempt.id))
     }
-    await db.delete(submissions).where(eq(submissions.exerciseId, row.id))
+    await db.delete(attempts).where(eq(attempts.exerciseId, row.id))
   }
   await db.delete(exercises).where(eq(exercises.slug, RUST_FIXTURE_SLUG))
 })
@@ -155,24 +163,21 @@ beforeEach(() => {
   reviewSubmissionMock.mockResolvedValue(PASSING_REVIEW_OUTPUT)
 })
 
-/** Removes the latest persisted submission for a learner, its result, and hints. */
-async function deleteLatestSubmission(learnerId: string): Promise<void> {
-  const [submission] = await db
+/** Removes the latest persisted attempt for a learner, and its hints. */
+async function deleteLatestAttempt(learnerId: string): Promise<void> {
+  const [attempt] = await db
     .select()
-    .from(submissions)
-    .where(eq(submissions.learnerId, learnerId))
-    .orderBy(desc(submissions.createdAt))
+    .from(attempts)
+    .where(eq(attempts.learnerId, learnerId))
+    .orderBy(desc(attempts.createdAt))
     .limit(1)
 
-  if (!submission) {
-    throw new Error('expected a persisted submission to clean up')
+  if (!attempt) {
+    throw new Error('expected a persisted attempt to clean up')
   }
 
-  await db
-    .delete(submissionHints)
-    .where(eq(submissionHints.submissionId, submission.id))
-  await db.delete(results).where(eq(results.submissionId, submission.id))
-  await db.delete(submissions).where(eq(submissions.id, submission.id))
+  await db.delete(attemptHints).where(eq(attemptHints.attemptId, attempt.id))
+  await db.delete(attempts).where(eq(attempts.id, attempt.id))
 }
 
 describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
@@ -212,7 +217,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
     }
   })
 
-  it('persists a submission and its result attributed to the current learner', async () => {
+  it('persists an attempt with its outcome and compiler diagnostics, attributed to the current learner (ADR-0010)', async () => {
     runSandboxSubmissionMock.mockResolvedValue({
       passed: true,
       tests: [{ name: 'handles_zero', status: 'passed' }],
@@ -237,34 +242,26 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
     })
     expect(submitted?.testSource).toBeTruthy()
 
-    const [submission] = await db
+    const [attempt] = await db
       .select()
-      .from(submissions)
-      .where(eq(submissions.learnerId, learnerId))
-      .orderBy(desc(submissions.createdAt))
+      .from(attempts)
+      .where(eq(attempts.learnerId, learnerId))
+      .orderBy(desc(attempts.createdAt))
       .limit(1)
 
-    expect(submission).toBeDefined()
-    if (!submission) throw new Error('expected a persisted submission')
-    expect(submission.exerciseId).toBe(rustExercise.id)
-    expect(submission.learnerId).toBe(learnerId)
+    expect(attempt).toBeDefined()
+    if (!attempt) throw new Error('expected a persisted attempt')
+    expect(attempt.exerciseId).toBe(rustExercise.id)
+    expect(attempt.learnerId).toBe(learnerId)
+    expect(attempt.id).toBe(outcome.attemptId)
+    expect(attempt.outcome).toBe('pass')
+    expect(attempt.timeToSolution).toBe(0)
+    expect(attempt.compilerErrors?.tests).toHaveLength(1)
 
-    const [persistedResult] = await db
-      .select()
-      .from(results)
-      .where(eq(results.submissionId, submission.id))
-      .limit(1)
-
-    expect(persistedResult).toBeDefined()
-    if (!persistedResult) throw new Error('expected a persisted result')
-    expect(persistedResult.passed).toBe(true)
-    expect(persistedResult.tests).toHaveLength(1)
-
-    await db.delete(results).where(eq(results.submissionId, submission.id))
-    await db.delete(submissions).where(eq(submissions.id, submission.id))
+    await deleteLatestAttempt(learnerId)
   })
 
-  it('dispatches the submission to the sandbox of the exercise language', async () => {
+  it('dispatches the attempt to the sandbox of the exercise language', async () => {
     runSandboxSubmissionMock.mockResolvedValue({
       passed: true,
       tests: [{ name: 'test_zero', status: 'passed' }],
@@ -297,7 +294,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
 
     const rustExercise = await getRustFixture()
     const learnerId = await getCurrentLearnerId()
-    const submissionsBefore = await db.$count(submissions)
+    const attemptsBefore = await db.$count(attempts)
 
     await expect(
       submitExercise({
@@ -307,7 +304,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       }),
     ).rejects.toMatchObject({ code: 'SANDBOX_RESULT_INVALID' })
 
-    expect(await db.$count(submissions)).toBe(submissionsBefore)
+    expect(await db.$count(attempts)).toBe(attemptsBefore)
   })
 
   it('rejects a sandbox result with unknown keys (strict parsing) without persisting it', async () => {
@@ -319,7 +316,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
 
     const rustExercise = await getRustFixture()
     const learnerId = await getCurrentLearnerId()
-    const submissionsBefore = await db.$count(submissions)
+    const attemptsBefore = await db.$count(attempts)
 
     await expect(
       submitExercise({
@@ -329,7 +326,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       }),
     ).rejects.toMatchObject({ code: 'SANDBOX_RESULT_INVALID' })
 
-    expect(await db.$count(submissions)).toBe(submissionsBefore)
+    expect(await db.$count(attempts)).toBe(attemptsBefore)
   })
 
   it('throws a stable error for an unknown exercise', async () => {
@@ -385,18 +382,18 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
 
     const [servedHint] = await db
       .select()
-      .from(submissionHints)
-      .where(eq(submissionHints.submissionId, outcome.submissionId))
+      .from(attemptHints)
+      .where(eq(attemptHints.attemptId, outcome.attemptId))
       .limit(1)
 
     expect(servedHint).toMatchObject({
-      submissionId: outcome.submissionId,
+      attemptId: outcome.attemptId,
       hintLevel: 0,
       content: 'What should is_even return when n is even?',
     })
     expect(servedHint?.servedAt).toBeInstanceOf(Date)
 
-    await deleteLatestSubmission(learnerId)
+    await deleteLatestAttempt(learnerId)
   })
 
   it('falls back to the raw result when hint generation fails', async () => {
@@ -422,11 +419,11 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
 
     const served = await db
       .select()
-      .from(submissionHints)
-      .where(eq(submissionHints.submissionId, outcome.submissionId))
+      .from(attemptHints)
+      .where(eq(attemptHints.attemptId, outcome.attemptId))
     expect(served).toHaveLength(0)
 
-    await deleteLatestSubmission(learnerId)
+    await deleteLatestAttempt(learnerId)
   })
 
   it('persists the failed result message for later hint context', async () => {
@@ -451,12 +448,13 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
 
     const [persisted] = await db
       .select()
-      .from(results)
-      .where(eq(results.submissionId, outcome.submissionId))
+      .from(attempts)
+      .where(eq(attempts.id, outcome.attemptId))
       .limit(1)
-    expect(persisted?.message).toBe('compile error excerpt')
+    expect(persisted?.compilerErrors?.message).toBe('compile error excerpt')
+    expect(persisted?.outcome).toBe('fail')
 
-    await deleteLatestSubmission(learnerId)
+    await deleteLatestAttempt(learnerId)
   })
 
   it('escalates one level per request and records the full manual ladder', async () => {
@@ -483,7 +481,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
     for (const level of [1, 2, 3, 4]) {
       await expect(
         requestHint({
-          submissionId: outcome.submissionId,
+          attemptId: outcome.attemptId,
           action: 'next',
           learnerId,
         }),
@@ -494,7 +492,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
 
     await expect(
       requestHint({
-        submissionId: outcome.submissionId,
+        attemptId: outcome.attemptId,
         action: 'next',
         learnerId,
       }),
@@ -502,7 +500,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
 
     await expect(
       requestHint({
-        submissionId: outcome.submissionId,
+        attemptId: outcome.attemptId,
         action: 'full_solution',
         learnerId,
       }),
@@ -515,13 +513,13 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
     ).toEqual([0, 1, 2, 3, 4, 5])
 
     const served = await db
-      .select({ hintLevel: submissionHints.hintLevel })
-      .from(submissionHints)
-      .where(eq(submissionHints.submissionId, outcome.submissionId))
-      .orderBy(submissionHints.hintLevel)
+      .select({ hintLevel: attemptHints.hintLevel })
+      .from(attemptHints)
+      .where(eq(attemptHints.attemptId, outcome.attemptId))
+      .orderBy(attemptHints.hintLevel)
     expect(served.map((row) => row.hintLevel)).toEqual([0, 1, 2, 3, 4, 5])
 
-    await deleteLatestSubmission(learnerId)
+    await deleteLatestAttempt(learnerId)
   })
 
   it('passes the previously served hints into each escalation request', async () => {
@@ -546,12 +544,12 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
     })
 
     await requestHint({
-      submissionId: outcome.submissionId,
+      attemptId: outcome.attemptId,
       action: 'next',
       learnerId,
     })
     await requestHint({
-      submissionId: outcome.submissionId,
+      attemptId: outcome.attemptId,
       action: 'next',
       learnerId,
     })
@@ -566,7 +564,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
     })
     expect(escalationCall?.referenceSolution).toContain('n % 2 == 0')
 
-    await deleteLatestSubmission(learnerId)
+    await deleteLatestAttempt(learnerId)
   })
 
   it('requires the full-solution action before serving Level 5', async () => {
@@ -592,13 +590,13 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
 
     await expect(
       requestHint({
-        submissionId: outcome.submissionId,
+        attemptId: outcome.attemptId,
         action: 'full_solution',
         learnerId,
       }),
     ).rejects.toMatchObject({ code: 'HINT_ESCALATION_INVALID' })
 
-    await deleteLatestSubmission(learnerId)
+    await deleteLatestAttempt(learnerId)
   })
 
   it('rejects hint requests on a passed attempt', async () => {
@@ -618,16 +616,16 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
 
     await expect(
       requestHint({
-        submissionId: outcome.submissionId,
+        attemptId: outcome.attemptId,
         action: 'next',
         learnerId,
       }),
     ).rejects.toMatchObject({ code: 'HINT_ESCALATION_INVALID' })
 
-    await deleteLatestSubmission(learnerId)
+    await deleteLatestAttempt(learnerId)
   })
 
-  it('rejects hint requests on another learner submission', async () => {
+  it('rejects hint requests on another learner attempt', async () => {
     runSandboxSubmissionMock.mockResolvedValue({
       passed: false,
       tests: [{ name: 'handles_zero', status: 'failed' }],
@@ -644,13 +642,13 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
 
     await expect(
       requestHint({
-        submissionId: outcome.submissionId,
+        attemptId: outcome.attemptId,
         action: 'next',
         learnerId: '22222222-2222-7222-8222-222222222222',
       }),
     ).rejects.toMatchObject({ code: 'HINT_ESCALATION_INVALID' })
 
-    await deleteLatestSubmission(learnerId)
+    await deleteLatestAttempt(learnerId)
   })
 
   it('starts a fresh ladder for a new exercise attempt', async () => {
@@ -674,7 +672,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       learnerId,
     })
     await requestHint({
-      submissionId: first.submissionId,
+      attemptId: first.attemptId,
       action: 'next',
       learnerId,
     })
@@ -685,12 +683,12 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       learnerId,
     })
 
-    expect(second.submissionId).not.toBe(first.submissionId)
+    expect(second.attemptId).not.toBe(first.attemptId)
 
     const escalationCall = generateHintMock.mock.calls.at(-1)?.[0]
     expect(escalationCall).toMatchObject({ targetLevel: 0, priorHints: [] })
 
-    await deleteLatestSubmission(learnerId)
+    await deleteLatestAttempt(learnerId)
   })
 
   it('does not persist an auto-served hint at an invalid engine level (issue #57)', async () => {
@@ -719,11 +717,11 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
 
     const served = await db
       .select()
-      .from(submissionHints)
-      .where(eq(submissionHints.submissionId, outcome.submissionId))
+      .from(attemptHints)
+      .where(eq(attemptHints.attemptId, outcome.attemptId))
     expect(served).toHaveLength(0)
 
-    await deleteLatestSubmission(learnerId)
+    await deleteLatestAttempt(learnerId)
   })
 
   it('fails gracefully when concurrent requests resolve the same hint level (issue #55)', async () => {
@@ -759,12 +757,12 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
     })
 
     const first = requestHint({
-      submissionId: outcome.submissionId,
+      attemptId: outcome.attemptId,
       action: 'next',
       learnerId,
     })
     const second = requestHint({
-      submissionId: outcome.submissionId,
+      attemptId: outcome.attemptId,
       action: 'next',
       learnerId,
     })
@@ -784,12 +782,12 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
     }
 
     const served = await db
-      .select({ hintLevel: submissionHints.hintLevel })
-      .from(submissionHints)
-      .where(eq(submissionHints.submissionId, outcome.submissionId))
+      .select({ hintLevel: attemptHints.hintLevel })
+      .from(attemptHints)
+      .where(eq(attemptHints.attemptId, outcome.attemptId))
     expect(served.map((row) => row.hintLevel).sort()).toEqual([0, 1])
 
-    await deleteLatestSubmission(learnerId)
+    await deleteLatestAttempt(learnerId)
   })
 
   it('skips hint generation when the exercise has no reference solution (issue #5, fail closed)', async () => {
@@ -831,14 +829,14 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       expect(generateHintMock).not.toHaveBeenCalled()
 
       const escalation = await requestHint({
-        submissionId: outcome.submissionId,
+        attemptId: outcome.attemptId,
         action: 'next',
         learnerId,
       }).catch((error: unknown) => error)
 
       expect(escalation).toMatchObject({ code: 'EXERCISE_NOT_HINTABLE' })
 
-      await deleteLatestSubmission(learnerId)
+      await deleteLatestAttempt(learnerId)
     } finally {
       await db.delete(exercises).where(eq(exercises.id, inserted.id))
     }
@@ -892,7 +890,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       })
       expect(reviewInput?.submissionCode).toContain('n % 2 == 0')
 
-      await deleteLatestSubmission(learnerId)
+      await deleteLatestAttempt(learnerId)
     } finally {
       await db.delete(exercises).where(eq(exercises.id, inserted.id))
     }
@@ -951,7 +949,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
         verdict: 'violated',
       })
 
-      await deleteLatestSubmission(learnerId)
+      await deleteLatestAttempt(learnerId)
     } finally {
       await db.delete(exercises).where(eq(exercises.id, inserted.id))
     }
@@ -1005,7 +1003,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
           'Refactor the submission to address: "Returns a hardcoded lookup table instead of computing parity" — A hardcoded lookup table is returned.',
       })
 
-      await deleteLatestSubmission(learnerId)
+      await deleteLatestAttempt(learnerId)
     } finally {
       await db.delete(exercises).where(eq(exercises.id, inserted.id))
     }
@@ -1062,7 +1060,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
         verdict: 'violated',
       })
 
-      await deleteLatestSubmission(learnerId)
+      await deleteLatestAttempt(learnerId)
     } finally {
       await db.delete(exercises).where(eq(exercises.id, inserted.id))
     }
@@ -1103,7 +1101,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       expect(outcome.stage2Review).toBeNull()
       expect(reviewSubmissionMock).not.toHaveBeenCalled()
 
-      await deleteLatestSubmission(learnerId)
+      await deleteLatestAttempt(learnerId)
     } finally {
       await db.delete(exercises).where(eq(exercises.id, inserted.id))
     }
@@ -1128,7 +1126,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
     expect(outcome.stage2Review).toBeNull()
     expect(reviewSubmissionMock).not.toHaveBeenCalled()
 
-    await deleteLatestSubmission(learnerId)
+    await deleteLatestAttempt(learnerId)
   })
 
   it('fails open when the AI review is unavailable (issue #6)', async () => {
@@ -1169,7 +1167,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       expect(outcome.result.passed).toBe(true)
       expect(outcome.stage2Review).toBeNull()
 
-      await deleteLatestSubmission(learnerId)
+      await deleteLatestAttempt(learnerId)
     } finally {
       await db.delete(exercises).where(eq(exercises.id, inserted.id))
     }
@@ -1220,9 +1218,167 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       expect(outcome.result.passed).toBe(true)
       expect(outcome.stage2Review).toBeNull()
 
-      await deleteLatestSubmission(learnerId)
+      await deleteLatestAttempt(learnerId)
     } finally {
       await db.delete(exercises).where(eq(exercises.id, inserted.id))
     }
+  })
+})
+
+/**
+ * Learner Model mastery advancement wired into `submitExercise` (ADR-0010,
+ * ticket #10 acceptance criteria): `mastery.server.ts` itself is unit-tested
+ * in isolation (mastery.server.test.ts) — these assert the actual call
+ * site inside `submitExercise` advances the exercise's Concept Graph
+ * concepts correctly for both a failed and a fully-completed attempt.
+ */
+describe.skipIf(!dbUp)('submitExercise mastery advancement (ADR-0010)', () => {
+  let learnerId: string
+  let conceptId: string
+  let exerciseId: string
+
+  beforeAll(async () => {
+    learnerId = await getCurrentLearnerId()
+
+    const [concept] = await db
+      .insert(concepts)
+      .values({
+        language: 'rust',
+        slug: 'test.exercise-server-mastery-fixture',
+        difficulty: 1,
+      })
+      .returning()
+    if (!concept) throw new Error('expected a persisted concept')
+    conceptId = concept.id
+
+    const [exercise] = await db
+      .insert(exercises)
+      .values({
+        slug: 'test-mastery-advancement',
+        language: 'rust',
+        title: 'Mastery advancement fixture',
+        prompt: 'Implement is_even.',
+        starterCode: 'fn placeholder() {}',
+        testSource: '#[test]\nfn placeholder_works() { assert!(true); }\n',
+        referenceSolution: 'pub fn is_even(n: u32) -> bool { n % 2 == 0 }',
+        evaluationRubric: STAGE2_RUBRIC,
+        difficulty: 1,
+        status: 'verified',
+      })
+      .returning({ id: exercises.id })
+    if (!exercise) throw new Error('expected a persisted exercise')
+    exerciseId = exercise.id
+
+    await db.insert(exerciseConcepts).values({ exerciseId, conceptId })
+  })
+
+  afterAll(async () => {
+    await db
+      .delete(exerciseConcepts)
+      .where(eq(exerciseConcepts.exerciseId, exerciseId))
+    await db.delete(exercises).where(eq(exercises.id, exerciseId))
+    await db.delete(concepts).where(eq(concepts.id, conceptId))
+  })
+
+  afterEach(async () => {
+    await db
+      .delete(learnerConceptMastery)
+      .where(eq(learnerConceptMastery.learnerId, learnerId))
+  })
+
+  it("advances a failed attempt's concept to Introduced (attribution AC)", async () => {
+    runSandboxSubmissionMock.mockResolvedValue({
+      passed: false,
+      tests: [{ name: 'handles_zero', status: 'failed' }],
+    })
+
+    await submitExercise({
+      exerciseId,
+      code: 'pub fn is_even(n: u32) -> bool { n % 2 == 1 }',
+      learnerId,
+    })
+
+    await expect(getMasteryStates(learnerId, [conceptId])).resolves.toEqual({
+      [conceptId]: 'introduced',
+    })
+
+    await deleteLatestAttempt(learnerId)
+  })
+
+  it('does not advance to Practiced on Stage 1 pass with a Stage 2 rubric violation', async () => {
+    runSandboxSubmissionMock.mockResolvedValue({
+      passed: true,
+      tests: [{ name: 'handles_zero', status: 'passed' }],
+    })
+    reviewSubmissionMock.mockResolvedValue({
+      ...PASSING_REVIEW_OUTPUT,
+      required: [
+        {
+          criterion: REQUIRED_CRITERION,
+          verdict: 'violated',
+          explanation: 'The body never uses the remainder operator.',
+        },
+      ],
+    })
+
+    const outcome = await submitExercise({
+      exerciseId,
+      code: 'pub fn is_even(n: u32) -> bool { n % 2 == 1 }',
+      learnerId,
+    })
+    expect(outcome.stage2Review?.passed).toBe(false)
+
+    await expect(getMasteryStates(learnerId, [conceptId])).resolves.toEqual({
+      [conceptId]: 'introduced',
+    })
+
+    await deleteLatestAttempt(learnerId)
+  })
+
+  it('advances to Practiced when Stage 1 and Stage 2 both pass (completion AC)', async () => {
+    runSandboxSubmissionMock.mockResolvedValue({
+      passed: true,
+      tests: [{ name: 'handles_zero', status: 'passed' }],
+    })
+    reviewSubmissionMock.mockResolvedValue(PASSING_REVIEW_OUTPUT)
+
+    const outcome = await submitExercise({
+      exerciseId,
+      code: 'pub fn is_even(n: u32) -> bool { n % 2 == 0 }',
+      learnerId,
+    })
+    expect(outcome.stage2Review?.passed).toBe(true)
+
+    await expect(getMasteryStates(learnerId, [conceptId])).resolves.toEqual({
+      [conceptId]: 'practiced',
+    })
+
+    await deleteLatestAttempt(learnerId)
+  })
+
+  it('is a no-op for hardcoded exercises with no exercise_concepts row', async () => {
+    runSandboxSubmissionMock.mockResolvedValue({
+      passed: true,
+      tests: [{ name: 'test_zero', status: 'passed' }],
+    })
+
+    const hardcoded = await getHardcodedExercises()
+    const goExercise = hardcoded.find((exercise) => exercise.language === 'go')
+    if (!goExercise) throw new Error('expected the seeded go exercise')
+
+    await submitExercise({
+      exerciseId: goExercise.id,
+      code: 'package exercise',
+      learnerId,
+    })
+
+    // No exercise_concepts row for the hardcoded exercise means nothing to
+    // advance — asserting on this fixture's own concept confirms the run
+    // didn't touch unrelated Learner Model state either.
+    await expect(getMasteryStates(learnerId, [conceptId])).resolves.toEqual({
+      [conceptId]: 'unknown',
+    })
+
+    await deleteLatestAttempt(learnerId)
   })
 })

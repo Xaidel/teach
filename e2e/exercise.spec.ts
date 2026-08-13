@@ -3,12 +3,12 @@ import { eq } from 'drizzle-orm'
 
 import { db } from '../src/db/client.server'
 import {
+  attemptHints,
+  attempts,
   concepts,
   exerciseConcepts,
   exercises,
-  results,
-  submissionHints,
-  submissions,
+  learnerConceptMastery,
 } from '../src/db/schema'
 
 test.setTimeout(240_000)
@@ -49,6 +49,12 @@ async function cleanupFixture(): Promise<void> {
     where: eq(concepts.slug, FIXTURE_CONCEPT_SLUG),
   })
   if (fixtureConcept) {
+    // Submitting the fixture exercise advances Learner Model mastery for
+    // this concept (ADR-0010, ticket #10) — that row must go before the
+    // concept itself, or the FK from learner_concept_mastery blocks it.
+    await db
+      .delete(learnerConceptMastery)
+      .where(eq(learnerConceptMastery.conceptId, fixtureConcept.id))
     await db
       .delete(exerciseConcepts)
       .where(eq(exerciseConcepts.conceptId, fixtureConcept.id))
@@ -57,19 +63,16 @@ async function cleanupFixture(): Promise<void> {
     where: eq(exercises.slug, FIXTURE_EXERCISE_SLUG),
   })
   if (fixtureExercise) {
-    const fixtureSubmissions = await db
-      .select({ id: submissions.id })
-      .from(submissions)
-      .where(eq(submissions.exerciseId, fixtureExercise.id))
-    for (const submission of fixtureSubmissions) {
+    const fixtureAttempts = await db
+      .select({ id: attempts.id })
+      .from(attempts)
+      .where(eq(attempts.exerciseId, fixtureExercise.id))
+    for (const attempt of fixtureAttempts) {
       await db
-        .delete(submissionHints)
-        .where(eq(submissionHints.submissionId, submission.id))
-      await db.delete(results).where(eq(results.submissionId, submission.id))
+        .delete(attemptHints)
+        .where(eq(attemptHints.attemptId, attempt.id))
     }
-    await db
-      .delete(submissions)
-      .where(eq(submissions.exerciseId, fixtureExercise.id))
+    await db.delete(attempts).where(eq(attempts.exerciseId, fixtureExercise.id))
     await db.delete(exercises).where(eq(exercises.id, fixtureExercise.id))
   }
   await db.delete(concepts).where(eq(concepts.slug, FIXTURE_CONCEPT_SLUG))
