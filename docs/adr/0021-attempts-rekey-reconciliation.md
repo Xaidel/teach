@@ -58,13 +58,10 @@ We will:
    the sandbox run passed, `fail` otherwise — exactly what `results.passed`
    recorded pre-rekey. A Stage 2 rubric violation is reported to the learner
    through `stage2Review` and does not flip `outcome`; hint eligibility
-   (`requestHint`) keys off this same Stage 1 verdict, unchanged from the
-   walking skeleton's behavior. **Explain-mode attempts (Explanation
-   Assessment, #16) write NULL** — they have no Stage 1 sandbox verdict, and
-   ADR-0010 says their score + findings live in the jsonb payload "in place
-   of a pass/fail outcome"; the ADR-0015 gate read re-derives "passed" from
-   that payload's score against the shared threshold, never from
-   `outcome`.
+    (`requestHint`) keys off this same Stage 1 verdict, unchanged from the
+    walking skeleton's behavior. Explain-mode attempts (Explanation
+    Assessment, #16) are amended by [ADR-0026](./0026-explain-mode-attempts-null-outcome.md):
+    they write NULL, having no Stage 1 sandbox verdict.
 3. **`attempts.compiler_errors` carries the full Sandbox Result diagnostic**,
    `{ tests: SandboxTest[], message: string | null }` — the same detail
    `results` split across its `tests` and `message` columns, on every attempt
@@ -217,6 +214,9 @@ Store `pass` only when both stages pass, `fail` otherwise.
 
 ## Relationships and References
 
+- Amended by: [ADR-0026](./0026-explain-mode-attempts-null-outcome.md) —
+  decision item 2's explain-mode NULL-outcome rule, formally split out of the
+  in-place note PR #130 appended here.
 - Refines: [ADR-0010](./0010-core-v1-persistence-schema.md) — concretizes the
   `attempts`/`attempt_hints` shape ADR-0010 specified and consumes its
   staging-deviation reconciliation note; ADR-0010's table definitions remain
