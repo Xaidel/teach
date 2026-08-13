@@ -69,9 +69,12 @@ export const PRE_FLIGHT_REPEATED_FAILURE_THRESHOLD = 2
 /**
  * One concept's Pre-Flight attempt aggregate (ADR-0010), the raw material
  * of the story-35 quality signal: how many generations have been attempted
- * for the concept and how many of those runs failed.
+ * for the concept and how many of those runs failed. A concept can carry
+ * one of these while signalling nothing — it attaches below the threshold
+ * (PRE_FLIGHT_REPEATED_FAILURE_THRESHOLD) — hence the aggregate name, not
+ * a signal.
  */
-export type PreFlightFailureSignal = {
+export type PreFlightAttemptAggregate = {
   conceptId: string
   totalAttempts: number
   failedAttempts: number

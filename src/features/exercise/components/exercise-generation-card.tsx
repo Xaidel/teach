@@ -13,7 +13,7 @@ import {
 } from '../exercise-generation.schema'
 import type {
   GenerateExerciseOutput,
-  PreFlightFailureSignal,
+  PreFlightAttemptAggregate,
 } from '../exercise-generation.schema'
 import type { SandboxLanguage } from '#/lib/sandbox/types'
 import { errorMessage } from '../client-utils'
@@ -28,7 +28,7 @@ export type GenerationConcept = {
    * when no generation has ever been attempted for it — the raw material
    * of the repeated-failure quality signal.
    */
-  preFlight: PreFlightFailureSignal | null
+  preFlight: PreFlightAttemptAggregate | null
 }
 
 /**
@@ -127,7 +127,7 @@ export function ExerciseGenerationCard({
                 — {String(preFlightSignal.failedAttempts)} of the{' '}
                 {String(preFlightSignal.totalAttempts)} Pre-Flight runs for this
                 concept failed; repeated failures mean generation has been
-                unreliable here (SPEC story 35).
+                unreliable here.
               </p>
             ) : null}
             <div className="grid justify-items-start gap-2">

@@ -38,6 +38,13 @@ const CONCEPT_SINGLE_FAILURE: GenerationConcept = {
   preFlight: { conceptId: 'c3', totalAttempts: 3, failedAttempts: 1 },
 }
 
+const CONCEPT_AT_THRESHOLD: GenerationConcept = {
+  id: 'c4',
+  slug: 'test.rust.traits',
+  difficulty: 2,
+  preFlight: { conceptId: 'c4', totalAttempts: 5, failedAttempts: 2 },
+}
+
 describe('ExerciseGenerationCard', () => {
   it('surfaces repeated Pre-Flight failures on the selected concept as a quality signal (SPEC story 35)', async () => {
     const user = userEvent.setup()
@@ -77,5 +84,28 @@ describe('ExerciseGenerationCard', () => {
     )
 
     expect(screen.queryByText(/Quality signal/)).not.toBeInTheDocument()
+  })
+
+  it('surfaces the quality signal exactly at the repeated-failure threshold (2/5)', async () => {
+    const user = userEvent.setup()
+    render(
+      <ExerciseGenerationCard
+        concepts={[CONCEPT_CLEAN, CONCEPT_AT_THRESHOLD]}
+        language="rust"
+      />,
+    )
+
+    expect(screen.queryByText(/Quality signal/)).not.toBeInTheDocument()
+
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Target concept' }),
+      'test.rust.traits',
+    )
+
+    expect(
+      screen.getByText(
+        /2 of the 5 Pre-Flight runs for this concept failed; repeated failures mean generation has been unreliable here/,
+      ),
+    ).toBeInTheDocument()
   })
 })
