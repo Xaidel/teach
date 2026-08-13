@@ -28,6 +28,11 @@ import {
   getMasteryStates,
 } from '../learners/mastery.server'
 import { ConceptError } from './concepts.schema'
+// Re-exported so a cross-feature consumer can import the value through the
+// feature's single named `*.server.ts` entry point (arch_docs/dependency-rules.md
+// "Feature Dependencies" exception) rather than reaching into another
+// feature's `*.schema.ts` — see `curriculum.server.ts`'s no-skip-ahead gate.
+export { ConceptError } from './concepts.schema'
 import type {
   Concept,
   ConceptEdgeView,

@@ -34,12 +34,12 @@ import {
 // error to the curriculum's stable `CURRICULUM_LOCKED` contract.
 import { assertPrerequisitesPracticed } from '../concepts/concepts.server'
 // `ConceptError` is imported as a value (not just a type) for the
-// `instanceof` check below, from `concepts.schema.ts` rather than
-// `concepts.server.ts`: the schema file has no `#/db` or other server-only
-// import, so pulling in the value here carries none of the bundling risk
-// the `*.server.ts`-to-`*.server.ts` exception in
-// `arch_docs/dependency-rules.md` is written to guard against.
-import { ConceptError } from '../concepts/concepts.schema'
+// `instanceof` check below. It arrives through the same named entry point
+// as the gate that throws it — `concepts.server.ts` re-exports it
+// (arch_docs/dependency-rules.md "Feature Dependencies" exception) — rather
+// than reaching into `concepts.schema.ts`, which the documented exception is
+// written for `*.server.ts`-to-`*.server.ts` imports only.
+import { ConceptError } from '../concepts/concepts.server'
 import type { MasteryState } from '../learners/mastery.server'
 import type { Exercise, ExerciseGuidance } from '../exercise/exercise.schema'
 
