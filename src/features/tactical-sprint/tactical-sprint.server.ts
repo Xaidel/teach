@@ -185,8 +185,13 @@ export async function runTacticalSprint(input: {
         })
       ).conceptId
 
+  // Keyed by slug rather than reference equality: slugs are unique after
+  // `resolveIdentifiedConcepts`' dedup, so the winner is still identified
+  // even if `pickWeakest` ever rebuilds its candidate object (issue #128).
   const identifiedConcepts: IdentifiedConcept[] = ranked.map((concept) =>
-    concept === weakest ? { ...concept, conceptId: targetConceptId } : concept,
+    concept.slug === weakest.slug
+      ? { ...concept, conceptId: targetConceptId }
+      : concept,
   )
 
   const exercise = await generateExerciseForConcept({
