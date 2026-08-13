@@ -174,10 +174,13 @@ export function ExerciseGenerationCard({
                 result.kind === 'verified-fallback' ? (
                   <p className="text-sm leading-relaxed text-muted-foreground">
                     Fell back to a previously verified exercise —{' '}
-                    {result.exercise.title}. All{' '}
-                    {String(MAX_PREFLIGHT_ATTEMPTS)} generation attempts failed
-                    Pre-Flight, so the stored verified exercise for this concept
-                    is served as-is (issue #9).
+                    {result.exercise.title}
+                    {result.defect
+                      ? ` — adversarial (${result.defect.kind.replaceAll('_', ' ')}) ${result.defect.description}`
+                      : ''}
+                    . All {String(MAX_PREFLIGHT_ATTEMPTS)} generation attempts
+                    failed Pre-Flight, so the stored verified exercise for this
+                    concept is served as-is (issue #9).
                   </p>
                 ) : (
                   <p className="text-sm leading-relaxed text-muted-foreground">
