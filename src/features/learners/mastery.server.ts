@@ -78,6 +78,34 @@ export async function advanceMastery(
 }
 
 /**
+ * Records one exercise attempt's outcome against the Learner Model
+ * (ADR-0010, ADR-0021, ticket #10's acceptance criteria) — the single
+ * intent-level entry point the `exercise` feature reports into (see
+ * `arch_docs/dependency-rules.md`'s Feature Dependencies exception; the
+ * import is one-way and `learners` never imports back). Any attempt, pass
+ * or fail, advances its exercise's concepts to at least `introduced`
+ * (attributing failed attempts to the right learner + concept);
+ * `stage1Passed && stage2Passed` — a full completion — additionally
+ * advances them to `practiced`. Hardcoded seed exercises have no
+ * `exercise_concepts` rows and this is a no-op for them.
+ */
+export async function recordAttemptOutcome(
+  learnerId: string,
+  exerciseId: string,
+  stage1Passed: boolean,
+  stage2Passed: boolean,
+): Promise<void> {
+  const conceptIds = await getExerciseConceptIds(exerciseId)
+  if (conceptIds.length === 0) return
+
+  await advanceMastery(learnerId, conceptIds, 'introduced')
+
+  if (stage1Passed && stage2Passed) {
+    await advanceMastery(learnerId, conceptIds, 'practiced')
+  }
+}
+
+/**
  * Reads the current mastery state for one learner's concepts. A concept
  * with no row is Unknown (the implicit absence state, ADR-0010) — callers
  * get it back explicitly rather than needing to interpret a missing entry.

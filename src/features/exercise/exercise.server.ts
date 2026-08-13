@@ -8,14 +8,13 @@ import {
   exercises,
 } from '#/db/schema'
 // Deliberate, documented cross-feature dependency (arch_docs/dependency-rules.md
-// "Feature Dependencies"): completing an exercise is the one place attempt
-// outcomes drive Learner Model mastery, so `exercise` depends one-way on the
-// narrow, server-only public surface `learners/mastery.server.ts` exposes.
-// `learners` never imports back from `exercise` — the graph stays acyclic.
-import {
-  advanceMastery,
-  getExerciseConceptIds,
-} from '#/features/learners/mastery.server'
+// "Feature Dependencies" exception): completing an exercise is the one place
+// attempt outcomes drive Learner Model mastery, so `exercise` depends one-way
+// on the single named entry point `learners/mastery.server.ts` exposes for
+// this. `learners` owns the mastery-transition decision entirely — `exercise`
+// only reports the two outcome booleans; `learners` never imports back from
+// `exercise`, so the graph stays acyclic.
+import { recordAttemptOutcome } from '#/features/learners/mastery.server'
 import { TeacherEngineError } from '#/lib/ai/client.server'
 import { generateHint, reviewSubmission } from '#/lib/ai/functions.server'
 import type { EvaluationRubric, Hint } from '#/lib/ai/schemas'
@@ -237,35 +236,6 @@ async function computeTimeToSolutionSeconds(
 }
 
 /**
- * Advances the exercise's Concept Graph concepts' Learner Model mastery
- * (ADR-0010, SPEC story 41): any attempt — pass or fail — marks its
- * concepts at least `introduced` (attributing the attempt to the learner
- * and concept even on failure, per this ticket's acceptance criteria);
- * completing the exercise (Stage 1 pass, and Stage 2 pass wherever the
- * exercise has a rubric) additionally advances them to `practiced`.
- * Hardcoded seed exercises have no `exercise_concepts` rows and this is a
- * no-op for them.
- */
-async function advanceMasteryOnAttempt(input: {
-  learnerId: string
-  exerciseId: string
-  stage1Passed: boolean
-  stage2Review: Stage2Review | null
-}): Promise<void> {
-  const conceptIds = await getExerciseConceptIds(input.exerciseId)
-  if (conceptIds.length === 0) return
-
-  await advanceMastery(input.learnerId, conceptIds, 'introduced')
-
-  const completed =
-    input.stage1Passed &&
-    (input.stage2Review === null || input.stage2Review.passed)
-  if (completed) {
-    await advanceMastery(input.learnerId, conceptIds, 'practiced')
-  }
-}
-
-/**
  * Runs one attempt through the sandbox of the exercise's language and
  * persists it (ADR-0010: merges the walking skeleton's `submissions` +
  * `results` into `attempts`). The caller resolves the current learner once
@@ -279,8 +249,8 @@ async function advanceMasteryOnAttempt(input: {
  *
  * On Stage 1 success with a rubric-bearing exercise, the submission is
  * reviewed against the rubric (Stage 2, issue #6) — see `runStage2Review`.
- * Either way, the attempt's concepts advance in the Learner Model
- * (`advanceMasteryOnAttempt`) before the result reaches the caller.
+ * Either way, the attempt's outcome is reported to the Learner Model
+ * (`recordAttemptOutcome`) before the result reaches the caller.
  */
 export async function submitExercise(input: {
   exerciseId: string
@@ -323,13 +293,9 @@ export async function submitExercise(input: {
 
   if (sandboxResult.passed) {
     const stage2Review = await runStage2Review(exercise, input.code)
+    const stage2Passed = stage2Review === null || stage2Review.passed
 
-    await advanceMasteryOnAttempt({
-      learnerId: input.learnerId,
-      exerciseId: exercise.id,
-      stage1Passed: true,
-      stage2Review,
-    })
+    await recordAttemptOutcome(input.learnerId, exercise.id, true, stage2Passed)
 
     return {
       attemptId: attempt.id,
@@ -339,12 +305,7 @@ export async function submitExercise(input: {
     }
   }
 
-  await advanceMasteryOnAttempt({
-    learnerId: input.learnerId,
-    exerciseId: exercise.id,
-    stage1Passed: false,
-    stage2Review: null,
-  })
+  await recordAttemptOutcome(input.learnerId, exercise.id, false, false)
 
   let hint: Hint | null = null
   // Best-effort auto-hint: silently skipped when the exercise has no

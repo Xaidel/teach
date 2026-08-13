@@ -14,6 +14,7 @@ import {
   advanceMastery,
   getExerciseConceptIds,
   getMasteryStates,
+  recordAttemptOutcome,
 } from './mastery.server'
 
 async function dbAvailable(): Promise<boolean> {
@@ -135,5 +136,85 @@ describe.skipIf(!dbUp)('mastery.server', () => {
         .where(eq(exerciseConcepts.exerciseId, exercise.id))
       await db.delete(exercises).where(eq(exercises.id, exercise.id))
     }
+  })
+
+  describe('recordAttemptOutcome', () => {
+    let exerciseId: string
+
+    beforeAll(async () => {
+      const [exercise] = await db
+        .insert(exercises)
+        .values({
+          slug: 'test-mastery-server-record-attempt-outcome',
+          language: 'rust',
+          title: 'recordAttemptOutcome fixture',
+          prompt: 'p',
+          starterCode: 's',
+          difficulty: 1,
+          status: 'verified',
+        })
+        .returning()
+      if (!exercise) throw new Error('expected a persisted exercise')
+      exerciseId = exercise.id
+
+      await db.insert(exerciseConcepts).values({ exerciseId, conceptId })
+    })
+
+    afterAll(async () => {
+      await db
+        .delete(exerciseConcepts)
+        .where(eq(exerciseConcepts.exerciseId, exerciseId))
+      await db.delete(exercises).where(eq(exercises.id, exerciseId))
+    })
+
+    it('advances to Introduced on a failed attempt', async () => {
+      await recordAttemptOutcome(learnerId, exerciseId, false, false)
+
+      await expect(getMasteryStates(learnerId, [conceptId])).resolves.toEqual({
+        [conceptId]: 'introduced',
+      })
+    })
+
+    it('advances to Introduced only when Stage 1 passes but Stage 2 does not', async () => {
+      await recordAttemptOutcome(learnerId, exerciseId, true, false)
+
+      await expect(getMasteryStates(learnerId, [conceptId])).resolves.toEqual({
+        [conceptId]: 'introduced',
+      })
+    })
+
+    it('advances to Practiced when Stage 1 and Stage 2 both pass', async () => {
+      await recordAttemptOutcome(learnerId, exerciseId, true, true)
+
+      await expect(getMasteryStates(learnerId, [conceptId])).resolves.toEqual({
+        [conceptId]: 'practiced',
+      })
+    })
+
+    it('is a no-op for an exercise with no exercise_concepts row', async () => {
+      const [bareExercise] = await db
+        .insert(exercises)
+        .values({
+          slug: 'test-mastery-server-record-attempt-outcome-bare',
+          language: 'rust',
+          title: 'recordAttemptOutcome bare fixture',
+          prompt: 'p',
+          starterCode: 's',
+          difficulty: 1,
+          status: 'verified',
+        })
+        .returning()
+      if (!bareExercise) throw new Error('expected a persisted exercise')
+
+      try {
+        await recordAttemptOutcome(learnerId, bareExercise.id, true, true)
+
+        await expect(getMasteryStates(learnerId, [conceptId])).resolves.toEqual(
+          { [conceptId]: 'unknown' },
+        )
+      } finally {
+        await db.delete(exercises).where(eq(exercises.id, bareExercise.id))
+      }
+    })
   })
 })

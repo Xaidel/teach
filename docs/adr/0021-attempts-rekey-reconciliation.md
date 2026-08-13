@@ -86,6 +86,24 @@ We will:
    adds the marker directly to `attempt_hints` and updates its own
    Relationships section then; this ADR does not pre-add a column no code
    uses.
+7. **`attempt_hints.content` carries forward from `submission_hints`,
+   unchanged.** ADR-0010's `attempt_hints` shape (`attempt_id`, `hint_level`,
+   `served_at`) does not list a `content` column, but the AI Teacher Engine
+   generates hint text that has to be stored somewhere for the learner to see
+   it again, and the walking skeleton's `submission_hints.content` already
+   carried it. This is an addition beyond ADR-0010's three named columns, not
+   a documented part of its original shape — recorded here explicitly rather
+   than silently carried forward, the same way item 6 records what did *not*
+   carry forward.
+8. **"Recurring mistakes" (SPEC story 42, issue #10 AC) is out of scope for
+   this ticket, same as `demonstrated`/`retained`.** Unlike those two states,
+   no ticket already owned this evidence type, so
+   [#113](../../issues/113) is filed to own it. The raw evidence — repeated
+   `attempts.outcome = 'fail'` rows, `attempts.compiler_errors`,
+   `attempt_hints` escalation — is already reconstructable from the tables
+   this ADR adds; #113 decides whether that evidence needs a dedicated
+   column/aggregation or stays a query pattern, once a concrete consumer
+   (scheduling/remediation, tickets #16–#18) exists to need it.
 
 ## Alternatives Considered
 
@@ -196,8 +214,11 @@ Store `pass` only when both stages pass, `fail` otherwise.
 
 - Refines: [ADR-0010](./0010-core-v1-persistence-schema.md) — concretizes the
   `attempts`/`attempt_hints` shape ADR-0010 specified and consumes its
-  staging-deviation reconciliation note; ADR-0010's table definitions are
-  otherwise unchanged and remain authoritative.
+  staging-deviation reconciliation note; ADR-0010's table definitions remain
+  authoritative, with one addition this ADR records rather than silently
+  carrying forward — `attempt_hints.content` (Decision item 7) — and one
+  named gap it scopes out rather than implements — "recurring mistakes"
+  (Decision item 8).
 - Related to: [ADR-0008](./0008-deterministic-prompt-shield.md) — `outcome`'s
   Stage-1-only semantics implement ADR-0008's Stage 1 authority at the
   persistence layer.
@@ -212,7 +233,9 @@ Store `pass` only when both stages pass, `fail` otherwise.
   Model); ticket [#10](../../issues/10) (owning work); ticket
   [#59](../../issues/59) (follow-up this ADR resolves); PR #52 (origin of the
   staging deviation).
+- Related to: ticket [#113](../../issues/113) — owns the "recurring mistakes"
+  evidence Decision item 8 scopes out of this ticket.
 - Owning implementation package: `src/db/schema.ts`
   (`attempts`/`attemptHints`/`learnerConceptMastery`),
-  `src/features/exercise/exercise.server.ts` (`submitExercise`,
-  `advanceMasteryOnAttempt`), `src/features/learners/mastery.server.ts`.
+  `src/features/exercise/exercise.server.ts` (`submitExercise`),
+  `src/features/learners/mastery.server.ts` (`recordAttemptOutcome`).
