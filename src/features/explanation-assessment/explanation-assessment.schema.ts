@@ -5,12 +5,10 @@ import type { AnalyzeMisconceptionsOutput } from '#/lib/ai/schemas'
 // mastery states (ADR-0010, SPEC story 41) for display only — importing the
 // single source keeps this browser-reachable schema module from duplicating
 // (and drifting from) the ordering `learners` and `tactical-sprint` use.
-import { MASTERY_STATES } from '#/lib/mastery-states'
+import { MASTERY_STATES, type MasteryState } from '#/lib/mastery-states'
 import type { SandboxLanguage } from '#/lib/sandbox/types'
 
 export { MASTERY_STATES }
-
-export type MasteryStateView = (typeof MASTERY_STATES)[number]
 
 /**
  * Input to submitting an Explanation Assessment (SPEC stories 44-45, issue
@@ -67,7 +65,7 @@ export type ExplanationAssessmentResult = {
   accuracyScore: number
   passed: boolean
   analysis: AnalyzeMisconceptionsOutput
-  masteryState: MasteryStateView
+  masteryState: MasteryState
 }
 
 /** Stable public explanation-assessment error codes. */

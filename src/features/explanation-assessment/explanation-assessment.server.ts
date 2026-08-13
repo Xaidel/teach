@@ -10,7 +10,8 @@ import { isSandboxLanguage } from '#/lib/sandbox/types'
 // "Feature Dependencies" exception): assessing a concept requires the
 // Concept Graph's definition of it (prerequisites/related) and the
 // deterministic usability gate — one-way, `concepts` never imports back
-// from `explanation-assessment`.
+// from `explanation-assessment`. The `UsableConceptGraph` type import is
+// covered by the same exception (type-only, runtime-safe).
 import { getUsableConceptGraph } from '#/features/concepts/concepts.server'
 import type { UsableConceptGraph } from '#/features/concepts/concepts.schema'
 // Same exception: the assessment's pass feeds the Learner Model's

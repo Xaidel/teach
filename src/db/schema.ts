@@ -25,6 +25,7 @@ import {
   EXPLANATION_DEPTH_MIN,
 } from '../lib/explanation-depth'
 import { HINT_LADDER_MAX_LEVEL } from '../lib/hint-levels'
+import { MASTERY_STATES } from '../lib/mastery-states'
 import type { EvaluationRubric, ExerciseDefect } from '../lib/ai/schemas'
 import type { AnalyzeMisconceptionsOutput } from '../lib/ai/schemas'
 import type { SandboxResult, SandboxTest } from '../lib/sandbox/types'
@@ -84,15 +85,12 @@ export const exerciseGuidance = pgEnum('exercise_guidance', [
  * implicit absence of a `learner_concept_mastery` row, not a stored value —
  * a row is created no earlier than `introduced`, on a concept's first
  * attempt. `unknown` stays in the enum for a future explicit downgrade path
- * (SPEC story 50, ticket #18), even though this ticket never writes it.
+ * (SPEC story 50, ticket #18), even though this ticket never writes it. The
+ * values derive from `MASTERY_STATES` (src/lib/mastery-states.ts), the
+ * single source of truth, so the DB enum and the schema/feature mirrors can
+ * never drift apart.
  */
-export const masteryState = pgEnum('mastery_state', [
-  'unknown',
-  'introduced',
-  'practiced',
-  'demonstrated',
-  'retained',
-])
+export const masteryState = pgEnum('mastery_state', MASTERY_STATES)
 
 /**
  * Attempt outcome (ADR-0010): the deterministic Stage 1 sandbox verdict —
