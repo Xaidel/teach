@@ -3,9 +3,10 @@ import { identifySnippetConcepts } from '#/lib/ai/functions.server'
 import type { SnippetConcept } from '#/lib/ai/schemas'
 // Narrow, documented cross-feature dependency (arch_docs/dependency-rules.md
 // "Feature Dependencies" exception): a Tactical Sprint resolves each
-// identified concept against the Concept Graph, ad-hoc drafting an unmatched
-// one immediately (ADR-0016's runtime-gap case) — one-way, `concepts` never
-// imports back from `tactical-sprint`.
+// identified concept against the Concept Graph, deferring drafting until the
+// weakest concept is ranked — only that winner is ad-hoc drafted, and only
+// when it is unmatched (ADR-0016's runtime-gap case, issue #125) — one-way,
+// `concepts` never imports back from `tactical-sprint`.
 import {
   draftFocusedConcept,
   getUsableConceptGraph,
