@@ -54,7 +54,7 @@ Make `findVerifiedFallback` skip rows whose `mode` mismatches the requested mode
 
 - A stored adversarial row served via verified-fallback renders the adversarial label, consistent with freshly generated ones (issue #120's acceptance).
 - The defect outlives the generation response — the next consumer (the play flow, per ADR-0022) reads it from the store instead of chasing the response.
-- The insert already passing `defect` in `persistVerifiedExercise` stops being dead weight: drizzle was silently dropping the unknown key; the column makes the write real.
+- The defect gains a real persistence home: ADR-0022 kept it contract-only, so `persistVerifiedExercise` never wrote it to `exercises` — it lived only in the generation contract. This decision adds the column and the write together, so the contract's defect is no longer lost after the generation response.
 
 ### Negative
 
