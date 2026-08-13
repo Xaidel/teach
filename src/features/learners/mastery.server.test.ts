@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 import { db } from '#/db/client.server'
@@ -7,9 +7,9 @@ import {
   exerciseConcepts,
   exercises,
   learnerConceptMastery,
-  learners,
 } from '#/db/schema'
 
+import { getCurrentLearnerId } from './learners.server'
 import {
   advanceMastery,
   getExerciseConceptIds,
@@ -33,13 +33,15 @@ describe.skipIf(!dbUp)('mastery.server', () => {
   let conceptId: string
 
   beforeAll(async () => {
-    // A fixture learner of its own, not the seeded v1 row: getCurrentLearnerId
-    // (ADR-0014) hard-throws on more than one `learners` row, so this suite
-    // must not leave an extra row behind for other suites to trip over —
-    // removed in `afterAll` below.
-    const [learner] = await db.insert(learners).values({}).returning()
-    if (!learner) throw new Error('expected a persisted learner')
-    learnerId = learner.id
+    // ADR-0014: exactly one learner row must hold at all times — the seeded
+    // v1 row. This suite must not insert a fixture learner of its own: a
+    // second row would transiently break getCurrentLearnerId's exactly-one
+    // guard for every DB suite running concurrently in the same process
+    // (issue #115). All fixture state is scoped to this suite's own
+    // concept instead: mastery rows are written for (learnerId, conceptId)
+    // below and deleted by that same key in `afterEach`/`afterAll`, so a
+    // concurrent suite's rows are never touched.
+    learnerId = await getCurrentLearnerId()
 
     const [concept] = await db
       .insert(concepts)
@@ -56,15 +58,24 @@ describe.skipIf(!dbUp)('mastery.server', () => {
   afterAll(async () => {
     await db
       .delete(learnerConceptMastery)
-      .where(eq(learnerConceptMastery.learnerId, learnerId))
+      .where(
+        and(
+          eq(learnerConceptMastery.learnerId, learnerId),
+          eq(learnerConceptMastery.conceptId, conceptId),
+        ),
+      )
     await db.delete(concepts).where(eq(concepts.id, conceptId))
-    await db.delete(learners).where(eq(learners.id, learnerId))
   })
 
   afterEach(async () => {
     await db
       .delete(learnerConceptMastery)
-      .where(eq(learnerConceptMastery.learnerId, learnerId))
+      .where(
+        and(
+          eq(learnerConceptMastery.learnerId, learnerId),
+          eq(learnerConceptMastery.conceptId, conceptId),
+        ),
+      )
   })
 
   it('has no row before any attempt — Unknown is the implicit state', async () => {

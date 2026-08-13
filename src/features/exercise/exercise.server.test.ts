@@ -1,4 +1,4 @@
-import { desc, eq, sql } from 'drizzle-orm'
+import { and, desc, eq, sql } from 'drizzle-orm'
 import {
   afterAll,
   afterEach,
@@ -1404,9 +1404,17 @@ describe.skipIf(!dbUp)('submitExercise mastery advancement (ADR-0010)', () => {
   })
 
   afterEach(async () => {
+    // Scope to this suite's own fixture concept: the seeded learner is
+    // shared with other DB suites (issue #115), and a learner-wide delete
+    // would clobber their mastery rows under file-parallel execution.
     await db
       .delete(learnerConceptMastery)
-      .where(eq(learnerConceptMastery.learnerId, learnerId))
+      .where(
+        and(
+          eq(learnerConceptMastery.learnerId, learnerId),
+          eq(learnerConceptMastery.conceptId, conceptId),
+        ),
+      )
   })
 
   it("advances a failed attempt's concept to Introduced (attribution AC)", async () => {

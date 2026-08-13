@@ -163,6 +163,10 @@ export async function draftConceptGraph(
  * (SPEC stories 51-52, PRD §20, issue #11) — the output must carry the
  * `defect` declaration, and an adversarial call whose output omits it is
  * rejected as invalid output: an invented, undeclared bug never ships.
+ * Symmetrically, a non-adversarial call whose output declares a defect is
+ * rejected too (issue #117): the `defect` field is debug-mode contract,
+ * and a non-adversarial output carrying one would persist as mode
+ * 'implement' yet render as adversarial — contradictory labeling.
  * Generation is a high-effort task (ADR-0004). The output is only raw
  * material: it must pass the deterministic Pre-Flight Validation gate
  * (reference compiles and passes, intended broken state fails on the
@@ -184,6 +188,16 @@ export async function generateExercise(
     throw new TeacherEngineError(
       'invalid_output',
       'Adversarial generation returned no defect declaration.',
+    )
+  }
+  if (!validated.adversarial && output.defect) {
+    // Symmetric guard (issue #117): `defect` is a debug-mode contract field.
+    // A non-adversarial output carrying one would persist as mode 'implement'
+    // yet render as adversarial — contradictory labeling. Reject it as
+    // invalid output so the invariant holds: defect present ⟺ adversarial.
+    throw new TeacherEngineError(
+      'invalid_output',
+      'Non-adversarial generation returned a defect declaration.',
     )
   }
 

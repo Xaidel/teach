@@ -269,7 +269,10 @@ export type GenerateExerciseInput = z.infer<typeof GenerateExerciseInputSchema>
  * (SPEC stories 51-52, PRD §20, issue #11); it is optional in the schema
  * and required in practice for adversarial inputs — `generateExercise`
  * rejects an adversarial call whose output omits it (an invented,
- * undeclared bug must never ship). Parsed strictly: model output is
+ * undeclared bug must never ship) and, symmetrically, a non-adversarial
+ * call whose output declares one (issue #117): defect presence must match
+ * the requested mode, so a mode-'implement' row can never render as
+ * adversarial. Parsed strictly: model output is
  * untrusted input.
  */
 export const GeneratedExerciseSchema = z
