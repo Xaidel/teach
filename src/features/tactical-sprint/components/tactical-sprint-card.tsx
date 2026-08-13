@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
 
 import type { ExerciseGenerationLanguage } from '#/features/exercise/exercise-generation.schema'
+import type { MasteryState } from '#/lib/mastery-states'
 import { Alert } from '#/shared/components/ui/alert'
 import { Badge } from '#/shared/components/ui/badge'
 import { Button } from '#/shared/components/ui/button'
@@ -11,19 +12,16 @@ import { Textarea } from '#/shared/components/ui/textarea'
 
 import { errorMessage } from '../client-utils'
 import { startTacticalSprintFn } from '../tactical-sprint.functions'
-import type {
-  MasteryStateView,
-  TacticalSprintResult,
-} from '../tactical-sprint.schema'
+import type { TacticalSprintResult } from '../tactical-sprint.schema'
 
 /**
  * Human-readable label for a mastery state (mirrors ADR-0010's five
- * states). Keyed directly off `MasteryStateView` — derived from
- * `tactical-sprint.schema.ts`'s `MASTERY_STATES` — so adding or removing a
- * state fails this `Record`'s exhaustiveness check at compile time instead
- * of silently drifting.
+ * states). Keyed directly off `MasteryState` — the single source of truth
+ * in `src/lib/mastery-states.ts` — so adding or removing a state fails this
+ * `Record`'s exhaustiveness check at compile time instead of silently
+ * drifting.
  */
-const MASTERY_LABELS: Record<MasteryStateView, string> = {
+const MASTERY_LABELS: Record<MasteryState, string> = {
   unknown: 'Unknown',
   introduced: 'Introduced',
   practiced: 'Practiced',
