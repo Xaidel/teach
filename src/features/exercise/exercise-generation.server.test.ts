@@ -288,6 +288,31 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
     expect(attempt?.diagnostics.checks).toHaveLength(3)
   })
 
+  it('persists an independent exercise with guidance=independent (issue #14)', async () => {
+    generateExerciseMock.mockResolvedValue(GENERATED)
+    runSandboxSubmissionMock
+      .mockResolvedValueOnce(REFERENCE_PASSES)
+      .mockResolvedValueOnce(BROKEN_FAILS_ON_CONCEPT)
+
+    const outcome = await generateExerciseForConcept({
+      language: 'rust',
+      conceptSlug: FIXTURE_CONCEPT_SLUG,
+      guidance: 'independent',
+    })
+
+    expect(outcome.kind).toBe('generated')
+    if (outcome.kind !== 'generated') {
+      return
+    }
+    expect(outcome.exercise.guidance).toBe('independent')
+
+    const [row] = await db
+      .select()
+      .from(exercises)
+      .where(eq(exercises.id, outcome.exercise.id))
+    expect(row).toMatchObject({ mode: 'implement', guidance: 'independent' })
+  })
+
   it("feeds the failed attempt's diagnostics into the retry and persists on the second attempt", async () => {
     generateExerciseMock.mockResolvedValue(GENERATED)
     // Attempt 1: the reference solution fails to compile.

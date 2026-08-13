@@ -156,6 +156,7 @@ async function persistVerifiedExercise(input: {
   attemptNumber: number
   diagnostics: PreFlightDiagnostics
   mode: 'implement' | 'debug'
+  guidance: 'guided' | 'independent'
 }): Promise<GenerateExerciseOutput & { kind: 'generated' }> {
   // Persist only the join rows whose concepts exist in the graph; the
   // requested concept is guaranteed among them.
@@ -189,6 +190,7 @@ async function persistVerifiedExercise(input: {
         referenceSolution: input.generated.referenceSolution,
         evaluationRubric: input.generated.evaluation.rubric,
         mode: input.mode,
+        guidance: input.guidance,
         difficulty: input.generated.difficulty,
         constraints: input.generated.constraints,
         status: 'verified',
@@ -318,6 +320,7 @@ export async function generateExerciseForConcept(input: {
   conceptSlug: string
   adversarial?: boolean | undefined
   sprintScoped?: boolean | undefined
+  guidance?: 'guided' | 'independent' | undefined
 }): Promise<GenerateExerciseOutput> {
   if (!isExerciseGenerationLanguage(input.language)) {
     throw new GenerationError('EXERCISE_GENERATION_UNSUPPORTED')
@@ -349,6 +352,7 @@ export async function generateExerciseForConcept(input: {
       simplifiedConstraints: false,
       adversarial: input.adversarial,
       sprintScoped: input.sprintScoped,
+      guidance: input.guidance ?? 'guided',
     })
     if (attempt.kind === 'succeeded') {
       return attempt.outcome
@@ -377,6 +381,7 @@ export async function generateExerciseForConcept(input: {
     simplifiedConstraints: true,
     adversarial: input.adversarial,
     sprintScoped: input.sprintScoped,
+    guidance: input.guidance ?? 'guided',
   })
   if (finalAttempt.kind === 'succeeded') {
     return finalAttempt.outcome
@@ -406,6 +411,7 @@ async function runGenerationAttempt(input: {
   simplifiedConstraints: boolean
   adversarial: boolean | undefined
   sprintScoped: boolean | undefined
+  guidance: 'guided' | 'independent'
 }): Promise<
   | {
       kind: 'succeeded'
@@ -475,6 +481,7 @@ async function runGenerationAttempt(input: {
       attemptNumber: input.attemptNumber,
       diagnostics: preflight.diagnostics,
       mode: input.adversarial ? 'debug' : 'implement',
+      guidance: input.guidance,
     }),
   }
 }

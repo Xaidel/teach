@@ -13,6 +13,8 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as ConceptsRouteImport } from './routes/concepts'
 import { Route as TacticalSprintRouteImport } from './routes/tactical-sprint'
 import { Route as ApiHealthRouteImport } from './routes/api.health'
+import { Route as CurriculumIndexRouteImport } from './routes/curriculum/index'
+import { Route as CurriculumConceptSlugRouteImport } from './routes/curriculum/$conceptSlug'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -34,18 +36,32 @@ const ApiHealthRoute = ApiHealthRouteImport.update({
   path: '/api/health',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CurriculumIndexRoute = CurriculumIndexRouteImport.update({
+  id: '/curriculum/',
+  path: '/curriculum/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CurriculumConceptSlugRoute = CurriculumConceptSlugRouteImport.update({
+  id: '/curriculum/$conceptSlug',
+  path: '/curriculum/$conceptSlug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/concepts': typeof ConceptsRoute
   '/tactical-sprint': typeof TacticalSprintRoute
   '/api/health': typeof ApiHealthRoute
+  '/curriculum/$conceptSlug': typeof CurriculumConceptSlugRoute
+  '/curriculum/': typeof CurriculumIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/concepts': typeof ConceptsRoute
   '/tactical-sprint': typeof TacticalSprintRoute
   '/api/health': typeof ApiHealthRoute
+  '/curriculum/$conceptSlug': typeof CurriculumConceptSlugRoute
+  '/curriculum': typeof CurriculumIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -53,13 +69,34 @@ export interface FileRoutesById {
   '/concepts': typeof ConceptsRoute
   '/tactical-sprint': typeof TacticalSprintRoute
   '/api/health': typeof ApiHealthRoute
+  '/curriculum/$conceptSlug': typeof CurriculumConceptSlugRoute
+  '/curriculum/': typeof CurriculumIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/concepts' | '/tactical-sprint' | '/api/health'
+  fullPaths:
+    | '/'
+    | '/concepts'
+    | '/tactical-sprint'
+    | '/api/health'
+    | '/curriculum/$conceptSlug'
+    | '/curriculum/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/concepts' | '/tactical-sprint' | '/api/health'
-  id: '__root__' | '/' | '/concepts' | '/tactical-sprint' | '/api/health'
+  to:
+    | '/'
+    | '/concepts'
+    | '/tactical-sprint'
+    | '/api/health'
+    | '/curriculum/$conceptSlug'
+    | '/curriculum'
+  id:
+    | '__root__'
+    | '/'
+    | '/concepts'
+    | '/tactical-sprint'
+    | '/api/health'
+    | '/curriculum/$conceptSlug'
+    | '/curriculum/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -67,6 +104,8 @@ export interface RootRouteChildren {
   ConceptsRoute: typeof ConceptsRoute
   TacticalSprintRoute: typeof TacticalSprintRoute
   ApiHealthRoute: typeof ApiHealthRoute
+  CurriculumConceptSlugRoute: typeof CurriculumConceptSlugRoute
+  CurriculumIndexRoute: typeof CurriculumIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -99,6 +138,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiHealthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/curriculum/': {
+      id: '/curriculum/'
+      path: '/curriculum'
+      fullPath: '/curriculum/'
+      preLoaderRoute: typeof CurriculumIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/curriculum/$conceptSlug': {
+      id: '/curriculum/$conceptSlug'
+      path: '/curriculum/$conceptSlug'
+      fullPath: '/curriculum/$conceptSlug'
+      preLoaderRoute: typeof CurriculumConceptSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -107,6 +160,8 @@ const rootRouteChildren: RootRouteChildren = {
   ConceptsRoute: ConceptsRoute,
   TacticalSprintRoute: TacticalSprintRoute,
   ApiHealthRoute: ApiHealthRoute,
+  CurriculumConceptSlugRoute: CurriculumConceptSlugRoute,
+  CurriculumIndexRoute: CurriculumIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -25,6 +25,11 @@ export const ExerciseSchema = z.object({
   title: z.string().min(1),
   prompt: z.string().min(1),
   starterCode: z.string(),
+  /**
+   * Guidance discriminator (issue #14): `guided` exercises serve the
+   * Socratic hint ladder; `independent` exercises are solved without hints.
+   */
+  guidance: z.enum(['guided', 'independent']),
 })
 
 export type Exercise = z.infer<typeof ExerciseSchema>
@@ -98,6 +103,7 @@ export type ExerciseErrorCode =
   | 'EXERCISE_NOT_FOUND'
   | 'EXERCISE_NOT_SUBMITTABLE'
   | 'EXERCISE_NOT_HINTABLE'
+  | 'EXERCISE_HINTS_DISABLED'
   | 'SANDBOX_RESULT_INVALID'
   | 'HINT_ESCALATION_INVALID'
 
@@ -107,6 +113,8 @@ const EXERCISE_ERROR_MESSAGES: Record<ExerciseErrorCode, string> = {
     'This exercise is not verified and cannot be submitted.',
   EXERCISE_NOT_HINTABLE:
     'This exercise has no reference solution and cannot serve hints.',
+  EXERCISE_HINTS_DISABLED:
+    'This is an independent exercise — hints are disabled.',
   SANDBOX_RESULT_INVALID:
     'The sandbox produced an invalid result; the submission was not persisted.',
   HINT_ESCALATION_INVALID:

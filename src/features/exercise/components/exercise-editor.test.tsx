@@ -23,6 +23,7 @@ const EXERCISE: Exercise = {
   title: 'Is it even?',
   prompt: 'Implement is_even.',
   starterCode: 'pub fn is_even(n: u32) -> bool {\n    false\n}\n',
+  guidance: 'guided',
 }
 
 describe('ExerciseEditor', () => {
@@ -250,5 +251,36 @@ describe('ExerciseEditor', () => {
     expect(
       await screen.findByText(/could not be generated/),
     ).toBeInTheDocument()
+  })
+
+  it('offers no hint affordance for an independent exercise (issue #14)', async () => {
+    const user = userEvent.setup()
+    submitMock.mockResolvedValue({
+      attemptId: 's1',
+      result: {
+        passed: false,
+        tests: [{ name: 'handles_zero', status: 'failed' }],
+      },
+      hint: null,
+      stage2Review: null,
+    })
+
+    render(
+      <ExerciseEditor exercise={{ ...EXERCISE, guidance: 'independent' }} />,
+    )
+
+    expect(
+      screen.getByText(/Independent exercise — hints are disabled/),
+    ).toBeInTheDocument()
+
+    await user.click(
+      screen.getByRole('button', { name: 'Submit for evaluation' }),
+    )
+    await screen.findByText(/Failed — 1 of 1 test/)
+
+    expect(
+      screen.queryByRole('button', { name: /Request Level/ }),
+    ).not.toBeInTheDocument()
+    expect(requestHintMock).not.toHaveBeenCalled()
   })
 })

@@ -965,6 +965,64 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
     }
   })
 
+  it('serves no hints for an independent exercise (issue #14, AC 2)', async () => {
+    runSandboxSubmissionMock.mockResolvedValue({
+      passed: false,
+      tests: [{ name: 'handles_zero', status: 'failed' }],
+    })
+    generateHintMock.mockResolvedValue({
+      level: 0,
+      content: 'This should never be called.',
+    })
+
+    const [inserted] = await db
+      .insert(exercises)
+      .values({
+        slug: 'test-independent-fixture',
+        language: 'rust',
+        title: 'Independent exercise',
+        prompt: 'Implement a function on your own.',
+        starterCode: 'pub fn is_even(n: u32) -> bool { false }',
+        testSource:
+          '#[test]\nfn handles_zero() { assert!(exercise::is_even(0)); }\n',
+        referenceSolution: 'pub fn is_even(n: u32) -> bool { n % 2 == 0 }',
+        guidance: 'independent',
+        difficulty: 1,
+        status: 'verified',
+      })
+      .returning({ id: exercises.id })
+
+    if (!inserted) throw new Error('expected the inserted exercise')
+
+    try {
+      const learnerId = await getCurrentLearnerId()
+      const outcome = await submitExercise({
+        exerciseId: inserted.id,
+        code: 'pub fn is_even(n: u32) -> bool { false }',
+        learnerId,
+      })
+
+      // The failed submission's auto-hint is skipped for independent
+      // exercises, exactly like the explicit hint path.
+      expect(outcome.result.passed).toBe(false)
+      expect(outcome.hint).toBeNull()
+      expect(generateHintMock).not.toHaveBeenCalled()
+
+      const escalation = await requestHint({
+        attemptId: outcome.attemptId,
+        action: 'next',
+        learnerId,
+      }).catch((error: unknown) => error)
+
+      expect(escalation).toMatchObject({ code: 'EXERCISE_HINTS_DISABLED' })
+      expect(generateHintMock).not.toHaveBeenCalled()
+
+      await deleteLatestAttempt(learnerId)
+    } finally {
+      await db.delete(exercises).where(eq(exercises.id, inserted.id))
+    }
+  })
+
   it('runs the Stage 2 review against the exercise rubric when Stage 1 passes (issue #6)', async () => {
     runSandboxSubmissionMock.mockResolvedValue({
       passed: true,

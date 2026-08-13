@@ -32,10 +32,13 @@ export function isExerciseGenerationLanguage(
  * learner must find and fix, gated by the same Pre-Flight Validation as
  * any other exercise (SPEC stories 51-52, PRD §20, issue #11); when set,
  * the persisted row carries `mode = 'debug'` and the generation output
- * declares the defect. `sprintScoped` targets a Class B Tactical Sprint
- * exercise (SPEC stories 6-7, ticket #13): a 5-10 minute estimate is
- * enforced (`EXERCISE_GENERATION_INVALID` otherwise) rather than the
- * general 1-15 minute range.
+ * declares the defect. `guidance` discriminates how the exercise is served
+ * (issue #14): a `guided` row carries the Socratic hint ladder, an
+ * `independent` row is solved without hints. Defaults to `guided`, so the
+ * standalone generation card keeps today's behavior. `sprintScoped` targets
+ * a Class B Tactical Sprint exercise (SPEC stories 6-7, ticket #13): a
+ * 5-10 minute estimate is enforced (`EXERCISE_GENERATION_INVALID`
+ * otherwise) rather than the general 1-15 minute range.
  */
 export const GenerateExerciseForConceptInputSchema = z.object({
   language: z.enum(SANDBOX_LANGUAGES),
@@ -46,6 +49,7 @@ export const GenerateExerciseForConceptInputSchema = z.object({
     .regex(CONCEPT_SLUG_PATTERN, 'Concept slug must be dotted lowercase'),
   adversarial: z.boolean().optional(),
   sprintScoped: z.boolean().optional(),
+  guidance: z.enum(['guided', 'independent']).default('guided'),
 })
 
 export type GenerateExerciseForConceptInput = z.infer<

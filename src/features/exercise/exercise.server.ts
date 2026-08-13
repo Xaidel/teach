@@ -74,6 +74,7 @@ export function rowToExercise(row: ExerciseRow): Exercise {
     title: row.title,
     prompt: row.prompt,
     starterCode: row.starterCode,
+    guidance: row.guidance,
   }
 }
 
@@ -137,6 +138,13 @@ async function getHintContext(input: {
   const row = rows[0]
   if (!row) {
     throw new ExerciseError('HINT_ESCALATION_INVALID')
+  }
+
+  // An independent exercise (issue #14's Class A curriculum step) is solved
+  // without any Socratic scaffolding: no hint level may ever be served for
+  // it, whatever the request claims.
+  if (row.exercise.guidance === 'independent') {
+    throw new ExerciseError('EXERCISE_HINTS_DISABLED')
   }
 
   const priorHints = await db
@@ -317,8 +325,13 @@ export async function submitExercise(input: {
   let hint: Hint | null = null
   // Best-effort auto-hint: silently skipped when the exercise has no
   // reference solution (unlike requestHint's explicit EXERCISE_NOT_HINTABLE),
-  // because a failed submission must still be recorded and returned.
-  if (exercise.referenceSolution !== null) {
+  // because a failed submission must still be recorded and returned. Also
+  // skipped for independent exercises — issue #14's curriculum step makes
+  // them hint-free, so no automatic scaffolding may reach them either.
+  if (
+    exercise.referenceSolution !== null &&
+    exercise.guidance !== 'independent'
+  ) {
     try {
       const preferences = await getExplanationPreferences(input.learnerId)
       hint = await generateHint({
