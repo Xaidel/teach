@@ -26,6 +26,7 @@ import {
 } from '../lib/explanation-depth'
 import { HINT_LADDER_MAX_LEVEL } from '../lib/hint-levels'
 import type { EvaluationRubric, ExerciseDefect } from '../lib/ai/schemas'
+import type { AnalyzeMisconceptionsOutput } from '../lib/ai/schemas'
 import type { SandboxResult, SandboxTest } from '../lib/sandbox/types'
 
 /**
@@ -193,6 +194,19 @@ export type AttemptCompilerErrors = {
 }
 
 /**
+ * The explanation-assessment payload of an explain-mode attempt (ADR-0010,
+ * issue #16): the deterministic accuracy score (ticket #16's formula,
+ * computed app-side from the evaluator's findings — the model never scores,
+ * issue #23 contract) plus the raw `analyzeMisconceptions` findings
+ * (missing/incorrect/conflated). Null for implement/debug-mode attempts,
+ * which never run an explanation assessment.
+ */
+export type ExplanationAssessmentPayload = {
+  accuracyScore: number
+  analysis: AnalyzeMisconceptionsOutput
+}
+
+/**
  * One learner attempt at an exercise (ADR-0010, ADR-0014): merges the
  * walking skeleton's `submissions` + `results` tables (staging deviation
  * recorded in ADR-0010, reconciled by ADR-0021) into the durable shape this
@@ -216,6 +230,9 @@ export const attempts = pgTable(
     outcome: attemptOutcome('outcome').notNull(),
     timeToSolution: integer('time_to_solution').notNull(),
     compilerErrors: jsonb('compiler_errors').$type<AttemptCompilerErrors>(),
+    explanationAssessment: jsonb(
+      'explanation_assessment',
+    ).$type<ExplanationAssessmentPayload>(),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),

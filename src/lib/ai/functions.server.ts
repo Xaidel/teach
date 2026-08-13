@@ -1,4 +1,5 @@
 import { TeacherEngineError, callTeacherEngine } from './client.server'
+import { buildAnalyzeMisconceptionsMessages } from './prompts/analyze-misconceptions.prompt'
 import { buildDraftConceptGraphMessages } from './prompts/draft-concept-graph.prompt'
 import { buildExplainConceptMessages } from './prompts/explain-concept.prompt'
 import { buildGenerateExerciseMessages } from './prompts/generate-exercise.prompt'
@@ -7,6 +8,8 @@ import { buildIdentifySnippetConceptsMessages } from './prompts/identify-snippet
 import { buildReviewSubmissionMessages } from './prompts/review-submission.prompt'
 import { checkPromptShield } from './prompt-shield'
 import {
+  AnalyzeMisconceptionsInputSchema,
+  AnalyzeMisconceptionsOutputSchema,
   DraftConceptGraphInputSchema,
   DraftConceptGraphOutputSchema,
   ExplainConceptInputSchema,
@@ -21,6 +24,8 @@ import {
   ReviewSubmissionOutputSchema,
 } from './schemas'
 import type {
+  AnalyzeMisconceptionsInput,
+  AnalyzeMisconceptionsOutput,
   DraftConceptGraphInput,
   DraftConceptGraphOutput,
   ExplainConceptInput,
@@ -46,6 +51,7 @@ const REASONING_EFFORT_EXPLAIN: ReasoningEffort = 'low'
 const REASONING_EFFORT_REVIEW: ReasoningEffort = 'high'
 const REASONING_EFFORT_GENERATION: ReasoningEffort = 'high'
 const REASONING_EFFORT_IDENTIFY: ReasoningEffort = 'high'
+const REASONING_EFFORT_ANALYZE: ReasoningEffort = 'high'
 
 /**
  * The safe fallback served when the Prompt Shield blocks a hint: a generic,
@@ -178,6 +184,29 @@ export async function identifySnippetConcepts(
     schemaName: 'snippet_concepts',
     outputSchema: IdentifySnippetConceptsOutputSchema,
     messages: buildIdentifySnippetConceptsMessages(validated),
+  })
+}
+
+/**
+ * Compares a learner's free-form explanation of a concept against that
+ * concept's Concept Graph definition (SPEC story 45, issue #16): missing
+ * sub-concepts, incorrect claims, and conflated ideas — and nothing else.
+ * The function is standalone and atomic (issue #23 contract): it never
+ * returns a score or verdict; the explanation-accuracy score is computed
+ * deterministically app-side from its output (`explanation-assessment`'s
+ * scoring module, ticket #16's owned formula), so the model never grades
+ * the explanation. Review-adjacent analysis, so it runs at high reasoning
+ * effort like the other review tasks (ADR-0004).
+ */
+export async function analyzeMisconceptions(
+  input: AnalyzeMisconceptionsInput,
+): Promise<AnalyzeMisconceptionsOutput> {
+  const validated = AnalyzeMisconceptionsInputSchema.parse(input)
+  return callTeacherEngine({
+    reasoningEffort: REASONING_EFFORT_ANALYZE,
+    schemaName: 'misconception_analysis',
+    outputSchema: AnalyzeMisconceptionsOutputSchema,
+    messages: buildAnalyzeMisconceptionsMessages(validated),
   })
 }
 

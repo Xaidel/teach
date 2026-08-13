@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ConceptsRouteImport } from './routes/concepts'
+import { Route as ExplanationAssessmentRouteImport } from './routes/explanation-assessment'
 import { Route as TacticalSprintRouteImport } from './routes/tactical-sprint'
 import { Route as ApiHealthRouteImport } from './routes/api.health'
 
@@ -22,6 +23,11 @@ const IndexRoute = IndexRouteImport.update({
 const ConceptsRoute = ConceptsRouteImport.update({
   id: '/concepts',
   path: '/concepts',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ExplanationAssessmentRoute = ExplanationAssessmentRouteImport.update({
+  id: '/explanation-assessment',
+  path: '/explanation-assessment',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TacticalSprintRoute = TacticalSprintRouteImport.update({
@@ -38,12 +44,14 @@ const ApiHealthRoute = ApiHealthRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/concepts': typeof ConceptsRoute
+  '/explanation-assessment': typeof ExplanationAssessmentRoute
   '/tactical-sprint': typeof TacticalSprintRoute
   '/api/health': typeof ApiHealthRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/concepts': typeof ConceptsRoute
+  '/explanation-assessment': typeof ExplanationAssessmentRoute
   '/tactical-sprint': typeof TacticalSprintRoute
   '/api/health': typeof ApiHealthRoute
 }
@@ -51,20 +59,38 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/concepts': typeof ConceptsRoute
+  '/explanation-assessment': typeof ExplanationAssessmentRoute
   '/tactical-sprint': typeof TacticalSprintRoute
   '/api/health': typeof ApiHealthRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/concepts' | '/tactical-sprint' | '/api/health'
+  fullPaths:
+    | '/'
+    | '/concepts'
+    | '/explanation-assessment'
+    | '/tactical-sprint'
+    | '/api/health'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/concepts' | '/tactical-sprint' | '/api/health'
-  id: '__root__' | '/' | '/concepts' | '/tactical-sprint' | '/api/health'
+  to:
+    | '/'
+    | '/concepts'
+    | '/explanation-assessment'
+    | '/tactical-sprint'
+    | '/api/health'
+  id:
+    | '__root__'
+    | '/'
+    | '/concepts'
+    | '/explanation-assessment'
+    | '/tactical-sprint'
+    | '/api/health'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ConceptsRoute: typeof ConceptsRoute
+  ExplanationAssessmentRoute: typeof ExplanationAssessmentRoute
   TacticalSprintRoute: typeof TacticalSprintRoute
   ApiHealthRoute: typeof ApiHealthRoute
 }
@@ -83,6 +109,13 @@ declare module '@tanstack/react-router' {
       path: '/concepts'
       fullPath: '/concepts'
       preLoaderRoute: typeof ConceptsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/explanation-assessment': {
+      id: '/explanation-assessment'
+      path: '/explanation-assessment'
+      fullPath: '/explanation-assessment'
+      preLoaderRoute: typeof ExplanationAssessmentRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/tactical-sprint': {
@@ -105,6 +138,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ConceptsRoute: ConceptsRoute,
+  ExplanationAssessmentRoute: ExplanationAssessmentRoute,
   TacticalSprintRoute: TacticalSprintRoute,
   ApiHealthRoute: ApiHealthRoute,
 }

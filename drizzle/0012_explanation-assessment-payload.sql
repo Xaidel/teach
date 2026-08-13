@@ -1,0 +1,1 @@
+ALTER TABLE "attempts" ADD COLUMN "explanation_assessment" jsonb;

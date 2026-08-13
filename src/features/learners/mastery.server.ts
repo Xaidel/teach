@@ -2,7 +2,12 @@ import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { AnyPgColumn } from 'drizzle-orm/pg-core'
 
 import { db } from '#/db/client.server'
-import { exerciseConcepts, learnerConceptMastery } from '#/db/schema'
+import {
+  attempts,
+  exerciseConcepts,
+  exercises,
+  learnerConceptMastery,
+} from '#/db/schema'
 import type { masteryState } from '#/db/schema'
 
 export type MasteryState = (typeof masteryState.enumValues)[number]
@@ -144,4 +149,149 @@ export async function getMasteryStates(
     states[row.conceptId] = row.state
   }
   return states
+}
+
+/**
+ * Whether the learner has a passed Explanation Assessment recorded for the
+ * concept (issue #16): any explain-mode attempt row with outcome `pass` on
+ * an exercise targeting the concept. This is the Learner Model's evidence
+ * read for ADR-0015's Practiced → Demonstrated gate — the EA feature
+ * writes the evidence through `recordExplanationAssessmentOutcome` and
+ * never reaches into the attempts/exercises join itself.
+ */
+export async function hasPassedExplanationAssessment(
+  learnerId: string,
+  conceptId: string,
+): Promise<boolean> {
+  const conceptIds = await getPassedExplanationAssessmentConceptIds(learnerId, [
+    conceptId,
+  ])
+  return conceptIds.length > 0
+}
+
+/**
+ * The subset of `conceptIds` the learner has a passed Explanation
+ * Assessment recorded for (issue #16) — the batched evidence read behind
+ * `hasPassedExplanationAssessment`, kept as its own function so the
+ * explanation-assessment feature's overview can annotate a whole list of
+ * eligible concepts without an n+1.
+ */
+export async function getPassedExplanationAssessmentConceptIds(
+  learnerId: string,
+  conceptIds: string[],
+): Promise<string[]> {
+  if (conceptIds.length === 0) return []
+
+  const rows = await db
+    .selectDistinct({ conceptId: exerciseConcepts.conceptId })
+    .from(attempts)
+    .innerJoin(exercises, eq(exercises.id, attempts.exerciseId))
+    .innerJoin(exerciseConcepts, eq(exerciseConcepts.exerciseId, exercises.id))
+    .where(
+      and(
+        eq(attempts.learnerId, learnerId),
+        inArray(exerciseConcepts.conceptId, conceptIds),
+        eq(exercises.mode, 'explain'),
+        eq(attempts.outcome, 'pass'),
+      ),
+    )
+
+  return rows.map((row) => row.conceptId)
+}
+
+/**
+ * Whether the learner has a passed Transfer Test recorded for the concept.
+ *
+ * The Transfer Test evidence shape is owned by ticket #17 (Transfer
+ * Testing); until #17 lands, no TT evidence exists in the schema, so this
+ * deterministically returns false. That is what keeps ADR-0015's gate
+ * honest while only one half of it is built: a concept must not reach
+ * Demonstrated with an EA pass alone. Ticket #17 fills this seam with its
+ * own evidence read (making it async) when it lands; nothing in the gate's
+ * call sites changes.
+ */
+export function hasPassedTransferTest(
+  learnerId: string,
+  conceptId: string,
+): boolean {
+  void learnerId
+  void conceptId
+  return false
+}
+
+/**
+ * The ADR-0015 Practiced → Demonstrated gate (issue #16): promotes the
+ * concept only when BOTH required signals are recorded — a passed
+ * Explanation Assessment and a passed Transfer Test — independently and in
+ * no fixed order, and only from the `practiced` state itself. A concept
+ * with only one signal (or neither) stays at Practiced, retryable.
+ * Promotion never regresses: the update's `state = 'practiced'` guard means
+ * a concurrent advance to a higher state can never be clobbered, mirroring
+ * `advanceMastery`'s atomicity intent. Returns the concept's state after
+ * the attempt.
+ */
+export async function promoteToDemonstrated(input: {
+  learnerId: string
+  conceptId: string
+}): Promise<MasteryState> {
+  const explanationPassed = await hasPassedExplanationAssessment(
+    input.learnerId,
+    input.conceptId,
+  )
+  const transferPassed = hasPassedTransferTest(input.learnerId, input.conceptId)
+
+  if (!explanationPassed || !transferPassed) {
+    return (
+      (await getMasteryStates(input.learnerId, [input.conceptId]))[
+        input.conceptId
+      ] ?? 'unknown'
+    )
+  }
+
+  const [updated] = await db
+    .update(learnerConceptMastery)
+    .set({ state: 'demonstrated', updatedAt: sql`now()` })
+    .where(
+      and(
+        eq(learnerConceptMastery.learnerId, input.learnerId),
+        eq(learnerConceptMastery.conceptId, input.conceptId),
+        eq(learnerConceptMastery.state, 'practiced'),
+      ),
+    )
+    .returning({ state: learnerConceptMastery.state })
+
+  if (updated) {
+    return updated.state
+  }
+
+  return (
+    (await getMasteryStates(input.learnerId, [input.conceptId]))[
+      input.conceptId
+    ] ?? 'unknown'
+  )
+}
+
+/**
+ * Records one Explanation Assessment outcome against the Learner Model
+ * (issue #16) — the single intent-level entry point the explanation-
+ * assessment feature reports into (see `arch_docs/dependency-rules.md`'s
+ * Feature Dependencies exception; the import is one-way and `learners`
+ * never imports back). A passed assessment feeds ADR-0015's gate: the
+ * concept promotes Practiced → Demonstrated only when a passed Transfer
+ * Test is also recorded (`promoteToDemonstrated`). A failed initial-gate
+ * attempt leaves the concept at Practiced with a retry available — the
+ * attempt itself is the evidence, and mastery never regresses on a failure
+ * (ADR-0015).
+ */
+export async function recordExplanationAssessmentOutcome(input: {
+  learnerId: string
+  conceptId: string
+  passed: boolean
+}): Promise<void> {
+  if (!input.passed) return
+
+  await promoteToDemonstrated({
+    learnerId: input.learnerId,
+    conceptId: input.conceptId,
+  })
 }
