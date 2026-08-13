@@ -43,6 +43,7 @@ import { runSandboxSubmission } from '#/lib/sandbox/runner.server'
 import { getCurrentLearnerId } from '../learners/learners.server'
 import { advanceMastery, getMasteryStates } from '../learners/mastery.server'
 import {
+  getAvailableExercises,
   getHardcodedExercises,
   HARDCODED_EXERCISE_SLUGS,
   requestHint,
@@ -263,6 +264,53 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
     }
   })
 
+  it('hides explain-mode rows from the practice list (issue #16)', async () => {
+    const [explainRow] = await db
+      .insert(exercises)
+      .values({
+        slug: 'test-explain-mode-row',
+        language: 'rust',
+        title: 'Explain fixture',
+        prompt: 'Explain this concept in your own words.',
+        starterCode: '',
+        mode: 'explain',
+        difficulty: 1,
+        status: 'verified',
+      })
+      .onConflictDoNothing()
+      .returning()
+    if (!explainRow) throw new Error('expected a persisted exercise')
+
+    const [concept] = await db
+      .insert(concepts)
+      .values({
+        language: 'rust',
+        slug: 'test.explain-mode-row-concept',
+        difficulty: 1,
+      })
+      .returning()
+    if (!concept) throw new Error('expected a persisted concept')
+    await db
+      .insert(exerciseConcepts)
+      .values({ exerciseId: explainRow.id, conceptId: concept.id })
+
+    try {
+      const available = await getAvailableExercises()
+
+      expect(
+        available.some((exercise) => exercise.slug === 'test-explain-mode-row'),
+      ).toBe(false)
+    } finally {
+      await db
+        .delete(exerciseConcepts)
+        .where(eq(exerciseConcepts.exerciseId, explainRow.id))
+      await db
+        .delete(exercises)
+        .where(eq(exercises.slug, 'test-explain-mode-row'))
+      await db.delete(concepts).where(eq(concepts.id, concept.id))
+    }
+  })
+
   it('persists an attempt with its outcome and compiler diagnostics, attributed to the current learner (ADR-0010)', async () => {
     runSandboxSubmissionMock.mockResolvedValue({
       passed: true,
@@ -288,10 +336,19 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
     })
     expect(submitted?.testSource).toBeTruthy()
 
+    // Scoped to this suite's own rust fixture exercise: other suites write
+    // attempts for the seeded learner concurrently (issue #113/#115's
+    // per-suite fixture isolation), so a learner-wide "latest" read is
+    // inherently racy. The fixture exercise is written by this suite only.
     const [attempt] = await db
       .select()
       .from(attempts)
-      .where(eq(attempts.learnerId, learnerId))
+      .where(
+        and(
+          eq(attempts.learnerId, learnerId),
+          eq(attempts.exerciseId, rustExercise.id),
+        ),
+      )
       .orderBy(desc(attempts.createdAt))
       .limit(1)
 
@@ -340,7 +397,16 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
 
     const rustExercise = await getRustFixture()
     const learnerId = await getCurrentLearnerId()
-    const attemptsBefore = await db.$count(attempts)
+    // Scoped to this suite's own rust fixture exercise: other suites write
+    // attempts for the seeded learner concurrently, so a table-wide count
+    // is inherently racy (issue #113/#115's per-suite fixture isolation).
+    const attemptsBefore = await db.$count(
+      attempts,
+      and(
+        eq(attempts.learnerId, learnerId),
+        eq(attempts.exerciseId, rustExercise.id),
+      ),
+    )
 
     await expect(
       submitExercise({
@@ -350,7 +416,15 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       }),
     ).rejects.toMatchObject({ code: 'SANDBOX_RESULT_INVALID' })
 
-    expect(await db.$count(attempts)).toBe(attemptsBefore)
+    expect(
+      await db.$count(
+        attempts,
+        and(
+          eq(attempts.learnerId, learnerId),
+          eq(attempts.exerciseId, rustExercise.id),
+        ),
+      ),
+    ).toBe(attemptsBefore)
   })
 
   it('rejects a sandbox result with unknown keys (strict parsing) without persisting it', async () => {
@@ -362,7 +436,15 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
 
     const rustExercise = await getRustFixture()
     const learnerId = await getCurrentLearnerId()
-    const attemptsBefore = await db.$count(attempts)
+    // Scoped to this suite's own rust fixture exercise (see the malformed-
+    // result test above for the race rationale).
+    const attemptsBefore = await db.$count(
+      attempts,
+      and(
+        eq(attempts.learnerId, learnerId),
+        eq(attempts.exerciseId, rustExercise.id),
+      ),
+    )
 
     await expect(
       submitExercise({
@@ -372,7 +454,15 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       }),
     ).rejects.toMatchObject({ code: 'SANDBOX_RESULT_INVALID' })
 
-    expect(await db.$count(attempts)).toBe(attemptsBefore)
+    expect(
+      await db.$count(
+        attempts,
+        and(
+          eq(attempts.learnerId, learnerId),
+          eq(attempts.exerciseId, rustExercise.id),
+        ),
+      ),
+    ).toBe(attemptsBefore)
   })
 
   it('throws a stable error for an unknown exercise', async () => {

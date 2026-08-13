@@ -40,7 +40,9 @@ import { assertPrerequisitesPracticed } from '../concepts/concepts.server'
 // the `*.server.ts`-to-`*.server.ts` exception in
 // `arch_docs/dependency-rules.md` is written to guard against.
 import { ConceptError } from '../concepts/concepts.schema'
-import type { MasteryState } from '../learners/mastery.server'
+// Shared constant (src/lib/mastery-states.ts): the mastery state vocabulary
+// now lives in lib — the learners feature publishes it from there.
+import type { MasteryState } from '../../lib/mastery-states'
 import type { Exercise, ExerciseGuidance } from '../exercise/exercise.schema'
 
 import { orderCurriculum } from './curriculum-order'

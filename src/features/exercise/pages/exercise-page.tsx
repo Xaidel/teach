@@ -79,12 +79,22 @@ export function ExercisePage(): React.JSX.Element {
             </Link>
           </div>
         </div>
-        <Link
-          className="w-fit text-sm font-semibold text-primary underline"
-          to="/tactical-sprint"
-        >
-          Don&apos;t understand an AI-generated snippet? Try a Tactical Sprint →
-        </Link>
+        <div className="grid gap-2">
+          <Link
+            className="w-fit text-sm font-semibold text-primary underline"
+            to="/tactical-sprint"
+          >
+            Don&apos;t understand an AI-generated snippet? Try a Tactical Sprint
+            →
+          </Link>
+          <Link
+            className="w-fit text-sm font-semibold text-primary underline"
+            to="/explanation-assessment"
+          >
+            Ready to be assessed on a Practiced concept? Explain it in your own
+            words →
+          </Link>
+        </div>
       </header>
 
       <div className="mb-10 grid gap-6">
