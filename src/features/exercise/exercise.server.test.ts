@@ -40,6 +40,7 @@ import { TeacherEngineError } from '#/lib/ai/client.server'
 import { generateHint, reviewSubmission } from '#/lib/ai/functions.server'
 import type { ReviewSubmissionOutput } from '#/lib/ai/schemas'
 import { runSandboxSubmission } from '#/lib/sandbox/runner.server'
+import { withLearnerPreferencesLock } from '#/lib/test-utils/learner-preferences-lock'
 import { getCurrentLearnerId } from '../learners/learners.server'
 import { advanceMastery, getMasteryStates } from '../learners/mastery.server'
 import {
@@ -166,12 +167,25 @@ beforeEach(() => {
   reviewSubmissionMock.mockResolvedValue(PASSING_REVIEW_OUTPUT)
 })
 
-/** Removes the latest persisted attempt for a learner, and its hints. */
-async function deleteLatestAttempt(learnerId: string): Promise<void> {
+/**
+ * Removes the latest persisted attempt for a learner on the given fixture
+ * exercise, and its hints. Scoped to the exercise (issue #115): a
+ * learner-wide "latest" lookup could target — and delete — an attempt a
+ * concurrent suite just persisted for the same seeded learner.
+ */
+async function deleteLatestAttempt(
+  learnerId: string,
+  exerciseId: string,
+): Promise<void> {
   const [attempt] = await db
     .select()
     .from(attempts)
-    .where(eq(attempts.learnerId, learnerId))
+    .where(
+      and(
+        eq(attempts.learnerId, learnerId),
+        eq(attempts.exerciseId, exerciseId),
+      ),
+    )
     .orderBy(desc(attempts.createdAt))
     .limit(1)
 
@@ -188,43 +202,48 @@ async function deleteLatestAttempt(learnerId: string): Promise<void> {
  * duration of `run`, then restores the prior values (issue #12) — the
  * `learners` table holds exactly one row shared across every DB-backed
  * test in this file, so a preference change must never leak between tests.
+ * The whole window runs under the learner-preferences advisory lock so
+ * concurrent suites that mutate the same row (e.g. the curriculum cache
+ * tests, issue #135) can never interleave their set/restore with this one.
  */
 async function withLearnerExplanationPreferences<T>(
   learnerId: string,
   preferences: { depth: number; referenceFrame: string | null },
   run: () => Promise<T>,
 ): Promise<T> {
-  const [previous] = await db
-    .select({
-      depth: learners.explanationDepth,
-      referenceFrame: learners.referenceFrame,
-    })
-    .from(learners)
-    .where(eq(learners.id, learnerId))
-    .limit(1)
-  if (!previous) {
-    throw new Error('expected the seeded v1 learner row')
-  }
+  return withLearnerPreferencesLock(async () => {
+    const [previous] = await db
+      .select({
+        depth: learners.explanationDepth,
+        referenceFrame: learners.referenceFrame,
+      })
+      .from(learners)
+      .where(eq(learners.id, learnerId))
+      .limit(1)
+    if (!previous) {
+      throw new Error('expected the seeded v1 learner row')
+    }
 
-  await db
-    .update(learners)
-    .set({
-      explanationDepth: preferences.depth,
-      referenceFrame: preferences.referenceFrame,
-    })
-    .where(eq(learners.id, learnerId))
-
-  try {
-    return await run()
-  } finally {
     await db
       .update(learners)
       .set({
-        explanationDepth: previous.depth,
-        referenceFrame: previous.referenceFrame,
+        explanationDepth: preferences.depth,
+        referenceFrame: preferences.referenceFrame,
       })
       .where(eq(learners.id, learnerId))
-  }
+
+    try {
+      return await run()
+    } finally {
+      await db
+        .update(learners)
+        .set({
+          explanationDepth: previous.depth,
+          referenceFrame: previous.referenceFrame,
+        })
+        .where(eq(learners.id, learnerId))
+    }
+  })
 }
 
 describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
@@ -361,7 +380,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
     expect(attempt.timeToSolution).toBe(0)
     expect(attempt.compilerErrors?.tests).toHaveLength(1)
 
-    await deleteLatestAttempt(learnerId)
+    await deleteLatestAttempt(learnerId, rustExercise.id)
   })
 
   it('dispatches the attempt to the sandbox of the exercise language', async () => {
@@ -529,7 +548,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
     })
     expect(servedHint?.servedAt).toBeInstanceOf(Date)
 
-    await deleteLatestAttempt(learnerId)
+    await deleteLatestAttempt(learnerId, rustExercise.id)
   })
 
   it("threads the learner's explanation depth/reference frame into the auto-hint call (issue #12)", async () => {
@@ -562,7 +581,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
           targetLevel: 0,
         })
 
-        await deleteLatestAttempt(learnerId)
+        await deleteLatestAttempt(learnerId, rustExercise.id)
         return outcome
       },
     )
@@ -595,7 +614,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       .where(eq(attemptHints.attemptId, outcome.attemptId))
     expect(served).toHaveLength(0)
 
-    await deleteLatestAttempt(learnerId)
+    await deleteLatestAttempt(learnerId, rustExercise.id)
   })
 
   it('persists the failed result message for later hint context', async () => {
@@ -626,7 +645,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
     expect(persisted?.compilerErrors?.message).toBe('compile error excerpt')
     expect(persisted?.outcome).toBe('fail')
 
-    await deleteLatestAttempt(learnerId)
+    await deleteLatestAttempt(learnerId, rustExercise.id)
   })
 
   it('escalates one level per request and records the full manual ladder', async () => {
@@ -691,7 +710,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       .orderBy(attemptHints.hintLevel)
     expect(served.map((row) => row.hintLevel)).toEqual([0, 1, 2, 3, 4, 5])
 
-    await deleteLatestAttempt(learnerId)
+    await deleteLatestAttempt(learnerId, rustExercise.id)
   })
 
   it("threads the learner's explanation depth/reference frame into a manual hint request without changing the escalated level (issue #12, AC 3)", async () => {
@@ -733,7 +752,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       },
     )
 
-    await deleteLatestAttempt(learnerId)
+    await deleteLatestAttempt(learnerId, rustExercise.id)
   })
 
   it('passes the previously served hints into each escalation request', async () => {
@@ -778,7 +797,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
     })
     expect(escalationCall?.referenceSolution).toContain('n % 2 == 0')
 
-    await deleteLatestAttempt(learnerId)
+    await deleteLatestAttempt(learnerId, rustExercise.id)
   })
 
   it('requires the full-solution action before serving Level 5', async () => {
@@ -810,7 +829,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       }),
     ).rejects.toMatchObject({ code: 'HINT_ESCALATION_INVALID' })
 
-    await deleteLatestAttempt(learnerId)
+    await deleteLatestAttempt(learnerId, rustExercise.id)
   })
 
   it('rejects hint requests on a passed attempt', async () => {
@@ -836,7 +855,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       }),
     ).rejects.toMatchObject({ code: 'HINT_ESCALATION_INVALID' })
 
-    await deleteLatestAttempt(learnerId)
+    await deleteLatestAttempt(learnerId, rustExercise.id)
   })
 
   it('rejects hint requests on another learner attempt', async () => {
@@ -862,7 +881,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       }),
     ).rejects.toMatchObject({ code: 'HINT_ESCALATION_INVALID' })
 
-    await deleteLatestAttempt(learnerId)
+    await deleteLatestAttempt(learnerId, rustExercise.id)
   })
 
   it('starts a fresh ladder for a new exercise attempt', async () => {
@@ -902,7 +921,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
     const escalationCall = generateHintMock.mock.calls.at(-1)?.[0]
     expect(escalationCall).toMatchObject({ targetLevel: 0, priorHints: [] })
 
-    await deleteLatestAttempt(learnerId)
+    await deleteLatestAttempt(learnerId, rustExercise.id)
   })
 
   it('does not persist an auto-served hint at an invalid engine level (issue #57)', async () => {
@@ -935,7 +954,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       .where(eq(attemptHints.attemptId, outcome.attemptId))
     expect(served).toHaveLength(0)
 
-    await deleteLatestAttempt(learnerId)
+    await deleteLatestAttempt(learnerId, rustExercise.id)
   })
 
   it('fails gracefully when concurrent requests resolve the same hint level (issue #55)', async () => {
@@ -1001,7 +1020,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       .where(eq(attemptHints.attemptId, outcome.attemptId))
     expect(served.map((row) => row.hintLevel).sort()).toEqual([0, 1])
 
-    await deleteLatestAttempt(learnerId)
+    await deleteLatestAttempt(learnerId, rustExercise.id)
   })
 
   it('skips hint generation when the exercise has no reference solution (issue #5, fail closed)', async () => {
@@ -1050,7 +1069,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
 
       expect(escalation).toMatchObject({ code: 'EXERCISE_NOT_HINTABLE' })
 
-      await deleteLatestAttempt(learnerId)
+      await deleteLatestAttempt(learnerId, inserted.id)
     } finally {
       await db.delete(exercises).where(eq(exercises.id, inserted.id))
     }
@@ -1108,7 +1127,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       expect(escalation).toMatchObject({ code: 'EXERCISE_HINTS_DISABLED' })
       expect(generateHintMock).not.toHaveBeenCalled()
 
-      await deleteLatestAttempt(learnerId)
+      await deleteLatestAttempt(learnerId, inserted.id)
     } finally {
       await db.delete(exercises).where(eq(exercises.id, inserted.id))
     }
@@ -1481,7 +1500,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       })
       expect(reviewInput?.submissionCode).toContain('n % 2 == 0')
 
-      await deleteLatestAttempt(learnerId)
+      await deleteLatestAttempt(learnerId, inserted.id)
     } finally {
       await db.delete(exercises).where(eq(exercises.id, inserted.id))
     }
@@ -1540,7 +1559,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
         verdict: 'violated',
       })
 
-      await deleteLatestAttempt(learnerId)
+      await deleteLatestAttempt(learnerId, inserted.id)
     } finally {
       await db.delete(exercises).where(eq(exercises.id, inserted.id))
     }
@@ -1594,7 +1613,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
           'Refactor the submission to address: "Returns a hardcoded lookup table instead of computing parity" — A hardcoded lookup table is returned.',
       })
 
-      await deleteLatestAttempt(learnerId)
+      await deleteLatestAttempt(learnerId, inserted.id)
     } finally {
       await db.delete(exercises).where(eq(exercises.id, inserted.id))
     }
@@ -1651,7 +1670,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
         verdict: 'violated',
       })
 
-      await deleteLatestAttempt(learnerId)
+      await deleteLatestAttempt(learnerId, inserted.id)
     } finally {
       await db.delete(exercises).where(eq(exercises.id, inserted.id))
     }
@@ -1692,7 +1711,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       expect(outcome.stage2Review).toBeNull()
       expect(reviewSubmissionMock).not.toHaveBeenCalled()
 
-      await deleteLatestAttempt(learnerId)
+      await deleteLatestAttempt(learnerId, inserted.id)
     } finally {
       await db.delete(exercises).where(eq(exercises.id, inserted.id))
     }
@@ -1717,7 +1736,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
     expect(outcome.stage2Review).toBeNull()
     expect(reviewSubmissionMock).not.toHaveBeenCalled()
 
-    await deleteLatestAttempt(learnerId)
+    await deleteLatestAttempt(learnerId, rustExercise.id)
   })
 
   it('fails open when the AI review is unavailable (issue #6)', async () => {
@@ -1758,7 +1777,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       expect(outcome.result.passed).toBe(true)
       expect(outcome.stage2Review).toBeNull()
 
-      await deleteLatestAttempt(learnerId)
+      await deleteLatestAttempt(learnerId, inserted.id)
     } finally {
       await db.delete(exercises).where(eq(exercises.id, inserted.id))
     }
@@ -1809,7 +1828,7 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       expect(outcome.result.passed).toBe(true)
       expect(outcome.stage2Review).toBeNull()
 
-      await deleteLatestAttempt(learnerId)
+      await deleteLatestAttempt(learnerId, inserted.id)
     } finally {
       await db.delete(exercises).where(eq(exercises.id, inserted.id))
     }
@@ -1901,7 +1920,7 @@ describe.skipIf(!dbUp)('submitExercise mastery advancement (ADR-0010)', () => {
       [conceptId]: 'introduced',
     })
 
-    await deleteLatestAttempt(learnerId)
+    await deleteLatestAttempt(learnerId, exerciseId)
   })
 
   it('does not advance to Practiced on Stage 1 pass with a Stage 2 rubric violation', async () => {
@@ -1931,7 +1950,7 @@ describe.skipIf(!dbUp)('submitExercise mastery advancement (ADR-0010)', () => {
       [conceptId]: 'introduced',
     })
 
-    await deleteLatestAttempt(learnerId)
+    await deleteLatestAttempt(learnerId, exerciseId)
   })
 
   it('advances to Practiced when Stage 1 and Stage 2 both pass (completion AC)', async () => {
@@ -1952,7 +1971,7 @@ describe.skipIf(!dbUp)('submitExercise mastery advancement (ADR-0010)', () => {
       [conceptId]: 'practiced',
     })
 
-    await deleteLatestAttempt(learnerId)
+    await deleteLatestAttempt(learnerId, exerciseId)
   })
 
   it('is a no-op for hardcoded exercises with no exercise_concepts row', async () => {
@@ -1978,6 +1997,6 @@ describe.skipIf(!dbUp)('submitExercise mastery advancement (ADR-0010)', () => {
       [conceptId]: 'unknown',
     })
 
-    await deleteLatestAttempt(learnerId)
+    await deleteLatestAttempt(learnerId, goExercise.id)
   })
 })

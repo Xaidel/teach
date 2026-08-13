@@ -1,7 +1,7 @@
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, isNull } from 'drizzle-orm'
 
 import { db } from '#/db/client.server'
-import { exerciseConcepts, exercises } from '#/db/schema'
+import { curriculumLessons, exerciseConcepts, exercises } from '#/db/schema'
 import { TeacherEngineError } from '#/lib/ai/client.server'
 import { explainConcept } from '#/lib/ai/functions.server'
 
@@ -34,12 +34,12 @@ import {
 // error to the curriculum's stable `CURRICULUM_LOCKED` contract.
 import { assertPrerequisitesPracticed } from '../concepts/concepts.server'
 // `ConceptError` is imported as a value (not just a type) for the
-// `instanceof` check below, from `concepts.schema.ts` rather than
-// `concepts.server.ts`: the schema file has no `#/db` or other server-only
-// import, so pulling in the value here carries none of the bundling risk
-// the `*.server.ts`-to-`*.server.ts` exception in
-// `arch_docs/dependency-rules.md` is written to guard against.
-import { ConceptError } from '../concepts/concepts.schema'
+// `instanceof` check below. It arrives through the same named entry point
+// as the gate that throws it — `concepts.server.ts` re-exports it
+// (arch_docs/dependency-rules.md "Feature Dependencies" exception) — rather
+// than reaching into `concepts.schema.ts`, which the documented exception is
+// written for `*.server.ts`-to-`*.server.ts` imports only.
+import { ConceptError } from '../concepts/concepts.server'
 // Shared constant (src/lib/mastery-states.ts): the mastery state vocabulary
 // now lives in lib — the learners feature publishes it from there.
 import type { MasteryState } from '../../lib/mastery-states'
@@ -280,10 +280,13 @@ export async function generateStepExercise(input: {
  * Generates the step's lesson (SPEC story 2, issue #14): the AI Teacher
  * Engine explains the concept, phrased at the learner's current explanation
  * depth and reference frame (issue #12) — presentation only, never a gate.
- * The lesson is generated on demand and never persisted: it is
- * presentation content with no deterministic evaluation role, so the step
- * view simply regenerates it when asked. Generation failures surface as a
- * stable `LESSON_GENERATION_FAILED` error.
+ * The lesson is cached durably per learner/concept/explanation-settings
+ * (issue #135): a revisiting learner is served the cached text instead of
+ * paying a fresh generation call, and the cache key includes the
+ * explanation depth and reference frame, so a change in either setting
+ * naturally misses and regenerates. Only a successful generation is
+ * persisted — a failed call never poisons the cache. Generation failures
+ * surface as a stable `LESSON_GENERATION_FAILED` error.
  */
 export async function generateCurriculumLesson(input: {
   learnerId: string
@@ -295,6 +298,28 @@ export async function generateCurriculumLesson(input: {
   await assertStepUnlocked(input.learnerId, input.language, concept.id)
 
   const preferences = await getExplanationPreferences(input.learnerId)
+
+  // The cache key is the complete generation-input tuple (ADR-0024). Shared
+  // by the read, the insert, and the post-insert re-read below so all three
+  // necessarily agree.
+  const cacheKey = and(
+    eq(curriculumLessons.learnerId, input.learnerId),
+    eq(curriculumLessons.conceptId, concept.id),
+    eq(curriculumLessons.explanationDepth, preferences.depth),
+    // A nullable reference frame must match with `IS NULL`, not `= NULL`.
+    ...(preferences.referenceFrame === null
+      ? [isNull(curriculumLessons.referenceFrame)]
+      : [eq(curriculumLessons.referenceFrame, preferences.referenceFrame)]),
+  )
+
+  const cached = await db.query.curriculumLessons.findFirst({
+    where: cacheKey,
+  })
+  if (cached) {
+    return { concept: input.conceptSlug, explanation: cached.explanation }
+  }
+
+  let explanation: string
   try {
     const output = await explainConcept({
       language: input.language,
@@ -304,11 +329,36 @@ export async function generateCurriculumLesson(input: {
         ? {}
         : { referenceFrame: preferences.referenceFrame }),
     })
-    return { concept: input.conceptSlug, explanation: output.explanation }
+    explanation = output.explanation
   } catch (error) {
     if (error instanceof TeacherEngineError) {
       throw new CurriculumError('LESSON_GENERATION_FAILED')
     }
     throw error
+  }
+
+  // Two concurrent misses for the same key can both reach this insert;
+  // the unique cache key (ADR-0024) admits one row per input tuple, so a
+  // loser must not surface the unique violation as a raw 500 — it drops
+  // the write and serves the winner's persisted row below.
+  await db
+    .insert(curriculumLessons)
+    .values({
+      learnerId: input.learnerId,
+      conceptId: concept.id,
+      explanationDepth: preferences.depth,
+      referenceFrame: preferences.referenceFrame,
+      explanation,
+    })
+    .onConflictDoNothing()
+
+  // The winner's row (ours, or a concurrent request's) is what the cache
+  // now holds — serve its text so the response always matches the cache.
+  const persisted = await db.query.curriculumLessons.findFirst({
+    where: cacheKey,
+  })
+  return {
+    concept: input.conceptSlug,
+    explanation: persisted?.explanation ?? explanation,
   }
 }

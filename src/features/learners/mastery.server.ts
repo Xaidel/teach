@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import type { AnyPgColumn } from 'drizzle-orm/pg-core'
 
 import { db } from '#/db/client.server'
@@ -184,6 +184,50 @@ export async function getMasteryStates(
     states[row.conceptId] = row.state
   }
   return states
+}
+
+/** One concept the learner has repeatedly failed, with its evidence. */
+export type RecurringMistakeEvidence = {
+  conceptId: string
+  failedAttemptCount: number
+  latestFailedAt: Date
+}
+
+/**
+ * Surfaces "recurring mistakes" evidence from the Learner Model (SPEC
+ * story 42, ADR-0025): the concepts this learner has failed at least
+ * twice, counted over the persisted `attempts` rows via the
+ * `exercise_concepts` join. No dedicated column or table exists — the
+ * raw evidence is aggregated at read time from the rows issue #10 already
+ * persists, exactly the documented query pattern ADR-0025 chooses. The
+ * count is per concept, not per attempt: a failed attempt on a
+ * multi-concept exercise is counted once per joined `exercise_concepts`
+ * row. The more speculative consumers (clustering `compiler_errors` into
+ * repeated failure *patterns*, `attempt_hints` escalation signals) are
+ * explicitly deferred until a remediation/scheduling consumer exists
+ * (issues #16-#18, Retrieval Queue) — see ADR-0025. Sorted by failure
+ * count, most repeated first.
+ */
+export async function getRecurringMistakeEvidence(
+  learnerId: string,
+): Promise<RecurringMistakeEvidence[]> {
+  const rows = await db
+    .select({
+      conceptId: exerciseConcepts.conceptId,
+      failedAttemptCount: sql<number>`count(${attempts.id})::int`,
+      latestFailedAt: sql<Date>`max(${attempts.createdAt})`,
+    })
+    .from(attempts)
+    .innerJoin(
+      exerciseConcepts,
+      eq(exerciseConcepts.exerciseId, attempts.exerciseId),
+    )
+    .where(and(eq(attempts.learnerId, learnerId), eq(attempts.outcome, 'fail')))
+    .groupBy(exerciseConcepts.conceptId)
+    .having(sql`count(${attempts.id}) >= 2`)
+    .orderBy(desc(sql`count(${attempts.id})`))
+
+  return rows
 }
 
 /**

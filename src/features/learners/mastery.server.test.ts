@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import {
   afterAll,
   afterEach,
@@ -34,6 +34,7 @@ import {
   getExerciseConceptIds,
   getMasteryStates,
   getPassedExplanationAssessmentConceptIds,
+  getRecurringMistakeEvidence,
   hasPassedExplanationAssessment,
   promoteToDemonstrated,
   recordAttemptOutcome,
@@ -252,6 +253,202 @@ describe.skipIf(!dbUp)('mastery.server', () => {
     })
   })
 
+  describe('getRecurringMistakeEvidence', () => {
+    let exerciseId: string
+    let bareExerciseId: string
+
+    beforeAll(async () => {
+      const [exercise] = await db
+        .insert(exercises)
+        .values({
+          slug: 'test-mastery-server-recurring',
+          language: 'rust',
+          title: 'Recurring-mistake fixture',
+          prompt: 'p',
+          starterCode: 's',
+          difficulty: 1,
+          status: 'verified',
+        })
+        .returning()
+      if (!exercise) throw new Error('expected a persisted exercise')
+      exerciseId = exercise.id
+
+      await db.insert(exerciseConcepts).values({ exerciseId, conceptId })
+
+      const [bareExercise] = await db
+        .insert(exercises)
+        .values({
+          slug: 'test-mastery-server-recurring-bare',
+          language: 'rust',
+          title: 'Recurring-mistake bare fixture',
+          prompt: 'p',
+          starterCode: 's',
+          difficulty: 1,
+          status: 'verified',
+        })
+        .returning()
+      if (!bareExercise) throw new Error('expected a persisted exercise')
+      bareExerciseId = bareExercise.id
+    })
+
+    afterAll(async () => {
+      await db.delete(attempts).where(eq(attempts.exerciseId, exerciseId))
+      await db.delete(attempts).where(eq(attempts.exerciseId, bareExerciseId))
+      await db
+        .delete(exerciseConcepts)
+        .where(eq(exerciseConcepts.exerciseId, exerciseId))
+      await db.delete(exercises).where(eq(exercises.id, exerciseId))
+      await db.delete(exercises).where(eq(exercises.id, bareExerciseId))
+    })
+
+    afterEach(async () => {
+      // Scoped to this suite's own exercises (issue #115): a learner-scoped
+      // delete would race the concurrent exercise suites' rows for the same
+      // seeded learner.
+      await db
+        .delete(attempts)
+        .where(inArray(attempts.exerciseId, [exerciseId, bareExerciseId]))
+    })
+
+    it('reports concepts failed at least twice, sorted by count', async () => {
+      await db.insert(attempts).values([
+        {
+          learnerId,
+          exerciseId,
+          code: 'attempt-1',
+          outcome: 'fail',
+          timeToSolution: 60,
+        },
+        {
+          learnerId,
+          exerciseId,
+          code: 'attempt-2',
+          outcome: 'fail',
+          timeToSolution: 30,
+        },
+        {
+          learnerId,
+          exerciseId,
+          code: 'attempt-3',
+          outcome: 'pass',
+          timeToSolution: 120,
+        },
+      ])
+
+      const evidence = await getRecurringMistakeEvidence(learnerId)
+      expect(evidence).toHaveLength(1)
+      expect(evidence[0]).toMatchObject({
+        conceptId,
+        failedAttemptCount: 2,
+      })
+    })
+
+    it('excludes concepts with fewer than two failed attempts', async () => {
+      await db.insert(attempts).values({
+        learnerId,
+        exerciseId,
+        code: 'single-failure',
+        outcome: 'fail',
+        timeToSolution: 45,
+      })
+
+      await expect(getRecurringMistakeEvidence(learnerId)).resolves.toEqual([])
+    })
+
+    it('excludes attempts on exercises with no concept rows', async () => {
+      await db.insert(attempts).values([
+        {
+          learnerId,
+          exerciseId: bareExerciseId,
+          code: 'bare-1',
+          outcome: 'fail',
+          timeToSolution: 10,
+        },
+        {
+          learnerId,
+          exerciseId: bareExerciseId,
+          code: 'bare-2',
+          outcome: 'fail',
+          timeToSolution: 10,
+        },
+      ])
+
+      await expect(getRecurringMistakeEvidence(learnerId)).resolves.toEqual([])
+    })
+
+    it('counts each failed attempt once per joined concept row on a multi-concept exercise', async () => {
+      const [secondConcept] = await db
+        .insert(concepts)
+        .values({
+          language: 'rust',
+          slug: 'test.mastery-server-recurring-second',
+          difficulty: 1,
+        })
+        .returning()
+      if (!secondConcept) throw new Error('expected a persisted concept')
+
+      const [multiExercise] = await db
+        .insert(exercises)
+        .values({
+          slug: 'test-mastery-server-recurring-multi',
+          language: 'rust',
+          title: 'Recurring-mistake multi-concept fixture',
+          prompt: 'p',
+          starterCode: 's',
+          difficulty: 1,
+          status: 'verified',
+        })
+        .returning()
+      if (!multiExercise) throw new Error('expected a persisted exercise')
+
+      await db.insert(exerciseConcepts).values([
+        { exerciseId: multiExercise.id, conceptId },
+        { exerciseId: multiExercise.id, conceptId: secondConcept.id },
+      ])
+
+      await db.insert(attempts).values([
+        {
+          learnerId,
+          exerciseId: multiExercise.id,
+          code: 'multi-1',
+          outcome: 'fail',
+          timeToSolution: 20,
+        },
+        {
+          learnerId,
+          exerciseId: multiExercise.id,
+          code: 'multi-2',
+          outcome: 'fail',
+          timeToSolution: 15,
+        },
+      ])
+
+      const evidence = await getRecurringMistakeEvidence(learnerId)
+      // The join counts each failed attempt once per concept row, so the
+      // two attempts land on both concepts — documented in ADR-0025.
+      expect(evidence).toHaveLength(2)
+      expect(evidence).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            conceptId,
+            failedAttemptCount: 2,
+          }),
+          expect.objectContaining({
+            conceptId: secondConcept.id,
+            failedAttemptCount: 2,
+          }),
+        ]),
+      )
+
+      await db.delete(attempts).where(eq(attempts.exerciseId, multiExercise.id))
+      await db
+        .delete(exerciseConcepts)
+        .where(eq(exerciseConcepts.exerciseId, multiExercise.id))
+      await db.delete(exercises).where(eq(exercises.id, multiExercise.id))
+      await db.delete(concepts).where(eq(concepts.id, secondConcept.id))
+    })
+  })
+
   describe('Explanation Assessment evidence (issue #16)', () => {
     let explainExerciseId: string
 
@@ -271,6 +468,7 @@ describe.skipIf(!dbUp)('mastery.server', () => {
         })
         .returning()
       if (!exercise) throw new Error('expected a persisted exercise')
+
       await db
         .insert(exerciseConcepts)
         .values({ exerciseId: exercise.id, conceptId })

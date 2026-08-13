@@ -12,8 +12,8 @@ import { errorMessage } from '../client-utils'
  * The step's lesson slot (SPEC story 2, issue #14): the AI Teacher Engine
  * explains the concept on demand, phrased at the learner's explanation
  * depth (issue #12). Generation is an explicit action — the lesson is
- * presentation content, so it is never auto-generated and never persisted;
- * once generated it is shown for the session.
+ * presentation content, so it is never auto-generated; once generated it is
+ * persisted server-side (issue #135) and a revisit serves the cached text.
  */
 export function StepLessonCard({
   language,
