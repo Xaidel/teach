@@ -94,6 +94,13 @@ export function ExercisePage(): React.JSX.Element {
             Ready to be assessed on a Practiced concept? Explain it in your own
             words →
           </Link>
+          <Link
+            className="w-fit text-sm font-semibold text-primary underline"
+            to="/transfer-test"
+          >
+            Ready to prove it transfers? Take a Transfer Test on a Practiced
+            concept →
+          </Link>
         </div>
       </header>
 

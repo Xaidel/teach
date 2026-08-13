@@ -16,10 +16,13 @@ import { EXPLANATION_ACCURACY_PASS_THRESHOLD } from '#/lib/explanation-accuracy'
 // consumed by the DB enum, this feature's rank comparisons, and two
 // features' display-only schema mirrors — no single feature owner.
 import { MASTERY_STATE_ORDER, type MasteryState } from '#/lib/mastery-states'
-// The ADR-0015 gate's Transfer Test half reads through the #17 seam
-// (deterministically false until #17 lands) — its own module so the gate's
-// positive branch is mockable across the module boundary in tests.
-import { hasPassedTransferTest } from './transfer-test.server'
+// The ADR-0015 gate's Transfer Test half (issue #17): its own module,
+// same feature, so the pointer-table bookkeeping it needs
+// (`transferTestExercises`, ADR-0010) stays out of this file.
+import {
+  findTransferTestConceptForExercise,
+  hasPassedTransferTest,
+} from './transfer-test.server'
 
 /**
  * Total order over the five mastery states (ADR-0010, SPEC story 41) —
@@ -149,6 +152,26 @@ export async function recordAttemptOutcome(
 
   if (stage1Passed && stage2Passed) {
     await advanceMastery(learnerId, conceptIds, 'practiced')
+  }
+
+  // Transfer Test (ADR-0015, ADR-0010, issue #17): a learner may submit
+  // their registered Transfer Test exercise through this general practice
+  // path instead of the dedicated Transfer Test flow — it is an ordinary
+  // debug-mode `exercises` row (ADR-0010), not a separate submission
+  // surface. Stage 1 alone is the Transfer Test's pass bar (ADR-0008); a
+  // Stage 2 rubric outcome, when this path runs one, does not gate it.
+  if (stage1Passed) {
+    const transferConceptId = await findTransferTestConceptForExercise({
+      learnerId,
+      exerciseId,
+    })
+    if (transferConceptId) {
+      await recordTransferTestOutcome({
+        learnerId,
+        conceptId: transferConceptId,
+        passed: true,
+      })
+    }
   }
 }
 
@@ -305,7 +328,10 @@ export async function promoteToDemonstrated(input: {
     input.learnerId,
     input.conceptId,
   )
-  const transferPassed = hasPassedTransferTest(input.learnerId, input.conceptId)
+  const transferPassed = await hasPassedTransferTest(
+    input.learnerId,
+    input.conceptId,
+  )
 
   if (!explanationPassed || !transferPassed) {
     return (
@@ -362,3 +388,40 @@ export async function recordExplanationAssessmentOutcome(input: {
     conceptId: input.conceptId,
   })
 }
+
+/**
+ * Records one Transfer Test outcome against the Learner Model (issue #17) —
+ * the single intent-level entry point the transfer-test feature reports
+ * into (see `arch_docs/dependency-rules.md`'s Feature Dependencies
+ * exception; the import is one-way and `learners` never imports back). Also
+ * called internally by `recordAttemptOutcome` when a passing generic-path
+ * submission targets a learner's registered Transfer Test exercise. A
+ * passed Transfer Test feeds ADR-0015's gate: the concept promotes
+ * Practiced → Demonstrated only when a passed Explanation Assessment is
+ * also recorded (`promoteToDemonstrated`). A failed initial-gate attempt
+ * leaves the concept at Practiced with a retry available — every attempt is
+ * recorded as evidence, and mastery never regresses on a failure
+ * (ADR-0015).
+ */
+export async function recordTransferTestOutcome(input: {
+  learnerId: string
+  conceptId: string
+  passed: boolean
+}): Promise<void> {
+  if (!input.passed) return
+
+  await promoteToDemonstrated({
+    learnerId: input.learnerId,
+    conceptId: input.conceptId,
+  })
+}
+
+// Cross-feature evidence read (issue #17): the transfer-test feature's
+// overview annotates its eligible-concepts list with "already passed" the
+// same way the explanation-assessment feature does for its own signal —
+// through this single named entry point, never `transfer-test.server.ts`'s
+// lower-level primitives directly (see the Feature Dependencies exception).
+export {
+  getPassedTransferTestConceptIds,
+  hasPassedTransferTest,
+} from './transfer-test.server'

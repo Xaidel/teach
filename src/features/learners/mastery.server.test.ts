@@ -1,22 +1,11 @@
 import { and, eq, inArray, sql } from 'drizzle-orm'
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  describe,
-  expect,
-  it,
-  vi,
-} from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
-// The Transfer Test seam is deliberately frozen at false until #17 lands;
-// the ADR-0015 gate's positive branch is unreachable through real data, so
-// it is exercised here by mocking the seam module true for one call
-// (review P6). Mocking the seam module, not mastery.server, is what lets
-// `promoteToDemonstrated`'s internal call resolve to the mock.
-vi.mock('./transfer-test.server', () => ({
-  hasPassedTransferTest: vi.fn().mockReturnValue(false),
-}))
+// The Transfer Test seam mock (frozen at false, pending #17) is gone: issue
+// #17 lands the real `hasPassedTransferTest` implementation this suite
+// exercises directly below (the "Transfer Test evidence" describe block),
+// so the ADR-0015 gate's positive branch is now reachable through real
+// data instead of a mocked seam.
 
 import { db } from '#/db/client.server'
 import {
@@ -25,20 +14,23 @@ import {
   exerciseConcepts,
   exercises,
   learnerConceptMastery,
+  transferTestExercises,
 } from '#/db/schema'
 
 import { getCurrentLearnerId } from './learners.server'
-import { hasPassedTransferTest } from './transfer-test.server'
 import {
   advanceMastery,
   getExerciseConceptIds,
   getMasteryStates,
   getPassedExplanationAssessmentConceptIds,
+  getPassedTransferTestConceptIds,
   getRecurringMistakeEvidence,
   hasPassedExplanationAssessment,
+  hasPassedTransferTest,
   promoteToDemonstrated,
   recordAttemptOutcome,
   recordExplanationAssessmentOutcome,
+  recordTransferTestOutcome,
 } from './mastery.server'
 
 async function dbAvailable(): Promise<boolean> {
@@ -510,10 +502,6 @@ describe.skipIf(!dbUp)('mastery.server', () => {
       await db
         .delete(attempts)
         .where(eq(attempts.exerciseId, explainExerciseId))
-      // The seam's default is false (no TT evidence until #17 lands); a
-      // test that queues a one-shot true must never leak it to its sibling.
-      vi.mocked(hasPassedTransferTest).mockReset()
-      vi.mocked(hasPassedTransferTest).mockReturnValue(false)
     })
 
     it('reports no passed assessment before any explain attempt', async () => {
@@ -558,20 +546,64 @@ describe.skipIf(!dbUp)('mastery.server', () => {
       ).resolves.toBe(false)
     })
 
-    it('promotes to Demonstrated when both signals pass (TT seam mocked true)', async () => {
+    it('promotes to Demonstrated when both signals pass', async () => {
       await advanceMastery(learnerId, [conceptId], 'practiced')
       await insertExplainAttempt(explainExerciseId, 0.8)
-      vi.mocked(hasPassedTransferTest).mockReturnValueOnce(true)
 
-      await recordExplanationAssessmentOutcome({
+      const [transferExercise] = await db
+        .insert(exercises)
+        .values({
+          slug: `test-mastery-server-transfer-${String(Date.now())}`,
+          language: 'rust',
+          title: 'Transfer Test fixture',
+          prompt: 'p',
+          starterCode: 's',
+          mode: 'debug',
+          difficulty: 1,
+          status: 'verified',
+        })
+        .returning()
+      if (!transferExercise) throw new Error('expected a persisted exercise')
+      await db
+        .insert(exerciseConcepts)
+        .values({ exerciseId: transferExercise.id, conceptId })
+      await db.insert(transferTestExercises).values({
         learnerId,
         conceptId,
-        passed: true,
+        exerciseId: transferExercise.id,
+      })
+      await db.insert(attempts).values({
+        learnerId,
+        exerciseId: transferExercise.id,
+        code: 'fixture solution',
+        outcome: 'pass',
+        timeToSolution: 0,
       })
 
-      await expect(getMasteryStates(learnerId, [conceptId])).resolves.toEqual({
-        [conceptId]: 'demonstrated',
-      })
+      try {
+        await recordExplanationAssessmentOutcome({
+          learnerId,
+          conceptId,
+          passed: true,
+        })
+
+        await expect(getMasteryStates(learnerId, [conceptId])).resolves.toEqual(
+          {
+            [conceptId]: 'demonstrated',
+          },
+        )
+      } finally {
+        await db
+          .delete(attempts)
+          .where(eq(attempts.exerciseId, transferExercise.id))
+        await db
+          .delete(transferTestExercises)
+          .where(eq(transferTestExercises.exerciseId, transferExercise.id))
+        await db
+          .delete(exerciseConcepts)
+          .where(eq(exerciseConcepts.exerciseId, transferExercise.id))
+        await db.delete(exercises).where(eq(exercises.id, transferExercise.id))
+      }
     })
   })
 
@@ -621,6 +653,212 @@ describe.skipIf(!dbUp)('mastery.server', () => {
       await expect(getMasteryStates(learnerId, [conceptId])).resolves.toEqual({
         [conceptId]: 'practiced',
       })
+    })
+  })
+
+  describe('Transfer Test evidence (issue #17)', () => {
+    let transferExerciseId: string
+
+    /** Persists a debug-mode exercise targeting the fixture concept and
+     * registers it as the fixture learner's Transfer Test for that concept
+     * (mirrors `registerTransferTestExercise`'s pointer, ADR-0010). */
+    async function insertTransferTestExercise(): Promise<string> {
+      const [exercise] = await db
+        .insert(exercises)
+        .values({
+          slug: `test-mastery-server-transfer-${String(Date.now())}-${String(Math.random())}`,
+          language: 'rust',
+          title: 'Transfer Test fixture',
+          prompt: 'p',
+          starterCode: 's',
+          mode: 'debug',
+          difficulty: 1,
+          status: 'verified',
+        })
+        .returning()
+      if (!exercise) throw new Error('expected a persisted exercise')
+      await db
+        .insert(exerciseConcepts)
+        .values({ exerciseId: exercise.id, conceptId })
+      await db
+        .insert(transferTestExercises)
+        .values({ learnerId, conceptId, exerciseId: exercise.id })
+      return exercise.id
+    }
+
+    beforeAll(async () => {
+      transferExerciseId = await insertTransferTestExercise()
+    })
+
+    afterAll(async () => {
+      await db
+        .delete(attempts)
+        .where(eq(attempts.exerciseId, transferExerciseId))
+      await db
+        .delete(transferTestExercises)
+        .where(eq(transferTestExercises.exerciseId, transferExerciseId))
+      await db
+        .delete(exerciseConcepts)
+        .where(eq(exerciseConcepts.exerciseId, transferExerciseId))
+      await db.delete(exercises).where(eq(exercises.id, transferExerciseId))
+    })
+
+    afterEach(async () => {
+      await db
+        .delete(attempts)
+        .where(eq(attempts.exerciseId, transferExerciseId))
+    })
+
+    it('reports no passed test before any attempt on the registered exercise', async () => {
+      await expect(hasPassedTransferTest(learnerId, conceptId)).resolves.toBe(
+        false,
+      )
+      await expect(
+        getPassedTransferTestConceptIds(learnerId, [conceptId]),
+      ).resolves.toEqual([])
+    })
+
+    it('ignores a failed attempt on the registered exercise as evidence', async () => {
+      await db.insert(attempts).values({
+        learnerId,
+        exerciseId: transferExerciseId,
+        code: 'fixture solution',
+        outcome: 'fail',
+        timeToSolution: 0,
+      })
+
+      await expect(hasPassedTransferTest(learnerId, conceptId)).resolves.toBe(
+        false,
+      )
+    })
+
+    it('reports a passed attempt on the registered exercise as evidence', async () => {
+      await db.insert(attempts).values({
+        learnerId,
+        exerciseId: transferExerciseId,
+        code: 'fixture solution',
+        outcome: 'pass',
+        timeToSolution: 0,
+      })
+
+      await expect(hasPassedTransferTest(learnerId, conceptId)).resolves.toBe(
+        true,
+      )
+      await expect(
+        getPassedTransferTestConceptIds(learnerId, [conceptId]),
+      ).resolves.toEqual([conceptId])
+    })
+
+    it('ignores a passed attempt on an unrelated exercise as evidence', async () => {
+      const [otherExercise] = await db
+        .insert(exercises)
+        .values({
+          slug: `test-mastery-server-transfer-unrelated-${String(Date.now())}`,
+          language: 'rust',
+          title: 'Unrelated debug-mode fixture',
+          prompt: 'p',
+          starterCode: 's',
+          mode: 'debug',
+          difficulty: 1,
+          status: 'verified',
+        })
+        .returning()
+      if (!otherExercise) throw new Error('expected a persisted exercise')
+      await db
+        .insert(exerciseConcepts)
+        .values({ exerciseId: otherExercise.id, conceptId })
+
+      try {
+        await db.insert(attempts).values({
+          learnerId,
+          exerciseId: otherExercise.id,
+          code: 'fixture solution',
+          outcome: 'pass',
+          timeToSolution: 0,
+        })
+
+        await expect(hasPassedTransferTest(learnerId, conceptId)).resolves.toBe(
+          false,
+        )
+      } finally {
+        await db
+          .delete(attempts)
+          .where(eq(attempts.exerciseId, otherExercise.id))
+        await db
+          .delete(exerciseConcepts)
+          .where(eq(exerciseConcepts.exerciseId, otherExercise.id))
+        await db.delete(exercises).where(eq(exercises.id, otherExercise.id))
+      }
+    })
+
+    it('recordTransferTestOutcome is a no-op for a failed attempt', async () => {
+      await advanceMastery(learnerId, [conceptId], 'practiced')
+
+      await recordTransferTestOutcome({ learnerId, conceptId, passed: false })
+
+      await expect(getMasteryStates(learnerId, [conceptId])).resolves.toEqual({
+        [conceptId]: 'practiced',
+      })
+    })
+
+    it('never promotes a concept with a TT pass alone — Explanation Assessment is also required', async () => {
+      await advanceMastery(learnerId, [conceptId], 'practiced')
+
+      await recordTransferTestOutcome({ learnerId, conceptId, passed: true })
+
+      await expect(getMasteryStates(learnerId, [conceptId])).resolves.toEqual({
+        [conceptId]: 'practiced',
+      })
+    })
+
+    it('recordAttemptOutcome fires Transfer Test evidence when the submitted exercise is the registered one (general practice path)', async () => {
+      // Mirrors `submitExercise`: the attempts row is always persisted
+      // before `recordAttemptOutcome` is called with its derived booleans.
+      await db.insert(attempts).values({
+        learnerId,
+        exerciseId: transferExerciseId,
+        code: 'fixture solution',
+        outcome: 'pass',
+        timeToSolution: 0,
+      })
+
+      await recordAttemptOutcome(learnerId, transferExerciseId, true, true)
+
+      await expect(hasPassedTransferTest(learnerId, conceptId)).resolves.toBe(
+        true,
+      )
+    })
+
+    it('recordAttemptOutcome does not require Stage 2 to record Transfer Test evidence', async () => {
+      await db.insert(attempts).values({
+        learnerId,
+        exerciseId: transferExerciseId,
+        code: 'fixture solution',
+        outcome: 'pass',
+        timeToSolution: 0,
+      })
+
+      await recordAttemptOutcome(learnerId, transferExerciseId, true, false)
+
+      await expect(hasPassedTransferTest(learnerId, conceptId)).resolves.toBe(
+        true,
+      )
+    })
+
+    it('recordAttemptOutcome does not record Transfer Test evidence on a Stage 1 failure', async () => {
+      await db.insert(attempts).values({
+        learnerId,
+        exerciseId: transferExerciseId,
+        code: 'fixture solution',
+        outcome: 'fail',
+        timeToSolution: 0,
+      })
+
+      await recordAttemptOutcome(learnerId, transferExerciseId, false, false)
+
+      await expect(hasPassedTransferTest(learnerId, conceptId)).resolves.toBe(
+        false,
+      )
     })
   })
 })
