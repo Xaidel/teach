@@ -30,12 +30,15 @@ import {
 import { TeacherEngineError } from '#/lib/ai/client.server'
 import { explainConcept } from '#/lib/ai/functions.server'
 import { DEFAULT_EXPLANATION_DEPTH } from '#/lib/explanation-depth'
+import { withLearnerPreferencesLock } from '#/lib/test-utils/learner-preferences-lock'
 import { generateExerciseForConcept } from '../exercise/exercise-generation.server'
 import type { GenerateExerciseOutput } from '../exercise/exercise-generation.schema'
 
 import { advanceMastery } from '../learners/mastery.server'
-import { getCurrentLearnerId } from '../learners/learners.server'
-import { updateExplanationPreferences } from '../learners/learners.server'
+import {
+  getCurrentLearnerId,
+  updateExplanationPreferences,
+} from '../learners/learners.server'
 
 import {
   generateCurriculumLesson,
@@ -105,6 +108,23 @@ describe.skipIf(!dbUp)('curriculum.server', () => {
   // (issue #115).
   let mutatedExplanationDepth: number | null = null
   let mutatedReferenceFrame: string | null = null
+
+  /**
+   * Pins the shared learner's explanation preferences to the seeded
+   * defaults. Only called inside `withLearnerPreferencesLock`, so the
+   * unconditional write can never clobber another suite's in-flight
+   * mutation (issue #115): the lock guarantees no other mutator is
+   * mid-window.
+   */
+  async function resetLearnerPreferences(): Promise<void> {
+    await db
+      .update(learners)
+      .set({
+        explanationDepth: DEFAULT_EXPLANATION_DEPTH,
+        referenceFrame: null,
+      })
+      .where(eq(learners.id, learnerId))
+  }
 
   beforeAll(async () => {
     learnerId = await getCurrentLearnerId()
@@ -428,23 +448,32 @@ describe.skipIf(!dbUp)('curriculum.server', () => {
       explanation: 'Borrowing transfers access for a while.',
     })
 
-    const first = await generateCurriculumLesson({
-      learnerId,
-      language: 'rust',
-      conceptSlug: CONCEPT_BASIC.slug,
-    })
-    expect(explainConceptMock).toHaveBeenCalledTimes(1)
+    // Pin the shared learner's preferences to the defaults under the lock
+    // so both generates use the same cache key no matter what state a
+    // previous test left behind (issue #115/#135).
+    await withLearnerPreferencesLock(async () => {
+      await resetLearnerPreferences()
 
-    // The mock would throw if called again — a fresh call must not happen.
-    explainConceptMock.mockRejectedValue(new Error('unexpected second AI call'))
-    const second = await generateCurriculumLesson({
-      learnerId,
-      language: 'rust',
-      conceptSlug: CONCEPT_BASIC.slug,
-    })
+      const first = await generateCurriculumLesson({
+        learnerId,
+        language: 'rust',
+        conceptSlug: CONCEPT_BASIC.slug,
+      })
+      expect(explainConceptMock).toHaveBeenCalledTimes(1)
 
-    expect(second).toEqual(first)
-    expect(explainConceptMock).toHaveBeenCalledTimes(1)
+      // The mock would throw if called again — a fresh call must not happen.
+      explainConceptMock.mockRejectedValue(
+        new Error('unexpected second AI call'),
+      )
+      const second = await generateCurriculumLesson({
+        learnerId,
+        language: 'rust',
+        conceptSlug: CONCEPT_BASIC.slug,
+      })
+
+      expect(second).toEqual(first)
+      expect(explainConceptMock).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('regenerates the lesson when the explanation depth changes (issue #135)', async () => {
@@ -456,58 +485,71 @@ describe.skipIf(!dbUp)('curriculum.server', () => {
       explanation: 'Deep explanation.',
     })
 
-    const shallow = await generateCurriculumLesson({
-      learnerId,
-      language: 'rust',
-      conceptSlug: CONCEPT_BASIC.slug,
-    })
-    expect(shallow.explanation).toBe('Shallow explanation.')
+    // The preference mutation must not interleave with a concurrent suite's
+    // own mutation of the shared learner (issue #115): the cache key read
+    // between the two generates has to stay stable for the test's intent.
+    await withLearnerPreferencesLock(async () => {
+      await resetLearnerPreferences()
 
-    mutatedExplanationDepth = 5
-    await updateExplanationPreferences(learnerId, { depth: 5 })
+      const shallow = await generateCurriculumLesson({
+        learnerId,
+        language: 'rust',
+        conceptSlug: CONCEPT_BASIC.slug,
+      })
+      expect(shallow.explanation).toBe('Shallow explanation.')
 
-    const deep = await generateCurriculumLesson({
-      learnerId,
-      language: 'rust',
-      conceptSlug: CONCEPT_BASIC.slug,
+      mutatedExplanationDepth = 5
+      await updateExplanationPreferences(learnerId, { depth: 5 })
+
+      const deep = await generateCurriculumLesson({
+        learnerId,
+        language: 'rust',
+        conceptSlug: CONCEPT_BASIC.slug,
+      })
+      expect(deep.explanation).toBe('Deep explanation.')
+      expect(explainConceptMock).toHaveBeenCalledTimes(2)
     })
-    expect(deep.explanation).toBe('Deep explanation.')
-    expect(explainConceptMock).toHaveBeenCalledTimes(2)
   })
 
   it('serves a cached lesson under the same non-null reference frame (issue #135)', async () => {
     await advanceMastery(learnerId, [CONCEPT_ROOT.id], 'practiced')
     // The seeded learner has a NULL frame; set one so the cache lookup
     // exercises the `eq(referenceFrame, ...)` branch (the `isNull` branch
-    // is the one every other test's seeded learner takes).
-    mutatedReferenceFrame = 'as a Go developer'
-    await updateExplanationPreferences(learnerId, {
-      referenceFrame: 'as a Go developer',
-    })
-    explainConceptMock.mockResolvedValue({
-      explanation: 'Frame-shaped explanation.',
-    })
+    // is the one every other test's seeded learner takes). Held under the
+    // learner-preferences lock, like the depth-change test above.
+    await withLearnerPreferencesLock(async () => {
+      await resetLearnerPreferences()
+      mutatedReferenceFrame = 'as a Go developer'
+      await updateExplanationPreferences(learnerId, {
+        referenceFrame: 'as a Go developer',
+      })
+      explainConceptMock.mockResolvedValue({
+        explanation: 'Frame-shaped explanation.',
+      })
 
-    const first = await generateCurriculumLesson({
-      learnerId,
-      language: 'rust',
-      conceptSlug: CONCEPT_BASIC.slug,
-    })
-    expect(explainConceptMock).toHaveBeenCalledTimes(1)
-    expect(explainConceptMock).toHaveBeenCalledWith(
-      expect.objectContaining({ referenceFrame: 'as a Go developer' }),
-    )
+      const first = await generateCurriculumLesson({
+        learnerId,
+        language: 'rust',
+        conceptSlug: CONCEPT_BASIC.slug,
+      })
+      expect(explainConceptMock).toHaveBeenCalledTimes(1)
+      expect(explainConceptMock).toHaveBeenCalledWith(
+        expect.objectContaining({ referenceFrame: 'as a Go developer' }),
+      )
 
-    // The mock would throw if called again — a fresh call must not happen.
-    explainConceptMock.mockRejectedValue(new Error('unexpected second AI call'))
-    const second = await generateCurriculumLesson({
-      learnerId,
-      language: 'rust',
-      conceptSlug: CONCEPT_BASIC.slug,
-    })
+      // The mock would throw if called again — a fresh call must not happen.
+      explainConceptMock.mockRejectedValue(
+        new Error('unexpected second AI call'),
+      )
+      const second = await generateCurriculumLesson({
+        learnerId,
+        language: 'rust',
+        conceptSlug: CONCEPT_BASIC.slug,
+      })
 
-    expect(second).toEqual(first)
-    expect(explainConceptMock).toHaveBeenCalledTimes(1)
+      expect(second).toEqual(first)
+      expect(explainConceptMock).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('rejects concepts outside the usable graph', async () => {
