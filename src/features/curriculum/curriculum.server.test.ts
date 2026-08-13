@@ -376,9 +376,7 @@ describe.skipIf(!dbUp)('curriculum.server', () => {
     expect(explainConceptMock).toHaveBeenCalledTimes(1)
 
     // The mock would throw if called again — a fresh call must not happen.
-    explainConceptMock.mockRejectedValue(
-      new Error('unexpected second AI call'),
-    )
+    explainConceptMock.mockRejectedValue(new Error('unexpected second AI call'))
     const second = await generateCurriculumLesson({
       learnerId,
       language: 'rust',

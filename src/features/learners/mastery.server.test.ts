@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 import { db } from '#/db/client.server'
@@ -270,12 +270,8 @@ describe.skipIf(!dbUp)('mastery.server', () => {
     })
 
     afterAll(async () => {
-      await db
-        .delete(attempts)
-        .where(eq(attempts.exerciseId, exerciseId))
-      await db
-        .delete(attempts)
-        .where(eq(attempts.exerciseId, bareExerciseId))
+      await db.delete(attempts).where(eq(attempts.exerciseId, exerciseId))
+      await db.delete(attempts).where(eq(attempts.exerciseId, bareExerciseId))
       await db
         .delete(exerciseConcepts)
         .where(eq(exerciseConcepts.exerciseId, exerciseId))
@@ -284,7 +280,14 @@ describe.skipIf(!dbUp)('mastery.server', () => {
     })
 
     afterEach(async () => {
-      await db.delete(attempts).where(eq(attempts.learnerId, learnerId))
+      // Scoped to this suite's own exercises (issue #115): a learner-scoped
+      // delete would race the concurrent exercise suites' rows for the same
+      // seeded learner.
+      await db
+        .delete(attempts)
+        .where(
+          inArray(attempts.exerciseId, [exerciseId, bareExerciseId]),
+        )
     })
 
     it('reports concepts failed at least twice, sorted by count', async () => {

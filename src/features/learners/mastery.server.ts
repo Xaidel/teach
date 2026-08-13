@@ -2,11 +2,7 @@ import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import type { AnyPgColumn } from 'drizzle-orm/pg-core'
 
 import { db } from '#/db/client.server'
-import {
-  attempts,
-  exerciseConcepts,
-  learnerConceptMastery,
-} from '#/db/schema'
+import { attempts, exerciseConcepts, learnerConceptMastery } from '#/db/schema'
 import type { masteryState } from '#/db/schema'
 
 export type MasteryState = (typeof masteryState.enumValues)[number]
@@ -220,12 +216,7 @@ export async function getRecurringMistakeEvidence(
       exerciseConcepts,
       eq(exerciseConcepts.exerciseId, attempts.exerciseId),
     )
-    .where(
-      and(
-        eq(attempts.learnerId, learnerId),
-        eq(attempts.outcome, 'fail'),
-      ),
-    )
+    .where(and(eq(attempts.learnerId, learnerId), eq(attempts.outcome, 'fail')))
     .groupBy(exerciseConcepts.conceptId)
     .having(sql`count(${attempts.id}) >= 2`)
     .orderBy(desc(sql`count(${attempts.id})`))
