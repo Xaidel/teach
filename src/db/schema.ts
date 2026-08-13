@@ -19,6 +19,11 @@ import {
   CONCEPT_DIFFICULTY_MAX,
   CONCEPT_DIFFICULTY_MIN,
 } from '../lib/concept-graph'
+import {
+  DEFAULT_EXPLANATION_DEPTH,
+  EXPLANATION_DEPTH_MAX,
+  EXPLANATION_DEPTH_MIN,
+} from '../lib/explanation-depth'
 import { HINT_LADDER_MAX_LEVEL } from '../lib/hint-levels'
 import type { EvaluationRubric } from '../lib/ai/schemas'
 import type { SandboxResult, SandboxTest } from '../lib/sandbox/types'
@@ -86,15 +91,35 @@ export const masteryState = pgEnum('mastery_state', [
  */
 export const attemptOutcome = pgEnum('attempt_outcome', ['pass', 'fail'])
 
-/** The single learner the platform serves in v1 (ADR-0001, ADR-0014). */
-export const learners = pgTable('learners', {
-  id: uuid('id')
-    .primaryKey()
-    .$defaultFn(() => uuidv7()),
-  createdAt: timestamp('created_at', { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-})
+/**
+ * The single learner the platform serves in v1 (ADR-0001, ADR-0014).
+ * `explanation_depth` and `reference_frame` are the learner's adaptive
+ * explanation preferences (issue #12, PRD §12): depth (1-5, Intuitive
+ * through Runtime/Compiler Internals) and an optional reference frame,
+ * threaded into `explainConcept`/`generateHint` calls to shape presentation
+ * only — they never change the underlying hint level or concept targeted.
+ */
+export const learners = pgTable(
+  'learners',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .$defaultFn(() => uuidv7()),
+    explanationDepth: integer('explanation_depth')
+      .notNull()
+      .default(DEFAULT_EXPLANATION_DEPTH),
+    referenceFrame: text('reference_frame'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    check(
+      'learners_explanation_depth_check',
+      sql`${table.explanationDepth} between ${sql.raw(String(EXPLANATION_DEPTH_MIN))} and ${sql.raw(String(EXPLANATION_DEPTH_MAX))}`,
+    ),
+  ],
+)
 
 /**
  * One exercise a learner can attempt; v1 seeds the hardcoded Go/Python

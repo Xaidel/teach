@@ -6,6 +6,10 @@ import {
   CONCEPT_EDGE_KINDS,
   CONCEPT_SLUG_PATTERN,
 } from '#/lib/concept-graph'
+import {
+  EXPLANATION_DEPTH_MAX,
+  EXPLANATION_DEPTH_MIN,
+} from '#/lib/explanation-depth'
 import { HINT_LADDER_MAX_LEVEL } from '#/lib/hint-levels'
 import { SANDBOX_LANGUAGES, SandboxResultSchema } from '#/lib/sandbox/types'
 
@@ -30,7 +34,10 @@ export type Hint = z.infer<typeof HintSchema>
  * in this attempt so escalating levels never repeat or contradict each other
  * (SPEC Implementation Decisions — AI Teacher Engine interface contract).
  * `referenceSolution` is the Pre-Flight-verified solution the Prompt Shield
- * compares hint output against (ADR-0008, ADR-0012).
+ * compares hint output against (ADR-0008, ADR-0012). `depth` and
+ * `referenceFrame` are the learner's explanation preferences (issue #12,
+ * PRD §12): they steer how the hint is phrased and never affect
+ * `targetLevel` or which concept the hint targets — presentation only.
  */
 export const GenerateHintInputSchema = z.object({
   language: z.enum(SANDBOX_LANGUAGES),
@@ -40,6 +47,8 @@ export const GenerateHintInputSchema = z.object({
   targetLevel: z.number().int().min(0).max(HINT_LADDER_MAX_LEVEL),
   priorHints: z.array(HintSchema),
   referenceSolution: z.string().min(1),
+  depth: z.number().int().min(EXPLANATION_DEPTH_MIN).max(EXPLANATION_DEPTH_MAX),
+  referenceFrame: z.string().optional(),
 })
 
 export type GenerateHintInput = z.infer<typeof GenerateHintInputSchema>
@@ -51,7 +60,7 @@ export type GenerateHintInput = z.infer<typeof GenerateHintInputSchema>
 export const ExplainConceptInputSchema = z.object({
   language: z.string().min(1),
   concept: z.string().min(1),
-  depth: z.number().int().min(1).max(5),
+  depth: z.number().int().min(EXPLANATION_DEPTH_MIN).max(EXPLANATION_DEPTH_MAX),
   referenceFrame: z.string().optional(),
 })
 

@@ -65,6 +65,7 @@ const HINT_INPUT: GenerateHintInput = {
   targetLevel: 0,
   priorHints: [],
   referenceSolution: RUST_REFERENCE,
+  depth: 3,
 }
 
 beforeEach(() => {
@@ -198,6 +199,74 @@ describe('generateHint', () => {
       level: 4,
       content: 'Consider whether `n % 2 == 0` is the condition you need.',
     })
+  })
+
+  it('includes the explanation depth in the prompt (issue #12)', async () => {
+    callMock.mockResolvedValue({
+      level: 0,
+      content: 'What should is_even return when n is even?',
+    })
+
+    await generateHint({ ...HINT_INPUT, depth: 5 })
+
+    const call = callMock.mock.calls[0]?.[0]
+    const userMessage = call?.messages.find(
+      (message) => message.role === 'user',
+    )
+    expect(userMessage?.content).toContain(
+      'Explanation depth (1 = intuitive, 5 = runtime/compiler internals): 5',
+    )
+  })
+
+  it('includes the reference frame in the prompt when one is given (issue #12)', async () => {
+    callMock.mockResolvedValue({
+      level: 0,
+      content: 'What should is_even return when n is even?',
+    })
+
+    await generateHint({
+      ...HINT_INPUT,
+      referenceFrame: 'as a senior JavaScript developer',
+    })
+
+    const call = callMock.mock.calls[0]?.[0]
+    const userMessage = call?.messages.find(
+      (message) => message.role === 'user',
+    )
+    expect(userMessage?.content).toContain(
+      'Reference frame: as a senior JavaScript developer',
+    )
+  })
+
+  it('leaves the requested/returned hint level unaffected by depth (issue #12, AC 3)', async () => {
+    callMock.mockResolvedValue({
+      level: 2,
+      content: 'A depth-5, jargon-heavy phrasing of the same Level 2 hint.',
+    })
+
+    const shallow = await generateHint({
+      ...HINT_INPUT,
+      targetLevel: 2,
+      depth: 1,
+    })
+    const deep = await generateHint({
+      ...HINT_INPUT,
+      targetLevel: 2,
+      depth: 5,
+    })
+
+    expect(shallow.level).toBe(2)
+    expect(deep.level).toBe(2)
+
+    const [shallowCall, deepCall] = callMock.mock.calls
+    const shallowMessage = shallowCall?.[0].messages.find(
+      (message) => message.role === 'user',
+    )
+    const deepMessage = deepCall?.[0].messages.find(
+      (message) => message.role === 'user',
+    )
+    expect(shallowMessage?.content).toContain('Requested hint level: 2')
+    expect(deepMessage?.content).toContain('Requested hint level: 2')
   })
 })
 

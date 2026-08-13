@@ -1,5 +1,6 @@
 import { getRouteApi } from '@tanstack/react-router'
 
+import type { ExplanationPreferences } from '#/features/learners/learners.schema'
 import { Badge } from '#/shared/components/ui/badge'
 import { Card, CardContent, CardHeader } from '#/shared/components/ui/card'
 
@@ -8,14 +9,16 @@ import {
   ExerciseGenerationCard,
   type GenerationConcept,
 } from '../components/exercise-generation-card'
+import { ExplanationPreferencesPanel } from '../components/explanation-preferences-panel'
 import type { Exercise } from '../exercise.schema'
 
 const exerciseRoute = getRouteApi('/')
 
-/** Loader data for the practice home route (issue #8). */
+/** Loader data for the practice home route (issue #8, issue #12). */
 export type ExercisePageData = {
   exercises: Exercise[]
   generation: { language: 'rust'; concepts: GenerationConcept[] }
+  explanationPreferences: ExplanationPreferences
 }
 
 /**
@@ -57,6 +60,7 @@ export function ExercisePage(): React.JSX.Element {
       </header>
 
       <div className="mb-10 grid gap-6">
+        <ExplanationPreferencesPanel initial={data.explanationPreferences} />
         <ExerciseGenerationCard
           concepts={data.generation.concepts}
           language={data.generation.language}

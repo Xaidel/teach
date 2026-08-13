@@ -33,6 +33,7 @@ import {
   attemptHints,
   attempts,
   learnerConceptMastery,
+  learners,
 } from '#/db/schema'
 import { TeacherEngineError } from '#/lib/ai/client.server'
 import { generateHint, reviewSubmission } from '#/lib/ai/functions.server'
@@ -178,6 +179,50 @@ async function deleteLatestAttempt(learnerId: string): Promise<void> {
 
   await db.delete(attemptHints).where(eq(attemptHints.attemptId, attempt.id))
   await db.delete(attempts).where(eq(attempts.id, attempt.id))
+}
+
+/**
+ * Sets the (single, v1) learner's explanation depth/reference frame for the
+ * duration of `run`, then restores the prior values (issue #12) — the
+ * `learners` table holds exactly one row shared across every DB-backed
+ * test in this file, so a preference change must never leak between tests.
+ */
+async function withLearnerExplanationPreferences<T>(
+  learnerId: string,
+  preferences: { depth: number; referenceFrame: string | null },
+  run: () => Promise<T>,
+): Promise<T> {
+  const [previous] = await db
+    .select({
+      depth: learners.explanationDepth,
+      referenceFrame: learners.referenceFrame,
+    })
+    .from(learners)
+    .where(eq(learners.id, learnerId))
+    .limit(1)
+  if (!previous) {
+    throw new Error('expected the seeded v1 learner row')
+  }
+
+  await db
+    .update(learners)
+    .set({
+      explanationDepth: preferences.depth,
+      referenceFrame: preferences.referenceFrame,
+    })
+    .where(eq(learners.id, learnerId))
+
+  try {
+    return await run()
+  } finally {
+    await db
+      .update(learners)
+      .set({
+        explanationDepth: previous.depth,
+        referenceFrame: previous.referenceFrame,
+      })
+      .where(eq(learners.id, learnerId))
+  }
 }
 
 describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
@@ -396,6 +441,42 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
     await deleteLatestAttempt(learnerId)
   })
 
+  it("threads the learner's explanation depth/reference frame into the auto-hint call (issue #12)", async () => {
+    runSandboxSubmissionMock.mockResolvedValue({
+      passed: false,
+      tests: [{ name: 'handles_zero', status: 'failed' }],
+    })
+    generateHintMock.mockResolvedValue({
+      level: 0,
+      content: 'What should is_even return when n is even?',
+    })
+
+    const rustExercise = await getRustFixture()
+    const learnerId = await getCurrentLearnerId()
+
+    await withLearnerExplanationPreferences(
+      learnerId,
+      { depth: 5, referenceFrame: 'as a senior JavaScript developer' },
+      async () => {
+        const outcome = await submitExercise({
+          exerciseId: rustExercise.id,
+          code: 'pub fn is_even(n: u32) -> bool { n % 2 == 1 }',
+          learnerId,
+        })
+
+        const hintInput = generateHintMock.mock.calls.at(-1)?.[0]
+        expect(hintInput).toMatchObject({
+          depth: 5,
+          referenceFrame: 'as a senior JavaScript developer',
+          targetLevel: 0,
+        })
+
+        await deleteLatestAttempt(learnerId)
+        return outcome
+      },
+    )
+  })
+
   it('falls back to the raw result when hint generation fails', async () => {
     runSandboxSubmissionMock.mockResolvedValue({
       passed: false,
@@ -518,6 +599,48 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       .where(eq(attemptHints.attemptId, outcome.attemptId))
       .orderBy(attemptHints.hintLevel)
     expect(served.map((row) => row.hintLevel)).toEqual([0, 1, 2, 3, 4, 5])
+
+    await deleteLatestAttempt(learnerId)
+  })
+
+  it("threads the learner's explanation depth/reference frame into a manual hint request without changing the escalated level (issue #12, AC 3)", async () => {
+    runSandboxSubmissionMock.mockResolvedValue({
+      passed: false,
+      tests: [{ name: 'handles_zero', status: 'failed' }],
+    })
+    generateHintMock.mockImplementation(({ targetLevel }) =>
+      Promise.resolve({
+        level: targetLevel,
+        content: `Hint at level ${String(targetLevel)}`,
+      }),
+    )
+
+    const rustExercise = await getRustFixture()
+    const learnerId = await getCurrentLearnerId()
+
+    const outcome = await submitExercise({
+      exerciseId: rustExercise.id,
+      code: 'pub fn is_even(n: u32) -> bool { n % 2 == 1 }',
+      learnerId,
+    })
+
+    await withLearnerExplanationPreferences(
+      learnerId,
+      { depth: 1, referenceFrame: null },
+      async () => {
+        const result = await requestHint({
+          attemptId: outcome.attemptId,
+          action: 'next',
+          learnerId,
+        })
+
+        expect(result.hint.level).toBe(1)
+
+        const hintInput = generateHintMock.mock.calls.at(-1)?.[0]
+        expect(hintInput).toMatchObject({ depth: 1, targetLevel: 1 })
+        expect(hintInput?.referenceFrame).toBeUndefined()
+      },
+    )
 
     await deleteLatestAttempt(learnerId)
   })

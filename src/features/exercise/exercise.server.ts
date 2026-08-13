@@ -15,6 +15,11 @@ import {
 // only reports the two outcome booleans; `learners` never imports back from
 // `exercise`, so the graph stays acyclic.
 import { recordAttemptOutcome } from '#/features/learners/mastery.server'
+// Same exception: serving a hint is the one place a learner's explanation
+// preferences (issue #12) shape an AI Teacher Engine call, so `exercise`
+// depends one-way on the single named entry point `learners/learners.server.ts`
+// exposes for this. `learners` never imports back from `exercise`.
+import { getExplanationPreferences } from '#/features/learners/learners.server'
 import { TeacherEngineError } from '#/lib/ai/client.server'
 import { generateHint, reviewSubmission } from '#/lib/ai/functions.server'
 import type { EvaluationRubric, Hint } from '#/lib/ai/schemas'
@@ -243,7 +248,9 @@ async function computeTimeToSolutionSeconds(
  *
  * On Stage 1 failure the AI Teacher Engine generates a Level 0 Socratic hint
  * (empty prior-hints list for a fresh attempt); the hint only accompanies the
- * result and never determines pass/fail (issue #3). If hint generation
+ * result and never determines pass/fail (issue #3). The hint is phrased at
+ * the learner's current explanation depth/reference frame (issue #12),
+ * which never influences the requested Level 0 itself. If hint generation
  * itself fails, the deterministic verdict still reaches the learner — the
  * raw result is returned without a hint (issue #3, AC 5).
  *
@@ -313,6 +320,7 @@ export async function submitExercise(input: {
   // because a failed submission must still be recorded and returned.
   if (exercise.referenceSolution !== null) {
     try {
+      const preferences = await getExplanationPreferences(input.learnerId)
       hint = await generateHint({
         language: exercise.language,
         exerciseTitle: exercise.title,
@@ -321,6 +329,10 @@ export async function submitExercise(input: {
         targetLevel: resolveTargetLevel([], 'next'),
         priorHints: [],
         referenceSolution: exercise.referenceSolution,
+        depth: preferences.depth,
+        ...(preferences.referenceFrame === null
+          ? {}
+          : { referenceFrame: preferences.referenceFrame }),
       })
     } catch (error) {
       if (!(error instanceof TeacherEngineError)) {
@@ -389,6 +401,9 @@ async function runStage2Review(
  * resolve the same level (two parallel reads of the same prior-hints list)
  * fail gracefully as `HINT_ESCALATION_INVALID` instead of surfacing a raw
  * unique-violation on the `attempt_hints_level_unique` index (issue #55).
+ * The served hint is phrased at the learner's current explanation
+ * depth/reference frame (issue #12), which is presentation only and never
+ * changes `targetLevel`'s resolution.
  */
 export async function requestHint(input: {
   attemptId: string
@@ -410,6 +425,8 @@ export async function requestHint(input: {
     throw new ExerciseError('EXERCISE_NOT_HINTABLE')
   }
 
+  const preferences = await getExplanationPreferences(input.learnerId)
+
   const hint = await generateHint({
     language: context.exercise.language,
     exerciseTitle: context.exercise.title,
@@ -418,6 +435,10 @@ export async function requestHint(input: {
     targetLevel,
     priorHints: context.priorHints,
     referenceSolution: context.referenceSolution,
+    depth: preferences.depth,
+    ...(preferences.referenceFrame === null
+      ? {}
+      : { referenceFrame: preferences.referenceFrame }),
   })
 
   const inserted = await db
