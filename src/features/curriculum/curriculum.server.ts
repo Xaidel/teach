@@ -24,6 +24,7 @@ import { rowToExercise } from '../exercise/exercise.server'
 // "Practiced or better" predicate. The learners feature never imports back.
 import { getExplanationPreferences } from '../learners/learners.server'
 import {
+  allPracticedOrBetter,
   getMasteryStates,
   isPracticedOrBetter,
 } from '../learners/mastery.server'
@@ -32,6 +33,12 @@ import {
 // entry point `concepts/concepts.server.ts` exposes for it, remapping its
 // error to the curriculum's stable `CURRICULUM_LOCKED` contract.
 import { assertPrerequisitesPracticed } from '../concepts/concepts.server'
+// `ConceptError` is imported as a value (not just a type) for the
+// `instanceof` check below, from `concepts.schema.ts` rather than
+// `concepts.server.ts`: the schema file has no `#/db` or other server-only
+// import, so pulling in the value here carries none of the bundling risk
+// the `*.server.ts`-to-`*.server.ts` exception in
+// `arch_docs/dependency-rules.md` is written to guard against.
 import { ConceptError } from '../concepts/concepts.schema'
 import type { MasteryState } from '../learners/mastery.server'
 import type { Exercise, ExerciseGuidance } from '../exercise/exercise.schema'
@@ -130,8 +137,9 @@ async function buildCurriculum(
       throw new CurriculumError('CONCEPT_NOT_IN_CURRICULUM')
     }
     const prerequisites = prerequisiteConceptsOf(graph, entry.conceptId)
-    const prerequisitesPracticed = prerequisites.every((prerequisite) =>
-      isPracticedOrBetter(mastery[prerequisite.id] ?? 'unknown'),
+    const prerequisitesPracticed = allPracticedOrBetter(
+      prerequisites.map((prerequisite) => prerequisite.id),
+      mastery,
     )
     return {
       position: index + 1,

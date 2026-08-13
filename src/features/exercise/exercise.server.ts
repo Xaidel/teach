@@ -63,6 +63,13 @@ type ServerExercise = Exercise & {
   testSource: string
   referenceSolution: string | null
   evaluationRubric: EvaluationRubric | null
+  /**
+   * Whether this row was generated through Tactical Sprint (Class B, issue
+   * #14 Round 3) — exempts submission from the no-skip-ahead gate, the same
+   * exemption `generateExerciseForConcept` already applied at generation.
+   * Server-only: never exposed on the client-facing `Exercise` shape.
+   */
+  sprintScoped: boolean
 }
 
 type ExerciseRow = typeof exercises.$inferSelect
@@ -111,6 +118,7 @@ async function getExerciseById(exerciseId: string): Promise<ServerExercise> {
     testSource: row.testSource,
     referenceSolution: row.referenceSolution,
     evaluationRubric: row.evaluationRubric,
+    sprintScoped: row.sprintScoped,
   }
 }
 
@@ -287,9 +295,13 @@ export async function submitExercise(input: {
   // a banked exercise for a concept whose prerequisites aren't Practiced
   // must not be submittable — passing it would advance the Learner Model
   // to `practiced` out of order and flip the curriculum step to complete.
-  // Hardcoded v1 seeds carry no concept links and pass trivially.
+  // Hardcoded v1 seeds carry no concept links and pass trivially. A
+  // Tactical Sprint (Class B) exercise is exempt (issue #14 Round 3) — the
+  // same exemption generation already applied — read from the persisted
+  // row rather than a submission-time input, since a learner-supplied flag
+  // here would let anyone bypass the gate on any exercise.
   const conceptIds = await getExerciseConceptIds(exercise.id)
-  if (conceptIds.length > 0) {
+  if (conceptIds.length > 0 && !exercise.sprintScoped) {
     await assertPrerequisitesPracticed({
       learnerId: input.learnerId,
       language: exercise.language,

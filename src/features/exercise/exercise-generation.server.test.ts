@@ -1114,6 +1114,118 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
     expect(generateExerciseMock).toHaveBeenCalledTimes(1)
   })
 
+  it('exempts a sprintScoped generation from the no-skip-ahead gate (Class B, issue #14 Round 3)', async () => {
+    await db.insert(conceptEdges).values({
+      fromConceptId: FIXTURE_ROOT_ID,
+      toConceptId: FIXTURE_CONCEPT_ID,
+      kind: 'prerequisite',
+    })
+
+    generateExerciseMock.mockResolvedValue({
+      ...GENERATED,
+      estimatedMinutes: 7,
+    })
+    runSandboxSubmissionMock
+      .mockResolvedValueOnce(REFERENCE_PASSES)
+      .mockResolvedValueOnce(BROKEN_FAILS_ON_CONCEPT)
+
+    // No mastery row exists for the prerequisite — this would reject with
+    // PREREQUISITES_NOT_PRACTICED for a non-sprint request (the test right
+    // above this one, and the "rejects generation..." test). Tactical
+    // Sprint is exempt by design (SPEC story 8): a sprint reaches concepts
+    // out of curriculum order on purpose.
+    const outcome = await generateExerciseForConcept({
+      language: 'rust',
+      conceptSlug: FIXTURE_CONCEPT_SLUG,
+      learnerId,
+      sprintScoped: true,
+    })
+
+    expect(outcome.kind).toBe('generated')
+    if (outcome.kind !== 'generated') {
+      return
+    }
+    const [row] = await db
+      .select()
+      .from(exercises)
+      .where(eq(exercises.id, outcome.exercise.id))
+    expect(row?.sprintScoped).toBe(true)
+  })
+
+  it('never serves a verified exercise of the other sprintScoped origin as fallback (issue #14 Round 3)', async () => {
+    const [fallbackRow] = await db
+      .insert(exercises)
+      .values({
+        slug: 'fallback-seeded-non-sprint',
+        language: 'rust',
+        title: 'Seeded non-sprint',
+        prompt: 'Do the thing.',
+        starterCode: 'pub fn seeded() {}',
+        testSource: FALLBACK_TEST_SOURCE,
+        referenceSolution: FALLBACK_REFERENCE_SOLUTION,
+        evaluationRubric: {
+          required: ['Does the thing'],
+          prohibited: [],
+          advisory: [],
+        },
+        mode: 'implement',
+        guidance: 'guided',
+        sprintScoped: false,
+        difficulty: 1,
+        constraints: ['std_only'],
+        status: 'verified',
+      })
+      .returning()
+    if (!fallbackRow) {
+      throw new Error('expected the fallback fixture exercise')
+    }
+    await db.insert(exerciseConcepts).values({
+      exerciseId: fallbackRow.id,
+      conceptId: FIXTURE_CONCEPT_ID,
+    })
+
+    // A sprintScoped request with only a non-sprint row in the bank: the
+    // fallback must NOT serve it — serving it would carry the row's
+    // non-exempt `sprintScoped: false`, which would then block the
+    // exercise's own submission even though it was reached through a
+    // sprint. Falls through to the terminal simplified regeneration
+    // instead, exactly like the guidance boundary (issue #14 Round 2).
+    generateExerciseMock.mockResolvedValue({
+      ...GENERATED,
+      estimatedMinutes: 7,
+    })
+    for (let attempt = 0; attempt < 3; attempt++) {
+      scheduleFailingPreFlight([REFERENCE_FAILS, BROKEN_FAILS_ON_CONCEPT])
+    }
+    scheduleFailingPreFlight([REFERENCE_PASSES, BROKEN_FAILS_ON_CONCEPT])
+
+    const outcome = await generateExerciseForConcept({
+      language: 'rust',
+      conceptSlug: FIXTURE_CONCEPT_SLUG,
+      learnerId,
+      sprintScoped: true,
+    })
+
+    expect(outcome.kind).toBe('generated')
+    if (outcome.kind !== 'generated') {
+      return
+    }
+    expect(outcome.simplified).toBe(true)
+    expect(outcome.exercise.id).not.toBe(fallbackRow.id)
+    expect(generateExerciseMock).toHaveBeenCalledTimes(4)
+
+    const [persisted] = await db
+      .select()
+      .from(exercises)
+      .where(eq(exercises.id, outcome.exercise.id))
+    expect(persisted?.sprintScoped).toBe(true)
+
+    await db
+      .delete(exerciseConcepts)
+      .where(eq(exerciseConcepts.exerciseId, fallbackRow.id))
+    await db.delete(exercises).where(eq(exercises.id, fallbackRow.id))
+  })
+
   it('surfaces the persisted defect when the verified fallback serves an adversarial row', async () => {
     const [fallbackRow] = await db
       .insert(exercises)

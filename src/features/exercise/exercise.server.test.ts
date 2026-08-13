@@ -1190,6 +1190,159 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
     }
   })
 
+  it("exempts a sprintScoped exercise's submission from the no-skip-ahead gate (Class B, issue #14 Round 3)", async () => {
+    // Self-heal any leftovers from a previously interrupted run.
+    const staleConcepts = await db
+      .select({ id: concepts.id })
+      .from(concepts)
+      .where(
+        inArray(concepts.slug, [
+          'test.submit.sprint.root',
+          'test.submit.sprint.concept',
+        ]),
+      )
+    const staleExercise = await db.query.exercises.findFirst({
+      where: eq(exercises.slug, 'test-submit-sprint-gate'),
+    })
+    if (staleExercise) {
+      const staleAttemptIds = await db
+        .select({ id: attempts.id })
+        .from(attempts)
+        .where(eq(attempts.exerciseId, staleExercise.id))
+      for (const attempt of staleAttemptIds) {
+        await db
+          .delete(attemptHints)
+          .where(eq(attemptHints.attemptId, attempt.id))
+      }
+      await db.delete(attempts).where(eq(attempts.exerciseId, staleExercise.id))
+      await db
+        .delete(exerciseConcepts)
+        .where(eq(exerciseConcepts.exerciseId, staleExercise.id))
+      await db.delete(exercises).where(eq(exercises.id, staleExercise.id))
+    }
+    for (const stale of staleConcepts) {
+      await db
+        .delete(conceptEdges)
+        .where(
+          or(
+            eq(conceptEdges.fromConceptId, stale.id),
+            eq(conceptEdges.toConceptId, stale.id),
+          ),
+        )
+    }
+    await db
+      .delete(concepts)
+      .where(
+        inArray(concepts.slug, [
+          'test.submit.sprint.root',
+          'test.submit.sprint.concept',
+        ]),
+      )
+
+    const learnerId = await getCurrentLearnerId()
+    const [rootConcept] = await db
+      .insert(concepts)
+      .values({
+        language: 'rust',
+        slug: 'test.submit.sprint.root',
+        difficulty: 1,
+      })
+      .returning({ id: concepts.id })
+    const [gatedConcept] = await db
+      .insert(concepts)
+      .values({
+        language: 'rust',
+        slug: 'test.submit.sprint.concept',
+        difficulty: 2,
+      })
+      .returning({ id: concepts.id })
+    if (!rootConcept || !gatedConcept) {
+      throw new Error('expected the gate fixture concepts')
+    }
+    await db.insert(conceptEdges).values({
+      fromConceptId: rootConcept.id,
+      toConceptId: gatedConcept.id,
+      kind: 'prerequisite',
+    })
+
+    const [inserted] = await db
+      .insert(exercises)
+      .values({
+        slug: 'test-submit-sprint-gate',
+        language: 'rust',
+        title: 'Sprint-scoped gated exercise',
+        prompt: 'Implement is_even.',
+        starterCode: 'fn placeholder() {}',
+        testSource: '#[test]\nfn placeholder_works() { assert!(true); }\n',
+        referenceSolution: 'pub fn is_even(n: u32) -> bool { n % 2 == 0 }',
+        difficulty: 1,
+        status: 'verified',
+        sprintScoped: true,
+      })
+      .returning({ id: exercises.id })
+    if (!inserted) throw new Error('expected the inserted exercise')
+    await db.insert(exerciseConcepts).values({
+      exerciseId: inserted.id,
+      conceptId: gatedConcept.id,
+    })
+
+    try {
+      // No mastery row exists for the root — this exact exercise shape
+      // rejects with PREREQUISITES_NOT_PRACTICED in the test above. A
+      // sprintScoped row is exempt (SPEC story 8, issue #14 Round 3): the
+      // learner reached this concept through Tactical Sprint, out of
+      // curriculum order, on purpose.
+      runSandboxSubmissionMock.mockResolvedValue({
+        passed: true,
+        tests: [{ name: 'placeholder_works', status: 'passed' }],
+      })
+      const outcome = await submitExercise({
+        exerciseId: inserted.id,
+        code: 'pub fn is_even(n: u32) -> bool { n % 2 == 0 }',
+        learnerId,
+      })
+      expect(outcome.result.passed).toBe(true)
+      expect(runSandboxSubmissionMock).toHaveBeenCalled()
+    } finally {
+      await db
+        .delete(learnerConceptMastery)
+        .where(
+          and(
+            eq(learnerConceptMastery.learnerId, learnerId),
+            inArray(learnerConceptMastery.conceptId, [
+              rootConcept.id,
+              gatedConcept.id,
+            ]),
+          ),
+        )
+      const fixtureAttemptIds = await db
+        .select({ id: attempts.id })
+        .from(attempts)
+        .where(eq(attempts.exerciseId, inserted.id))
+      for (const attempt of fixtureAttemptIds) {
+        await db
+          .delete(attemptHints)
+          .where(eq(attemptHints.attemptId, attempt.id))
+      }
+      await db.delete(attempts).where(eq(attempts.exerciseId, inserted.id))
+      await db
+        .delete(exerciseConcepts)
+        .where(eq(exerciseConcepts.exerciseId, inserted.id))
+      await db.delete(exercises).where(eq(exercises.id, inserted.id))
+      await db
+        .delete(conceptEdges)
+        .where(
+          and(
+            eq(conceptEdges.fromConceptId, rootConcept.id),
+            eq(conceptEdges.toConceptId, gatedConcept.id),
+            eq(conceptEdges.kind, 'prerequisite'),
+          ),
+        )
+      await db.delete(concepts).where(eq(concepts.id, rootConcept.id))
+      await db.delete(concepts).where(eq(concepts.id, gatedConcept.id))
+    }
+  })
+
   it('runs the Stage 2 review against the exercise rubric when Stage 1 passes (issue #6)', async () => {
     runSandboxSubmissionMock.mockResolvedValue({
       passed: true,

@@ -1,4 +1,4 @@
-import { eq, inArray, like, sql } from 'drizzle-orm'
+import { and, eq, inArray, like, sql } from 'drizzle-orm'
 import {
   afterEach,
   beforeAll,
@@ -30,6 +30,7 @@ import { db } from '#/db/client.server'
 import {
   attemptHints,
   attempts,
+  conceptEdges,
   concepts,
   exerciseConcepts,
   exercises,
@@ -268,6 +269,107 @@ describe.skipIf(!dbUp)(
         conceptSlug: KNOWN_UNKNOWN_SLUG,
         sprintScoped: true,
       })
+    })
+
+    it('targets a concept whose Class A curriculum prerequisites are not Practiced, without throwing (issue #14 Round 3)', async () => {
+      const rootSlug = 'test.tactical.sprint.root'
+      const gatedSlug = 'test.tactical.sprint.gated'
+
+      const [rootConcept] = await db
+        .insert(concepts)
+        .values({ language: 'rust', slug: rootSlug, difficulty: 1 })
+        .returning()
+      const [gatedConcept] = await db
+        .insert(concepts)
+        .values({ language: 'rust', slug: gatedSlug, difficulty: 3 })
+        .returning()
+      if (!rootConcept || !gatedConcept) {
+        throw new Error('expected the gate fixture concepts')
+      }
+      await db.insert(conceptEdges).values({
+        fromConceptId: rootConcept.id,
+        toConceptId: gatedConcept.id,
+        kind: 'prerequisite',
+      })
+
+      try {
+        // No mastery row for the root: `gatedSlug` is locked in the Class A
+        // curriculum. `generateExerciseForConcept` rejects this exact shape
+        // with PREREQUISITES_NOT_PRACTICED for a non-sprint caller (see
+        // exercise-generation.server.test.ts's AC4 tests) — Tactical Sprint
+        // must not, since Class B is exempt by design (SPEC story 8).
+        identifySnippetConceptsMock.mockResolvedValue({
+          concepts: [{ slug: gatedSlug, description: 'Seen in the wild.' }],
+        })
+        generateExerciseMock.mockResolvedValue(generatedFor(gatedSlug))
+        runSandboxSubmissionMock
+          .mockResolvedValueOnce(REFERENCE_PASSES)
+          .mockResolvedValueOnce(BROKEN_FAILS_ON_CONCEPT)
+
+        const result = await runTacticalSprint({
+          learnerId,
+          language: 'rust',
+          snippet: 'pub fn f() -> u32 { 0 }',
+        })
+
+        expect(result.targetConceptSlug).toBe(gatedSlug)
+        expect(result.exercise.kind).toBe('generated')
+        if (result.exercise.kind !== 'generated') {
+          return
+        }
+
+        // The exercise it just generated is itself submittable, despite the
+        // lock — the same exemption applies to submission (issue #14
+        // Round 3), so the sprint's own exercise isn't a dead end. The
+        // sprint fixture's rubric has no criteria, so an empty verdict set
+        // is a trivial Stage 2 pass.
+        runSandboxSubmissionMock.mockReset()
+        runSandboxSubmissionMock.mockResolvedValue(REFERENCE_PASSES)
+        reviewSubmissionMock.mockResolvedValue({
+          required: [],
+          prohibited: [],
+          advisory: [],
+        })
+        const submission = await submitExercise({
+          exerciseId: result.exercise.exercise.id,
+          code: 'pub fn f() -> u32 { 1 }',
+          learnerId,
+        })
+        expect(submission.result.passed).toBe(true)
+
+        await deleteExerciseCascade(result.exercise.exercise.id)
+      } finally {
+        await db
+          .delete(learnerConceptMastery)
+          .where(
+            and(
+              eq(learnerConceptMastery.learnerId, learnerId),
+              inArray(learnerConceptMastery.conceptId, [
+                rootConcept.id,
+                gatedConcept.id,
+              ]),
+            ),
+          )
+        await db
+          .delete(conceptEdges)
+          .where(
+            and(
+              eq(conceptEdges.fromConceptId, rootConcept.id),
+              eq(conceptEdges.toConceptId, gatedConcept.id),
+              eq(conceptEdges.kind, 'prerequisite'),
+            ),
+          )
+        await db
+          .delete(preFlightAttempts)
+          .where(
+            inArray(preFlightAttempts.conceptId, [
+              rootConcept.id,
+              gatedConcept.id,
+            ]),
+          )
+        await db.delete(concepts).where(eq(concepts.id, rootConcept.id))
+        await db.delete(concepts).where(eq(concepts.id, gatedConcept.id))
+      }
     })
 
     it('ad-hoc drafts an unmatched identified concept and uses it immediately (ADR-0016 runtime gap)', async () => {

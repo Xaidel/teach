@@ -24,8 +24,8 @@ import {
 // the named entry points `learners/mastery.server.ts` exposes for this.
 // `learners` never imports back from `concepts`, so the graph stays acyclic.
 import {
+  allPracticedOrBetter,
   getMasteryStates,
-  isPracticedOrBetter,
 } from '../learners/mastery.server'
 import { ConceptError } from './concepts.schema'
 import type {
@@ -188,11 +188,7 @@ export async function assertPrerequisitesPracticed(input: {
   if (prerequisiteIds.size === 0) return
 
   const mastery = await getMasteryStates(input.learnerId, [...prerequisiteIds])
-  if (
-    ![...prerequisiteIds].every((prerequisiteId) =>
-      isPracticedOrBetter(mastery[prerequisiteId] ?? 'unknown'),
-    )
-  ) {
+  if (!allPracticedOrBetter(prerequisiteIds, mastery)) {
     throw new ConceptError('PREREQUISITES_NOT_PRACTICED')
   }
 }

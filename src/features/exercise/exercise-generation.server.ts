@@ -164,6 +164,7 @@ async function persistVerifiedExercise(input: {
   diagnostics: PreFlightDiagnostics
   mode: 'implement' | 'debug'
   guidance: ExerciseGuidance
+  sprintScoped: boolean
 }): Promise<GenerateExerciseOutput & { kind: 'generated' }> {
   // Persist only the join rows whose concepts exist in the graph; the
   // requested concept is guaranteed among them.
@@ -198,6 +199,7 @@ async function persistVerifiedExercise(input: {
         evaluationRubric: input.generated.evaluation.rubric,
         mode: input.mode,
         guidance: input.guidance,
+        sprintScoped: input.sprintScoped,
         difficulty: input.generated.difficulty,
         constraints: input.generated.constraints,
         status: 'verified',
@@ -263,17 +265,23 @@ async function persistVerifiedExercise(input: {
  * exactly as before (SPEC story 34's contract is that a learner is never
  * blocked by a failed generation, not that the fallback preserves the
  * requested mode); a stored adversarial row it serves is still labeled via
- * its persisted defect (issue #120).
+ * its persisted defect (issue #120). The same preservation applies to
+ * `sprintScoped` (issue #14 Round 3): crossing it either direction would
+ * reopen the no-skip-ahead gate exemption as a bypass — a non-sprint
+ * request must never be served a gate-exempt row, and a sprint request must
+ * never silently lose the exemption on its own served row.
  */
 async function findVerifiedFallback(input: {
   conceptId: string
   conceptSlug: string
   guidance: ExerciseGuidance
+  sprintScoped: boolean
 }): Promise<GenerateExerciseOutput | null> {
   const row = await db.query.exercises.findFirst({
     where: and(
       eq(exercises.status, 'verified'),
       eq(exercises.guidance, input.guidance),
+      eq(exercises.sprintScoped, input.sprintScoped),
       inArray(
         exercises.id,
         db
@@ -341,6 +349,19 @@ async function findVerifiedFallback(input: {
  * checked server-side, so no surface — including the standalone generation
  * card — can mint an exercise for a concept the learner may not practice
  * yet. `learnerId` scopes that check.
+ *
+ * `sprintScoped` exempts the call from that gate (issue #14 Round 3): Class
+ * B (Tactical Sprint, ticket #13) is deliberately allowed to reach concepts
+ * out of curriculum order (SPEC story 8 — a passed sprint accelerates the
+ * curriculum, it doesn't wait for it). AC4 is a Class A acceptance
+ * criterion; it was never meant to gate Class B's own, different mechanism.
+ * `sprintScoped` is absent from `GenerateExerciseForConceptInputSchema` —
+ * the standalone card's client-validated input — specifically so this
+ * exemption can only be reached through `runTacticalSprint`'s own direct
+ * call, never through a client-controlled request. The exemption is
+ * persisted onto the generated row (`persistVerifiedExercise`) so
+ * `submitExercise` can honor the same exemption later without trusting a
+ * submission-time flag (which a learner could set on any exercise).
  */
 export async function generateExerciseForConcept(input: {
   language: string
@@ -364,11 +385,13 @@ export async function generateExerciseForConcept(input: {
     throw new GenerationError('CONCEPT_NOT_FOUND')
   }
 
-  await assertPrerequisitesPracticed({
-    learnerId: input.learnerId,
-    language: input.language,
-    conceptIds: [concept.id],
-  })
+  if (!input.sprintScoped) {
+    await assertPrerequisitesPracticed({
+      learnerId: input.learnerId,
+      language: input.language,
+      conceptIds: [concept.id],
+    })
+  }
 
   const guidance = input.guidance ?? 'guided'
   let previousDiagnostics: PreFlightDiagnosticsInput | undefined
@@ -400,6 +423,7 @@ export async function generateExerciseForConcept(input: {
     conceptId: concept.id,
     conceptSlug: input.conceptSlug,
     guidance,
+    sprintScoped: input.sprintScoped ?? false,
   })
   if (fallback) {
     return fallback
@@ -518,6 +542,7 @@ async function runGenerationAttempt(input: {
       diagnostics: preflight.diagnostics,
       mode: input.adversarial ? 'debug' : 'implement',
       guidance: input.guidance,
+      sprintScoped: input.sprintScoped ?? false,
     }),
   }
 }

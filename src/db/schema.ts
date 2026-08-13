@@ -169,6 +169,13 @@ export const exercises = pgTable(
     defect: jsonb('defect').$type<ExerciseDefect>(),
     mode: exerciseMode('mode').notNull().default('implement'),
     guidance: exerciseGuidance('guidance').notNull().default('guided'),
+    // Set exclusively by Tactical Sprint (Class B, ticket #13, issue #14
+    // Round 3): Class B is deliberately exempt from the Class A no-skip-
+    // ahead gate (SPEC story 8 — a passed sprint accelerates the curriculum,
+    // it doesn't wait for it), and the exemption on submission has to be
+    // read back from the persisted row rather than a submission-time input,
+    // or any learner could set it themselves to bypass the gate.
+    sprintScoped: boolean('sprint_scoped').notNull().default(false),
     difficulty: integer('difficulty').notNull(),
     constraints: jsonb('constraints').$type<string[]>(),
     status: exerciseStatus('status').notNull().default('pending'),

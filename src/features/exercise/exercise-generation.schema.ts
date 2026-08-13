@@ -36,10 +36,9 @@ export function isExerciseGenerationLanguage(
  * declares the defect. `guidance` discriminates how the exercise is served
  * (issue #14): a `guided` row carries the Socratic hint ladder, an
  * `independent` row is solved without hints. Defaults to `guided`, so the
- * standalone generation card keeps today's behavior. `sprintScoped` targets
- * a Class B Tactical Sprint exercise (SPEC stories 6-7, ticket #13): a
- * 5-10 minute estimate is enforced (`EXERCISE_GENERATION_INVALID`
- * otherwise) rather than the general 1-15 minute range.
+ * standalone generation card keeps today's behavior. `sprintScoped` is
+ * deliberately absent from this client-validated schema (issue #14 Round 3)
+ * — see `generateExerciseForConcept`'s own doc comment.
  */
 export const GenerateExerciseForConceptInputSchema = z.object({
   language: z.enum(SANDBOX_LANGUAGES),
@@ -49,7 +48,6 @@ export const GenerateExerciseForConceptInputSchema = z.object({
     .min(1)
     .regex(CONCEPT_SLUG_PATTERN, 'Concept slug must be dotted lowercase'),
   adversarial: z.boolean().optional(),
-  sprintScoped: z.boolean().optional(),
   guidance: ExerciseGuidanceSchema.default('guided'),
 })
 
