@@ -4,6 +4,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '#/db/client.server'
 import { concepts, preFlightAttempts } from '#/db/schema'
 
+import { PRE_FLIGHT_RECENCY_WINDOW_DAYS } from './exercise-generation.schema'
 import type { PreFlightAttemptAggregate } from './exercise-generation.schema'
 import { getPreFlightAttemptAggregates } from './pre-flight-signals.server'
 
@@ -116,6 +117,46 @@ describe.skipIf(!dbUp)('pre-flight failure signals against Postgres', () => {
       failedAttempts: 0,
     })
   })
+  it('ignores attempts outside the recency window (issue #103)', async () => {
+    const conceptA = fixtureConceptId(0)
+    const conceptB = fixtureConceptId(1)
+    const staleCutoff = new Date(
+      Date.now() - 2 * PRE_FLIGHT_RECENCY_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+    )
+    await db.insert(preFlightAttempts).values([
+      attemptRow({
+        conceptId: conceptA,
+        attemptNumber: 1,
+        passed: false,
+        createdAt: staleCutoff,
+      }),
+      attemptRow({
+        conceptId: conceptA,
+        attemptNumber: 2,
+        passed: false,
+        createdAt: staleCutoff,
+      }),
+      attemptRow({ conceptId: conceptA, attemptNumber: 3, passed: true }),
+      attemptRow({ conceptId: conceptA, attemptNumber: 4, passed: true }),
+      attemptRow({
+        conceptId: conceptB,
+        attemptNumber: 1,
+        passed: false,
+        createdAt: staleCutoff,
+      }),
+    ])
+
+    const aggregates = await getPreFlightAttemptAggregates()
+    const byConcept = byConceptId(aggregates)
+
+    expect(byConcept.get(conceptA)).toEqual({
+      conceptId: conceptA,
+      totalAttempts: 2,
+      failedAttempts: 0,
+    })
+    expect(byConcept.get(conceptB)).toBeUndefined()
+  })
+
   it('omits concepts with no Pre-Flight attempts', async () => {
     const aggregates = await getPreFlightAttemptAggregates()
 
