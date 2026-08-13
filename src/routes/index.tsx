@@ -6,15 +6,23 @@ import {
   getPreFlightAggregatesFn,
 } from '../features/exercise/exercise.functions'
 import { ExercisePage } from '../features/exercise/pages/exercise-page'
+import { getExplanationPreferencesFn } from '../features/learners/learners.functions'
 
 export const Route = createFileRoute('/')({
   loader: async () => {
-    const [exercises, usableGraph, preFlightAggregates] = await Promise.all([
+    const [
+      exercises,
+      usableGraph,
+      preFlightAggregates,
+      explanationPreferences,
+    ] = await Promise.all([
       getAvailableExercisesFn(),
       // Issue #8 ships Rust exercise generation; Go/Python arrive with
       // tickets #19/#20, when this loader will offer them too.
       getUsableConceptGraphFn({ data: 'rust' }),
       getPreFlightAggregatesFn(),
+      // Issue #12: the learner's explanation depth/reference frame.
+      getExplanationPreferencesFn(),
     ])
     const aggregatesByConceptId = new Map(
       preFlightAggregates.map((aggregate) => [aggregate.conceptId, aggregate]),
@@ -28,6 +36,7 @@ export const Route = createFileRoute('/')({
           preFlight: aggregatesByConceptId.get(concept.id) ?? null,
         })),
       },
+      explanationPreferences,
     }
   },
   component: ExercisePage,

@@ -61,7 +61,8 @@ function shieldedHintFallback(level: number): Hint {
  * failure (SPEC stories 18, 22-23). The AI Teacher Engine only produces the
  * hint text — pass/fail authority stays with the deterministic Stage 1 gate.
  * The returned hint's level must match the requested level; a mismatch is
- * invalid model output.
+ * invalid model output. `depth`/`referenceFrame` (issue #12) steer only how
+ * the hint is phrased — they never influence which level is served.
  *
  * The returned hint is checked by the Prompt Shield against the
  * Pre-Flight-verified reference solution (ADR-0008, ADR-0012): when the
