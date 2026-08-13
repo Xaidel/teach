@@ -40,7 +40,9 @@ import { assertPrerequisitesPracticed } from '../concepts/concepts.server'
 // than reaching into `concepts.schema.ts`, which the documented exception is
 // written for `*.server.ts`-to-`*.server.ts` imports only.
 import { ConceptError } from '../concepts/concepts.server'
-import type { MasteryState } from '../learners/mastery.server'
+// Shared constant (src/lib/mastery-states.ts): the mastery state vocabulary
+// now lives in lib — the learners feature publishes it from there.
+import type { MasteryState } from '../../lib/mastery-states'
 import type { Exercise, ExerciseGuidance } from '../exercise/exercise.schema'
 
 import { orderCurriculum } from './curriculum-order'

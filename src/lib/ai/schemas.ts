@@ -470,3 +470,93 @@ export const IdentifySnippetConceptsOutputSchema = z
 export type IdentifySnippetConceptsOutput = z.infer<
   typeof IdentifySnippetConceptsOutputSchema
 >
+
+/**
+ * Input to `analyzeMisconceptions` (SPEC story 45, issue #16): the concept
+ * under assessment — identified by its dotted slug — its position in the
+ * Concept Graph (`prerequisiteSlugs`/`relatedSlugs`, the graph's only
+ * definition content), and the learner's free-form explanation in their own
+ * words. The graph definition is passed explicitly so the model compares
+ * against exactly the persisted graph, never against its own idea of the
+ * concept (the same scoping rule as `generateExercise`'s caller-resolved
+ * target concepts).
+ */
+export const AnalyzeMisconceptionsInputSchema = z.object({
+  language: z.enum(SANDBOX_LANGUAGES),
+  conceptSlug: z
+    .string()
+    .trim()
+    .min(1)
+    .regex(CONCEPT_SLUG_PATTERN, 'Concept slug must be dotted lowercase'),
+  prerequisiteSlugs: z.array(z.string().trim().min(1)),
+  relatedSlugs: z.array(z.string().trim().min(1)),
+  learnerExplanation: z.string().trim().min(1),
+})
+
+export type AnalyzeMisconceptionsInput = z.infer<
+  typeof AnalyzeMisconceptionsInputSchema
+>
+
+/**
+ * One missing-concepts finding (SPEC story 45): a required sub-concept of
+ * the assessed concept — the concept itself or one of its prerequisites —
+ * that the explanation entirely omitted. `concept` names the omitted
+ * sub-concept (a graph slug when it is one); `detail` says what aspect was
+ * missing.
+ */
+export const MissingConceptFindingSchema = z
+  .object({
+    concept: z.string().trim().min(1),
+    detail: z.string().trim().min(1),
+  })
+  .strict()
+
+export type MissingConceptFinding = z.infer<typeof MissingConceptFindingSchema>
+
+/** One incorrect-claim finding: a claim the explanation makes that contradicts what the concept means. */
+export const IncorrectClaimFindingSchema = z
+  .object({
+    claim: z.string().trim().min(1),
+    correction: z.string().trim().min(1),
+  })
+  .strict()
+
+export type IncorrectClaimFinding = z.infer<typeof IncorrectClaimFindingSchema>
+
+/**
+ * One conflated-concepts finding: distinct concepts the explanation treats
+ * as the same thing (e.g. borrowing and ownership, references and pointers).
+ * `concepts` names the conflated pair/group; `detail` explains the
+ * distinction the explanation blurred.
+ */
+export const ConflatedConceptsFindingSchema = z
+  .object({
+    concepts: z.array(z.string().trim().min(1)).min(2),
+    detail: z.string().trim().min(1),
+  })
+  .strict()
+
+export type ConflatedConceptsFinding = z.infer<
+  typeof ConflatedConceptsFindingSchema
+>
+
+/**
+ * Structured output of `analyzeMisconceptions` (SPEC story 45, issue #16):
+ * missing/incorrect/conflated findings only — explicitly not a score, a
+ * grade, or a pass/fail verdict (issue #23 contract: the accuracy score is
+ * computed deterministically app-side from this output, never by the
+ * model). All three arrays default to empty so a flawless explanation can
+ * legitimately parse from an empty findings object. Parsed strictly: model
+ * output is untrusted input.
+ */
+export const AnalyzeMisconceptionsOutputSchema = z
+  .object({
+    missing: z.array(MissingConceptFindingSchema).default([]),
+    incorrect: z.array(IncorrectClaimFindingSchema).default([]),
+    conflated: z.array(ConflatedConceptsFindingSchema).default([]),
+  })
+  .strict()
+
+export type AnalyzeMisconceptionsOutput = z.infer<
+  typeof AnalyzeMisconceptionsOutputSchema
+>

@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from 'drizzle-orm'
+import { and, asc, eq, inArray, ne } from 'drizzle-orm'
 
 import { db } from '#/db/client.server'
 import {
@@ -208,7 +208,9 @@ export async function getHardcodedExercises(): Promise<Exercise[]> {
  * plus every Pre-Flight-verified generated exercise (the exercises with an
  * `exercise_concepts` row — generated exercises are exactly those linked
  * to a Concept Graph concept, issue #8). Only `status = verified` rows are
- * ever shown (ADR-0010, acceptance criterion).
+ * ever shown (ADR-0010, acceptance criterion), and `explain`-mode rows are
+ * excluded: they are the Explanation Assessment's record rows (ADR-0010,
+ * issue #16), assessed through their own flow, not submittable practice.
  */
 export async function getAvailableExercises(): Promise<Exercise[]> {
   const [hardcoded, generatedIds] = await Promise.all([
@@ -217,7 +219,9 @@ export async function getAvailableExercises(): Promise<Exercise[]> {
       .selectDistinct({ exerciseId: exerciseConcepts.exerciseId })
       .from(exerciseConcepts)
       .innerJoin(exercises, eq(exercises.id, exerciseConcepts.exerciseId))
-      .where(eq(exercises.status, 'verified')),
+      .where(
+        and(eq(exercises.status, 'verified'), ne(exercises.mode, 'explain')),
+      ),
   ])
 
   if (generatedIds.length === 0) {

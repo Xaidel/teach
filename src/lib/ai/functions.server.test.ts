@@ -14,6 +14,7 @@ vi.mock('./client.server', () => ({
 
 import { callTeacherEngine, TeacherEngineError } from './client.server'
 import {
+  analyzeMisconceptions,
   draftConceptGraph,
   explainConcept,
   generateExercise,
@@ -28,6 +29,7 @@ import {
   STAGE2_RUBRIC,
 } from '../../features/exercise/stage2-review.rubric'
 import {
+  AnalyzeMisconceptionsOutputSchema,
   DraftConceptGraphOutputSchema,
   ExplainConceptOutputSchema,
   GeneratedExerciseSchema,
@@ -36,6 +38,7 @@ import {
   ReviewSubmissionOutputSchema,
 } from './schemas'
 import type {
+  AnalyzeMisconceptionsInput,
   GenerateHintInput,
   ReviewSubmissionInput,
   ReviewSubmissionOutput,
@@ -822,5 +825,91 @@ describe('generateExercise', () => {
     )
     expect(userMessage?.content).not.toContain('TACTICAL SPRINT')
     expect(userMessage?.content).toContain('"estimatedMinutes": <1-15>')
+  })
+})
+
+describe('analyzeMisconceptions', () => {
+  const ANALYSIS_INPUT: AnalyzeMisconceptionsInput = {
+    language: 'rust',
+    conceptSlug: 'rust.borrowing',
+    prerequisiteSlugs: ['rust.ownership'],
+    relatedSlugs: ['rust.references'],
+    learnerExplanation:
+      'Borrowing is when the compiler checks that code using a value follows the owner rules.',
+  }
+
+  const ANALYSIS_OUTPUT = {
+    missing: [
+      {
+        concept: 'rust.ownership',
+        detail: 'The explanation never says who owns the value.',
+      },
+    ],
+    incorrect: [
+      {
+        claim: 'Borrowing moves the value',
+        correction: 'Borrowing temporarily lends the value without moving it.',
+      },
+    ],
+    conflated: [
+      {
+        concepts: ['rust.borrowing', 'rust.references'],
+        detail:
+          'Borrowing and references are distinct: a reference is the mechanism a borrow uses.',
+      },
+    ],
+  }
+
+  it('calls the client with high effort, the misconception schema, and the graph definition', async () => {
+    callMock.mockResolvedValue(ANALYSIS_OUTPUT)
+
+    const output = await analyzeMisconceptions(ANALYSIS_INPUT)
+
+    expect(output).toEqual(ANALYSIS_OUTPUT)
+
+    const call = callMock.mock.calls[0]?.[0]
+    expect(call?.reasoningEffort).toBe('high')
+    expect(call?.schemaName).toBe('misconception_analysis')
+    expect(call?.outputSchema).toBe(AnalyzeMisconceptionsOutputSchema)
+    const userMessage = call?.messages.find(
+      (message) => message.role === 'user',
+    )
+    expect(userMessage?.content).toContain(
+      'Concept under assessment: rust.borrowing',
+    )
+    expect(userMessage?.content).toContain(
+      'Its prerequisite concepts: rust.ownership',
+    )
+    expect(userMessage?.content).toContain(
+      'Its related concepts: rust.references',
+    )
+    expect(userMessage?.content).toContain('Borrowing is when the compiler')
+  })
+
+  it('passes the explanation through verbatim and never asks for a score', async () => {
+    callMock.mockResolvedValue(ANALYSIS_OUTPUT)
+
+    await analyzeMisconceptions(ANALYSIS_INPUT)
+
+    const call = callMock.mock.calls[0]?.[0]
+    const systemMessage = call?.messages.find(
+      (message) => message.role === 'system',
+    )
+    expect(systemMessage?.content).toContain('Never score, grade, or pass/fail')
+    expect(systemMessage?.content).toContain('missing')
+    expect(systemMessage?.content).toContain('incorrect')
+    expect(systemMessage?.content).toContain('conflated')
+  })
+
+  it('passes a minimal empty-findings output through untouched', async () => {
+    // The client mock bypasses the real `callTeacherEngine`'s app-side zod
+    // validation (defense-in-depth), so the function reflects the mock's
+    // value verbatim; the `default([])` normalization happens in the real
+    // client path, covered by the client's own schema tests.
+    callMock.mockResolvedValue({})
+
+    const output = await analyzeMisconceptions(ANALYSIS_INPUT)
+
+    expect(output).toEqual({})
   })
 })
