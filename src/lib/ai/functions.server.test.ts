@@ -545,6 +545,31 @@ describe('generateExercise', () => {
     ).rejects.toMatchObject({ kind: 'invalid_output' })
   })
 
+  it('rejects a non-adversarial generation whose output declares a defect', async () => {
+    // Symmetric guard (issue #117): a non-adversarial output carrying a
+    // defect would persist as mode 'implement' yet render as adversarial —
+    // contradictory labeling. Rejected as invalid output, so defect
+    // presence ⟺ adversarial request.
+    callMock.mockResolvedValue({
+      ...GENERATED_OUTPUT,
+      defect: {
+        kind: 'ownership',
+        description: 'first consumes the vector instead of borrowing it',
+        location: 'first',
+        expectedBehavior:
+          'first returns the first element while leaving the vector usable',
+      },
+    })
+
+    await expect(
+      generateExercise({
+        language: 'rust',
+        conceptSlug: 'rust.borrowing',
+        conceptDifficulty: 3,
+      }),
+    ).rejects.toMatchObject({ kind: 'invalid_output' })
+  })
+
   it('rejects an adversarial draft whose defect has an unknown kind', async () => {
     mockGeneratedRawOutput({
       ...GENERATED_OUTPUT,
