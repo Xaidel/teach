@@ -71,8 +71,9 @@ export function CurriculumStepPage(): React.JSX.Element {
             </h1>
             <p className="mt-5 max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-lg">
               A generated lesson, a guided exercise, and an independent exercise
-              for this concept. Passing both exercises moves the concept to
-              Practiced in your Learner Model.
+              for this concept. A full pass on either exercise — guided or
+              independent — moves the concept to Practiced in your Learner
+              Model.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 md:pb-1">

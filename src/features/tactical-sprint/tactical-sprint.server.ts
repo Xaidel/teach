@@ -197,6 +197,7 @@ export async function runTacticalSprint(input: {
   const exercise = await generateExerciseForConcept({
     language: input.language,
     conceptSlug: weakest.slug,
+    learnerId: input.learnerId,
     sprintScoped: true,
   })
 

@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
 import {
   afterAll,
   afterEach,
@@ -27,6 +27,7 @@ vi.mock('#/lib/ai/functions.server', () => ({
 
 import { db } from '#/db/client.server'
 import {
+  conceptEdges,
   concepts,
   exerciseConcepts,
   exercises,
@@ -40,7 +41,7 @@ import { generateHint, reviewSubmission } from '#/lib/ai/functions.server'
 import type { ReviewSubmissionOutput } from '#/lib/ai/schemas'
 import { runSandboxSubmission } from '#/lib/sandbox/runner.server'
 import { getCurrentLearnerId } from '../learners/learners.server'
-import { getMasteryStates } from '../learners/mastery.server'
+import { advanceMastery, getMasteryStates } from '../learners/mastery.server'
 import {
   getHardcodedExercises,
   HARDCODED_EXERCISE_SLUGS,
@@ -1020,6 +1021,172 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       await deleteLatestAttempt(learnerId)
     } finally {
       await db.delete(exercises).where(eq(exercises.id, inserted.id))
+    }
+  })
+
+  it('rejects submission for a concept whose prerequisites are not Practiced (AC 4)', async () => {
+    // Self-heal any leftovers from a previously interrupted run: an aborted
+    // cleanup would otherwise trip the unique constraint below.
+    const staleConcepts = await db
+      .select({ id: concepts.id })
+      .from(concepts)
+      .where(
+        inArray(concepts.slug, [
+          'test.submit.gate.root',
+          'test.submit.gate.concept',
+        ]),
+      )
+    const staleExercise = await db.query.exercises.findFirst({
+      where: eq(exercises.slug, 'test-submit-gate'),
+    })
+    if (staleExercise) {
+      const staleAttemptIds = await db
+        .select({ id: attempts.id })
+        .from(attempts)
+        .where(eq(attempts.exerciseId, staleExercise.id))
+      for (const attempt of staleAttemptIds) {
+        await db
+          .delete(attemptHints)
+          .where(eq(attemptHints.attemptId, attempt.id))
+      }
+      await db.delete(attempts).where(eq(attempts.exerciseId, staleExercise.id))
+      await db
+        .delete(exerciseConcepts)
+        .where(eq(exerciseConcepts.exerciseId, staleExercise.id))
+      await db.delete(exercises).where(eq(exercises.id, staleExercise.id))
+    }
+    for (const stale of staleConcepts) {
+      await db
+        .delete(conceptEdges)
+        .where(
+          or(
+            eq(conceptEdges.fromConceptId, stale.id),
+            eq(conceptEdges.toConceptId, stale.id),
+          ),
+        )
+    }
+    await db
+      .delete(concepts)
+      .where(
+        inArray(concepts.slug, [
+          'test.submit.gate.root',
+          'test.submit.gate.concept',
+        ]),
+      )
+
+    const learnerId = await getCurrentLearnerId()
+    const [rootConcept] = await db
+      .insert(concepts)
+      .values({
+        language: 'rust',
+        slug: 'test.submit.gate.root',
+        difficulty: 1,
+      })
+      .returning({ id: concepts.id })
+    const [gatedConcept] = await db
+      .insert(concepts)
+      .values({
+        language: 'rust',
+        slug: 'test.submit.gate.concept',
+        difficulty: 2,
+      })
+      .returning({ id: concepts.id })
+    if (!rootConcept || !gatedConcept) {
+      throw new Error('expected the gate fixture concepts')
+    }
+    await db.insert(conceptEdges).values({
+      fromConceptId: rootConcept.id,
+      toConceptId: gatedConcept.id,
+      kind: 'prerequisite',
+    })
+
+    const [inserted] = await db
+      .insert(exercises)
+      .values({
+        slug: 'test-submit-gate',
+        language: 'rust',
+        title: 'Gated exercise',
+        prompt: 'Implement is_even.',
+        starterCode: 'fn placeholder() {}',
+        testSource: '#[test]\nfn placeholder_works() { assert!(true); }\n',
+        referenceSolution: 'pub fn is_even(n: u32) -> bool { n % 2 == 0 }',
+        difficulty: 1,
+        status: 'verified',
+      })
+      .returning({ id: exercises.id })
+    if (!inserted) throw new Error('expected the inserted exercise')
+    await db.insert(exerciseConcepts).values({
+      exerciseId: inserted.id,
+      conceptId: gatedConcept.id,
+    })
+
+    try {
+      // The standalone practice list would offer this banked exercise to
+      // any learner — but passing it would advance the gated concept to
+      // Practiced out of order, flipping the curriculum step to complete.
+      // The gate runs before the sandbox: no run, no hint, no attempt.
+      runSandboxSubmissionMock.mockResolvedValue({
+        passed: true,
+        tests: [{ name: 'placeholder_works', status: 'passed' }],
+      })
+      await expect(
+        submitExercise({
+          exerciseId: inserted.id,
+          code: 'pub fn is_even(n: u32) -> bool { n % 2 == 0 }',
+          learnerId,
+        }),
+      ).rejects.toMatchObject({ code: 'PREREQUISITES_NOT_PRACTICED' })
+      expect(runSandboxSubmissionMock).not.toHaveBeenCalled()
+
+      // Once the prerequisite is Practiced, the same submission goes
+      // through the sandbox as usual.
+      await advanceMastery(learnerId, [rootConcept.id], 'practiced')
+      const outcome = await submitExercise({
+        exerciseId: inserted.id,
+        code: 'pub fn is_even(n: u32) -> bool { n % 2 == 0 }',
+        learnerId,
+      })
+      expect(outcome.result.passed).toBe(true)
+    } finally {
+      await db
+        .delete(learnerConceptMastery)
+        .where(
+          and(
+            eq(learnerConceptMastery.learnerId, learnerId),
+            inArray(learnerConceptMastery.conceptId, [
+              rootConcept.id,
+              gatedConcept.id,
+            ]),
+          ),
+        )
+      // Attempts are scoped to this exercise, not the shared learner: other
+      // DB suites run against the same seeded learner in parallel (issue
+      // #115), so a learner-wide "latest attempt" cleanup would be racy.
+      const fixtureAttemptIds = await db
+        .select({ id: attempts.id })
+        .from(attempts)
+        .where(eq(attempts.exerciseId, inserted.id))
+      for (const attempt of fixtureAttemptIds) {
+        await db
+          .delete(attemptHints)
+          .where(eq(attemptHints.attemptId, attempt.id))
+      }
+      await db.delete(attempts).where(eq(attempts.exerciseId, inserted.id))
+      await db
+        .delete(exerciseConcepts)
+        .where(eq(exerciseConcepts.exerciseId, inserted.id))
+      await db.delete(exercises).where(eq(exercises.id, inserted.id))
+      await db
+        .delete(conceptEdges)
+        .where(
+          and(
+            eq(conceptEdges.fromConceptId, rootConcept.id),
+            eq(conceptEdges.toConceptId, gatedConcept.id),
+            eq(conceptEdges.kind, 'prerequisite'),
+          ),
+        )
+      await db.delete(concepts).where(eq(concepts.id, rootConcept.id))
+      await db.delete(concepts).where(eq(concepts.id, gatedConcept.id))
     }
   })
 

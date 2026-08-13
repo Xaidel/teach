@@ -20,12 +20,21 @@ import { generateExerciseForConcept } from '../exercise/exercise-generation.serv
 import { rowToExercise } from '../exercise/exercise.server'
 // Same exception: the no-skip-ahead gate and the per-concept progress badge
 // read the Learner Model's mastery states, so `curriculum` depends one-way on
-// `getMasteryStates` and `getExplanationPreferences`. The learners feature
-// never imports back.
+// `getMasteryStates`, `getExplanationPreferences` and the shared
+// "Practiced or better" predicate. The learners feature never imports back.
 import { getExplanationPreferences } from '../learners/learners.server'
-import { getMasteryStates } from '../learners/mastery.server'
+import {
+  getMasteryStates,
+  isPracticedOrBetter,
+} from '../learners/mastery.server'
+// Same exception: the no-skip-ahead gate (AC 4) is owned by the Concept
+// Graph, so the curriculum surfaces depend one-way on the single named
+// entry point `concepts/concepts.server.ts` exposes for it, remapping its
+// error to the curriculum's stable `CURRICULUM_LOCKED` contract.
+import { assertPrerequisitesPracticed } from '../concepts/concepts.server'
+import { ConceptError } from '../concepts/concepts.schema'
 import type { MasteryState } from '../learners/mastery.server'
-import type { Exercise } from '../exercise/exercise.schema'
+import type { Exercise, ExerciseGuidance } from '../exercise/exercise.schema'
 
 import { orderCurriculum } from './curriculum-order'
 import { CurriculumError } from './curriculum.schema'
@@ -38,16 +47,32 @@ import type {
   CurriculumStepStatus,
 } from './curriculum.schema'
 
-/** The mastery states that satisfy a prerequisite (SPEC story 41, issue #14). */
-const PRACTICED_OR_BETTER: readonly MasteryState[] = [
-  'practiced',
-  'demonstrated',
-  'retained',
-]
-
-/** Whether a mastery state counts as Practiced (the curriculum's gate). */
-function isPracticedOrBetter(state: MasteryState): boolean {
-  return PRACTICED_OR_BETTER.includes(state)
+/**
+ * The no-skip-ahead gate (AC 4): a step is only actionable once every
+ * direct prerequisite in the usable graph is Practiced. The check itself
+ * is owned by the Concept Graph (`assertPrerequisitesPracticed`); this
+ * wrapper remaps its error to the curriculum's stable `CURRICULUM_LOCKED`
+ * contract, so the curriculum surfaces keep their documented error code
+ * and message. Thrown by lesson generation and step-exercise generation —
+ * the UI lock is presentation, this is the enforcement.
+ */
+async function assertStepUnlocked(
+  learnerId: string,
+  language: CurriculumLanguage,
+  conceptId: string,
+): Promise<void> {
+  try {
+    await assertPrerequisitesPracticed({
+      learnerId,
+      language,
+      conceptIds: [conceptId],
+    })
+  } catch (error) {
+    if (error instanceof ConceptError) {
+      throw new CurriculumError('CURRICULUM_LOCKED')
+    }
+    throw error
+  }
 }
 
 /**
@@ -145,34 +170,6 @@ export async function getCurriculum(
   return curriculum
 }
 
-/**
- * The no-skip-ahead gate (AC 4): a step is only actionable once every
- * direct prerequisite in the usable graph is Practiced. Throws
- * `CURRICULUM_LOCKED` otherwise, so lesson generation and exercise
- * generation for a step are gated server-side — the UI lock is presentation,
- * this is the enforcement.
- */
-async function assertStepUnlocked(
-  learnerId: string,
-  graph: UsableConceptGraph,
-  conceptId: string,
-): Promise<void> {
-  const prerequisites = prerequisiteConceptsOf(graph, conceptId)
-  if (prerequisites.length === 0) return
-
-  const mastery = await getMasteryStates(
-    learnerId,
-    prerequisites.map((prerequisite) => prerequisite.id),
-  )
-  if (
-    !prerequisites.every((prerequisite) =>
-      isPracticedOrBetter(mastery[prerequisite.id] ?? 'unknown'),
-    )
-  ) {
-    throw new CurriculumError('CURRICULUM_LOCKED')
-  }
-}
-
 /** Resolves one concept's usable-graph row by slug, or throws. */
 function resolveConcept(
   graph: UsableConceptGraph,
@@ -188,7 +185,7 @@ function resolveConcept(
 /** The most recent verified exercise banked for one step slot, or null. */
 async function latestSlotExercise(
   conceptId: string,
-  guidance: 'guided' | 'independent',
+  guidance: ExerciseGuidance,
 ): Promise<Exercise | null> {
   const rows = await db
     .select({ exercise: exercises })
@@ -255,15 +252,16 @@ export async function generateStepExercise(input: {
   learnerId: string
   language: CurriculumLanguage
   conceptSlug: string
-  guidance: 'guided' | 'independent'
+  guidance: ExerciseGuidance
 }) {
   const graph = await getUsableConceptGraph(input.language)
   const concept = resolveConcept(graph, input.conceptSlug)
-  await assertStepUnlocked(input.learnerId, graph, concept.id)
+  await assertStepUnlocked(input.learnerId, input.language, concept.id)
 
   return generateExerciseForConcept({
     language: input.language,
     conceptSlug: input.conceptSlug,
+    learnerId: input.learnerId,
     guidance: input.guidance,
   })
 }
@@ -284,7 +282,7 @@ export async function generateCurriculumLesson(input: {
 }): Promise<CurriculumLesson> {
   const graph = await getUsableConceptGraph(input.language)
   const concept = resolveConcept(graph, input.conceptSlug)
-  await assertStepUnlocked(input.learnerId, graph, concept.id)
+  await assertStepUnlocked(input.learnerId, input.language, concept.id)
 
   const preferences = await getExplanationPreferences(input.learnerId)
   try {

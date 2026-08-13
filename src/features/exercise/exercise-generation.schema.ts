@@ -6,6 +6,7 @@ import { CONCEPT_SLUG_PATTERN } from '#/lib/concept-graph'
 import { SANDBOX_LANGUAGES } from '#/lib/sandbox/types'
 
 import type { Exercise } from './exercise.schema'
+import { ExerciseGuidanceSchema } from './exercise.schema'
 
 /**
  * The languages exercise generation is enabled for. Issue #8 ships Rust;
@@ -49,7 +50,7 @@ export const GenerateExerciseForConceptInputSchema = z.object({
     .regex(CONCEPT_SLUG_PATTERN, 'Concept slug must be dotted lowercase'),
   adversarial: z.boolean().optional(),
   sprintScoped: z.boolean().optional(),
-  guidance: z.enum(['guided', 'independent']).default('guided'),
+  guidance: ExerciseGuidanceSchema.default('guided'),
 })
 
 export type GenerateExerciseForConceptInput = z.infer<
@@ -134,7 +135,9 @@ export type PreFlightAttemptAggregate = {
  * For `generated` outcomes, `prerequisites` surfaces the model-declared
  * prerequisite slugs at the feature boundary so they are not silently
  * dropped (issue #91); for `verified-fallback` they are absent because
- * `exercises` does not persist them. `defect` is present on a
+ * `exercises` does not persist them. The fallback's selection preserves
+ * the requested `guidance` (issue #14), so a served row always matches
+ * the slot's guided/independent semantics. `defect` is present on a
  * `verified-fallback` exactly when the stored row is adversarial
  * (issue #120): the fallback stays mode-agnostic (SPEC story 34), but a
  * served adversarial row carries its persisted defect so the card renders

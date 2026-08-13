@@ -295,6 +295,7 @@ describe.skipIf(!dbUp)('curriculum.server', () => {
     expect(generateExerciseForConceptMock).toHaveBeenCalledWith({
       language: 'rust',
       conceptSlug: CONCEPT_ADVANCED.slug,
+      learnerId,
       guidance: 'independent',
     })
   })

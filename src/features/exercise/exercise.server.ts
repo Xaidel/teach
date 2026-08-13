@@ -15,6 +15,15 @@ import {
 // only reports the two outcome booleans; `learners` never imports back from
 // `exercise`, so the graph stays acyclic.
 import { recordAttemptOutcome } from '#/features/learners/mastery.server'
+// Same exception: `getExerciseConceptIds` resolves an exercise's Concept
+// Graph concepts for the no-skip-ahead gate (issue #14, AC 4) — the same
+// lookup the mastery transition itself uses.
+import { getExerciseConceptIds } from '#/features/learners/mastery.server'
+// Same exception: the no-skip-ahead gate (issue #14, AC 4) is owned by the
+// Concept Graph, so submission depends one-way on the single named entry
+// point `concepts/concepts.server.ts` exposes for it. `concepts` never
+// imports back from `exercise`, so the graph stays acyclic.
+import { assertPrerequisitesPracticed } from '#/features/concepts/concepts.server'
 // Same exception: serving a hint is the one place a learner's explanation
 // preferences (issue #12) shape an AI Teacher Engine call, so `exercise`
 // depends one-way on the single named entry point `learners/learners.server.ts`
@@ -273,6 +282,20 @@ export async function submitExercise(input: {
   learnerId: string
 }): Promise<SubmitExerciseOutput> {
   const exercise = await getExerciseById(input.exerciseId)
+
+  // The no-skip-ahead gate (issue #14, AC 4), enforced on submission too:
+  // a banked exercise for a concept whose prerequisites aren't Practiced
+  // must not be submittable — passing it would advance the Learner Model
+  // to `practiced` out of order and flip the curriculum step to complete.
+  // Hardcoded v1 seeds carry no concept links and pass trivially.
+  const conceptIds = await getExerciseConceptIds(exercise.id)
+  if (conceptIds.length > 0) {
+    await assertPrerequisitesPracticed({
+      learnerId: input.learnerId,
+      language: exercise.language,
+      conceptIds,
+    })
+  }
 
   const sandboxResult = parseSandboxResult(
     await runSandboxSubmission({

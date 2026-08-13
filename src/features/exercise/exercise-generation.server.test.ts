@@ -1,4 +1,4 @@
-import { eq, like, sql } from 'drizzle-orm'
+import { and, eq, inArray, like, or, sql } from 'drizzle-orm'
 import {
   afterAll,
   afterEach,
@@ -26,9 +26,11 @@ vi.mock('#/lib/ai/functions.server', () => ({
 
 import { db } from '#/db/client.server'
 import {
+  conceptEdges,
   concepts,
   exerciseConcepts,
   exercises,
+  learnerConceptMastery,
   preFlightAttempts,
 } from '#/db/schema'
 import { TeacherEngineError } from '#/lib/ai/client.server'
@@ -39,6 +41,8 @@ import type { SandboxResult } from '#/lib/sandbox/types'
 
 import { generateExerciseForConcept } from './exercise-generation.server'
 import { getAvailableExercises } from './exercise.server'
+import { getCurrentLearnerId } from '../learners/learners.server'
+import { advanceMastery } from '../learners/mastery.server'
 
 async function dbAvailable(): Promise<boolean> {
   try {
@@ -53,8 +57,14 @@ const dbUp = await dbAvailable()
 const runSandboxSubmissionMock = vi.mocked(runSandboxSubmission)
 const generateExerciseMock = vi.mocked(generateExercise)
 
+let learnerId: string
+
 const FIXTURE_CONCEPT_SLUG = 'test.rust.borrowing'
 const FIXTURE_CONCEPT_ID = '33333333-3333-7333-8333-333333333333'
+
+/** The fixture's direct prerequisite, used by the no-skip-ahead gate tests. */
+const FIXTURE_ROOT_SLUG = 'test.rust.references'
+const FIXTURE_ROOT_ID = '33333333-3333-7333-8333-333333333332'
 
 /** A fully-formed generated exercise for the fixture concept. */
 const GENERATED: GeneratedExercise = {
@@ -164,11 +174,18 @@ function scheduleFailingPreFlight(
 }
 
 beforeAll(async () => {
+  learnerId = await getCurrentLearnerId()
   await db.insert(concepts).values({
     id: FIXTURE_CONCEPT_ID,
     language: 'rust',
     slug: FIXTURE_CONCEPT_SLUG,
     difficulty: 2,
+  })
+  await db.insert(concepts).values({
+    id: FIXTURE_ROOT_ID,
+    language: 'rust',
+    slug: FIXTURE_ROOT_SLUG,
+    difficulty: 1,
   })
 })
 
@@ -192,6 +209,30 @@ async function cleanupGeneratedRows(): Promise<void> {
   for (const row of slugs) {
     await db.delete(exercises).where(eq(exercises.slug, row.slug))
   }
+  // Scoped to this suite's fixture concepts: the seeded learner is shared
+  // with other DB suites (issue #115), and a learner-wide delete would
+  // clobber their mastery rows under file-parallel execution.
+  await db
+    .delete(learnerConceptMastery)
+    .where(
+      and(
+        eq(learnerConceptMastery.learnerId, learnerId),
+        inArray(learnerConceptMastery.conceptId, [
+          FIXTURE_CONCEPT_ID,
+          FIXTURE_ROOT_ID,
+        ]),
+      ),
+    )
+  await db
+    .delete(conceptEdges)
+    .where(
+      or(
+        eq(conceptEdges.fromConceptId, FIXTURE_CONCEPT_ID),
+        eq(conceptEdges.toConceptId, FIXTURE_CONCEPT_ID),
+        eq(conceptEdges.fromConceptId, FIXTURE_ROOT_ID),
+        eq(conceptEdges.toConceptId, FIXTURE_ROOT_ID),
+      ),
+    )
 }
 
 afterEach(async () => {
@@ -200,6 +241,7 @@ afterEach(async () => {
 
 afterAll(async () => {
   await db.delete(concepts).where(eq(concepts.slug, FIXTURE_CONCEPT_SLUG))
+  await db.delete(concepts).where(eq(concepts.slug, FIXTURE_ROOT_SLUG))
 })
 
 describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
@@ -212,6 +254,7 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
     const outcome = await generateExerciseForConcept({
       language: 'rust',
       conceptSlug: FIXTURE_CONCEPT_SLUG,
+      learnerId,
     })
 
     expect(outcome.kind).toBe('generated')
@@ -297,6 +340,7 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
     const outcome = await generateExerciseForConcept({
       language: 'rust',
       conceptSlug: FIXTURE_CONCEPT_SLUG,
+      learnerId,
       guidance: 'independent',
     })
 
@@ -325,6 +369,7 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
     const outcome = await generateExerciseForConcept({
       language: 'rust',
       conceptSlug: FIXTURE_CONCEPT_SLUG,
+      learnerId,
     })
 
     expect(outcome.kind).toBe('generated')
@@ -376,6 +421,7 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
     const outcome = await generateExerciseForConcept({
       language: 'rust',
       conceptSlug: FIXTURE_CONCEPT_SLUG,
+      learnerId,
     })
 
     expect(outcome.kind).toBe('generated')
@@ -410,6 +456,7 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
     const outcome = await generateExerciseForConcept({
       language: 'rust',
       conceptSlug: FIXTURE_CONCEPT_SLUG,
+      learnerId,
     })
 
     expect(outcome.kind).toBe('generated')
@@ -457,6 +504,7 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
     const outcome = await generateExerciseForConcept({
       language: 'rust',
       conceptSlug: FIXTURE_CONCEPT_SLUG,
+      learnerId,
     })
 
     expect(outcome.kind).toBe('generated')
@@ -491,6 +539,7 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
     const outcome = await generateExerciseForConcept({
       language: 'rust',
       conceptSlug: FIXTURE_CONCEPT_SLUG,
+      learnerId,
     })
 
     expect(outcome.kind).toBe('generated')
@@ -509,6 +558,7 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
     const outcome = await generateExerciseForConcept({
       language: 'rust',
       conceptSlug: FIXTURE_CONCEPT_SLUG,
+      learnerId,
       adversarial: true,
     })
 
@@ -581,6 +631,7 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
     const outcome = await generateExerciseForConcept({
       language: 'rust',
       conceptSlug: FIXTURE_CONCEPT_SLUG,
+      learnerId,
       adversarial: true,
     })
 
@@ -629,6 +680,7 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
     const outcome = await generateExerciseForConcept({
       language: 'rust',
       conceptSlug: FIXTURE_CONCEPT_SLUG,
+      learnerId,
       adversarial: true,
     })
 
@@ -660,6 +712,7 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
       generateExerciseForConcept({
         language: 'rust',
         conceptSlug: FIXTURE_CONCEPT_SLUG,
+        learnerId,
       }),
     ).rejects.toMatchObject({ code: 'EXERCISE_GENERATION_FAILED' })
 
@@ -682,6 +735,7 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
       generateExerciseForConcept({
         language: 'rust',
         conceptSlug: FIXTURE_CONCEPT_SLUG,
+        learnerId,
       }),
     ).rejects.toMatchObject({ code: 'EXERCISE_GENERATION_INVALID' })
     expect(generateExerciseMock).toHaveBeenCalledTimes(1)
@@ -700,6 +754,7 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
     const outcome = await generateExerciseForConcept({
       language: 'rust',
       conceptSlug: FIXTURE_CONCEPT_SLUG,
+      learnerId,
       sprintScoped: true,
     })
 
@@ -723,6 +778,7 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
       generateExerciseForConcept({
         language: 'rust',
         conceptSlug: FIXTURE_CONCEPT_SLUG,
+        learnerId,
         sprintScoped: true,
       }),
     ).rejects.toMatchObject({ code: 'EXERCISE_GENERATION_INVALID' })
@@ -742,6 +798,7 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
     const outcome = await generateExerciseForConcept({
       language: 'rust',
       conceptSlug: FIXTURE_CONCEPT_SLUG,
+      learnerId,
     })
 
     expect(outcome.kind).toBe('generated')
@@ -752,6 +809,7 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
       generateExerciseForConcept({
         language: 'rust',
         conceptSlug: 'test.rust.does-not-exist',
+        learnerId,
       }),
     ).rejects.toMatchObject({ code: 'CONCEPT_NOT_FOUND' })
   })
@@ -761,6 +819,7 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
       generateExerciseForConcept({
         language: 'go',
         conceptSlug: 'go.is-even',
+        learnerId,
       }),
     ).rejects.toMatchObject({ code: 'EXERCISE_GENERATION_UNSUPPORTED' })
   })
@@ -777,6 +836,7 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
     const outcome = await generateExerciseForConcept({
       language: 'rust',
       conceptSlug: FIXTURE_CONCEPT_SLUG,
+      learnerId,
     })
 
     expect(outcome.kind).toBe('generated')
@@ -806,6 +866,7 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
     const outcome = await generateExerciseForConcept({
       language: 'rust',
       conceptSlug: FIXTURE_CONCEPT_SLUG,
+      learnerId,
     })
 
     expect(outcome.kind).toBe('generated')
@@ -868,6 +929,7 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
           advisory: [],
         },
         mode: 'implement',
+        guidance: 'guided',
         difficulty: 1,
         constraints: ['std_only'],
         status: 'verified',
@@ -889,16 +951,19 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
     const outcome = await generateExerciseForConcept({
       language: 'rust',
       conceptSlug: FIXTURE_CONCEPT_SLUG,
+      learnerId,
     })
 
     // The stored verified exercise is served as-is: no 4th generation, no
-    // new exercise row, no new Pre-Flight run (ADR-0019).
+    // new exercise row, no new Pre-Flight run (ADR-0019). The request
+    // resolves to `guided`, and only a guided row may serve it (issue #14).
     expect(outcome.kind).toBe('verified-fallback')
     if (outcome.kind !== 'verified-fallback') {
       return
     }
     expect(outcome.exercise.id).toBe(fallbackRow.id)
     expect(outcome.exercise.title).toBe('Seeded verified')
+    expect(outcome.exercise.guidance).toBe('guided')
     expect(outcome.targetConcepts).toEqual([FIXTURE_CONCEPT_SLUG])
     expect(outcome.constraints).toEqual(['std_only'])
     expect(generateExerciseMock).toHaveBeenCalledTimes(3)
@@ -941,6 +1006,114 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
     await db.delete(exercises).where(eq(exercises.id, fallbackRow.id))
   })
 
+  it('never serves a verified exercise of the other guidance as fallback', async () => {
+    const [fallbackRow] = await db
+      .insert(exercises)
+      .values({
+        slug: 'fallback-seeded-independent',
+        language: 'rust',
+        title: 'Seeded independent',
+        prompt: 'Do the thing.',
+        starterCode: 'pub fn seeded() {}',
+        testSource: FALLBACK_TEST_SOURCE,
+        referenceSolution: FALLBACK_REFERENCE_SOLUTION,
+        evaluationRubric: {
+          required: ['Does the thing'],
+          prohibited: [],
+          advisory: [],
+        },
+        mode: 'implement',
+        guidance: 'independent',
+        difficulty: 1,
+        constraints: ['std_only'],
+        status: 'verified',
+      })
+      .returning()
+    if (!fallbackRow) {
+      throw new Error('expected the fallback fixture exercise')
+    }
+    await db.insert(exerciseConcepts).values({
+      exerciseId: fallbackRow.id,
+      conceptId: FIXTURE_CONCEPT_ID,
+    })
+
+    // A `guided` request (the standalone card's default) with only an
+    // `independent` row in the bank: the fallback must NOT serve it — an
+    // independent row carries no hints, which would break the guided slot's
+    // contract (issue #14). The circuit breaker falls through to the
+    // terminal simplified regeneration instead.
+    generateExerciseMock.mockResolvedValue(GENERATED)
+    for (let attempt = 0; attempt < 3; attempt++) {
+      scheduleFailingPreFlight([REFERENCE_FAILS, BROKEN_FAILS_ON_CONCEPT])
+    }
+    scheduleFailingPreFlight([REFERENCE_PASSES, BROKEN_FAILS_ON_CONCEPT])
+
+    const outcome = await generateExerciseForConcept({
+      language: 'rust',
+      conceptSlug: FIXTURE_CONCEPT_SLUG,
+      learnerId,
+    })
+
+    expect(outcome.kind).toBe('generated')
+    if (outcome.kind !== 'generated') {
+      return
+    }
+    expect(outcome.simplified).toBe(true)
+    expect(outcome.exercise.id).not.toBe(fallbackRow.id)
+    expect(generateExerciseMock).toHaveBeenCalledTimes(4)
+
+    await db
+      .delete(exerciseConcepts)
+      .where(eq(exerciseConcepts.exerciseId, fallbackRow.id))
+    await db.delete(exercises).where(eq(exercises.id, fallbackRow.id))
+  })
+
+  it('rejects generation for a concept whose prerequisites are not Practiced (AC 4)', async () => {
+    await db.insert(conceptEdges).values({
+      fromConceptId: FIXTURE_ROOT_ID,
+      toConceptId: FIXTURE_CONCEPT_ID,
+      kind: 'prerequisite',
+    })
+
+    generateExerciseMock.mockResolvedValue(GENERATED)
+
+    // No mastery rows exist: the fixture concept is gated by its unused
+    // prerequisite, so generation must be rejected before any AI call —
+    // the same server-side gate the curriculum surfaces run.
+    await expect(
+      generateExerciseForConcept({
+        language: 'rust',
+        conceptSlug: FIXTURE_CONCEPT_SLUG,
+        learnerId,
+      }),
+    ).rejects.toMatchObject({ code: 'PREREQUISITES_NOT_PRACTICED' })
+    expect(generateExerciseMock).not.toHaveBeenCalled()
+    expect(runSandboxSubmissionMock).not.toHaveBeenCalled()
+  })
+
+  it('allows generation once the concept prerequisites are Practiced (AC 4)', async () => {
+    await db.insert(conceptEdges).values({
+      fromConceptId: FIXTURE_ROOT_ID,
+      toConceptId: FIXTURE_CONCEPT_ID,
+      kind: 'prerequisite',
+    })
+    await advanceMastery(learnerId, [FIXTURE_ROOT_ID], 'practiced')
+
+    generateExerciseMock.mockResolvedValue(GENERATED)
+    runSandboxSubmissionMock
+      .mockResolvedValueOnce(REFERENCE_PASSES)
+      .mockResolvedValueOnce(BROKEN_FAILS_ON_CONCEPT)
+
+    const outcome = await generateExerciseForConcept({
+      language: 'rust',
+      conceptSlug: FIXTURE_CONCEPT_SLUG,
+      learnerId,
+    })
+
+    expect(outcome.kind).toBe('generated')
+    expect(generateExerciseMock).toHaveBeenCalledTimes(1)
+  })
+
   it('surfaces the persisted defect when the verified fallback serves an adversarial row', async () => {
     const [fallbackRow] = await db
       .insert(exercises)
@@ -980,6 +1153,7 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
     const outcome = await generateExerciseForConcept({
       language: 'rust',
       conceptSlug: FIXTURE_CONCEPT_SLUG,
+      learnerId,
     })
 
     // The stored adversarial row is served as-is, with its persisted defect
@@ -1037,6 +1211,7 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
     const outcome = await generateExerciseForConcept({
       language: 'rust',
       conceptSlug: FIXTURE_CONCEPT_SLUG,
+      learnerId,
     })
 
     expect(outcome.kind).toBe('verified-fallback')
@@ -1062,6 +1237,7 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
       generateExerciseForConcept({
         language: 'rust',
         conceptSlug: FIXTURE_CONCEPT_SLUG,
+        learnerId,
       }),
     ).rejects.toMatchObject({ code: 'PREFLIGHT_FAILED' })
 

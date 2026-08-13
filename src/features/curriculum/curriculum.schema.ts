@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { ExerciseGuidanceSchema } from '../exercise/exercise.schema'
 import { ExerciseSchema } from '../exercise/exercise.schema'
 import { CONCEPT_SLUG_PATTERN } from '#/lib/concept-graph'
 
@@ -116,7 +117,7 @@ export const GenerateStepExerciseInputSchema = z.object({
     .trim()
     .min(1)
     .regex(CONCEPT_SLUG_PATTERN, 'Concept slug must be dotted lowercase'),
-  guidance: z.enum(['guided', 'independent']),
+  guidance: ExerciseGuidanceSchema,
 })
 
 export type GenerateStepExerciseInput = z.infer<

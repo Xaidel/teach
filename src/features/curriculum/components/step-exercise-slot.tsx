@@ -9,7 +9,10 @@ import type { Exercise } from '../../exercise/exercise.schema'
 import { MAX_PREFLIGHT_ATTEMPTS } from '../../exercise/exercise-generation.schema'
 
 import { generateStepExerciseFn } from '../curriculum.functions'
-import type { GenerateStepExerciseInput } from '../curriculum.schema'
+import type {
+  CurriculumLanguage,
+  GenerateStepExerciseInput,
+} from '../curriculum.schema'
 import { errorMessage } from '../client-utils'
 
 /**
@@ -29,7 +32,7 @@ export function StepExerciseSlot({
   exercise,
   description,
 }: {
-  language: 'rust'
+  language: CurriculumLanguage
   conceptSlug: string
   guidance: GenerateStepExerciseInput['guidance']
   exercise: Exercise | null

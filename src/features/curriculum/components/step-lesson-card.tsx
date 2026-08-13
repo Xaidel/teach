@@ -5,7 +5,7 @@ import { Button } from '#/shared/components/ui/button'
 import { Card, CardContent, CardHeader } from '#/shared/components/ui/card'
 
 import { generateLessonFn } from '../curriculum.functions'
-import type { CurriculumLesson } from '../curriculum.schema'
+import type { CurriculumLanguage, CurriculumLesson } from '../curriculum.schema'
 import { errorMessage } from '../client-utils'
 
 /**
@@ -19,7 +19,7 @@ export function StepLessonCard({
   language,
   conceptSlug,
 }: {
-  language: 'rust'
+  language: CurriculumLanguage
   conceptSlug: string
 }): React.JSX.Element {
   const [lesson, setLesson] = useState<CurriculumLesson>()
