@@ -34,27 +34,27 @@ import type {
   TacticalSprintResult,
 } from './tactical-sprint.schema'
 
-/** One identified concept resolved to a persisted Concept Graph row. */
-type ResolvedConcept = {
-  conceptId: string
-  slug: string
-  description: string
-  matched: boolean
-}
+/**
+ * One identified concept resolved against the Concept Graph, not yet
+ * drafted. A matched slug carries its persisted id; an unmatched one
+ * carries none — drafting it is deferred to whichever candidate wins the
+ * weakest-concept ranking (issue #125).
+ */
+type ResolvedConcept =
+  | { matched: true; conceptId: string; slug: string; description: string }
+  | { matched: false; conceptId: undefined; slug: string; description: string }
 
 /**
  * Resolves every identified snippet concept against the language's usable
  * Concept Graph (ADR-0016): a slug already in the graph reuses its
- * persisted id; an unmatched slug is ad-hoc drafted and used immediately —
- * the runtime-gap case ADR-0016 settles, never blocking the sprint on
- * review. Duplicate slugs from the identification step collapse to one
- * entry, first occurrence wins.
+ * persisted id; an unmatched slug is left undrafted here. Duplicate slugs
+ * from the identification step collapse to one entry, first occurrence
+ * wins.
  */
-async function resolveIdentifiedConcepts(input: {
-  language: ExerciseGenerationLanguage
+function resolveIdentifiedConcepts(input: {
   usableGraph: UsableConceptGraph
   concepts: SnippetConcept[]
-}): Promise<ResolvedConcept[]> {
+}): ResolvedConcept[] {
   const knownBySlug = new Map(
     input.usableGraph.concepts.map((concept) => [concept.slug, concept]),
   )
@@ -68,45 +68,41 @@ async function resolveIdentifiedConcepts(input: {
     seenSlugs.add(candidate.slug)
 
     const known = knownBySlug.get(candidate.slug)
-    if (known) {
-      resolved.push({
-        conceptId: known.id,
-        slug: candidate.slug,
-        description: candidate.description,
-        matched: true,
-      })
-      continue
-    }
-
-    const drafted = await draftFocusedConcept({
-      language: input.language,
-      slug: candidate.slug,
-      description: candidate.description,
-    })
-    resolved.push({
-      conceptId: drafted.conceptId,
-      slug: drafted.slug,
-      description: candidate.description,
-      matched: false,
-    })
+    resolved.push(
+      known
+        ? {
+            matched: true,
+            conceptId: known.id,
+            slug: candidate.slug,
+            description: candidate.description,
+          }
+        : {
+            matched: false,
+            conceptId: undefined,
+            slug: candidate.slug,
+            description: candidate.description,
+          },
+    )
   }
 
   return resolved
 }
 
+/** A resolved concept annotated with the learner's mastery on it. */
+type RankedConcept = ResolvedConcept & { masteryState: MasteryState }
+
 /**
- * Picks the mastery-weakest concept among the resolved candidates for this
+ * Picks the mastery-weakest concept among the ranked candidates for this
  * learner (SPEC story 5): the lowest-ranked mastery state
  * (`MASTERY_STATE_ORDER`, `learners/mastery.server.ts`), breaking ties by
  * keeping the first-identified candidate — deterministic and stable rather
- * than arbitrary.
+ * than arbitrary. An unmatched candidate's `unknown` mastery state
+ * (`runTacticalSprint`) is deterministically the lowest rank, so ranking
+ * never needs to draft a candidate first to know where it falls.
  */
-function pickWeakest(
-  candidates: ResolvedConcept[],
-  masteryStates: Record<string, MasteryState>,
-): ResolvedConcept {
-  const rankOf = (concept: ResolvedConcept): number =>
-    MASTERY_STATE_ORDER[masteryStates[concept.conceptId] ?? 'unknown']
+function pickWeakest(candidates: RankedConcept[]): RankedConcept {
+  const rankOf = (concept: RankedConcept): number =>
+    MASTERY_STATE_ORDER[concept.masteryState]
 
   return candidates.reduce((weakest, candidate) =>
     rankOf(candidate) < rankOf(weakest) ? candidate : weakest,
@@ -116,15 +112,17 @@ function pickWeakest(
 /**
  * Runs one Tactical Sprint (Class B) end to end (SPEC stories 4-7, ticket
  * #13): identifies the concepts a pasted snippet depends on, resolves each
- * against the Concept Graph (ad-hoc drafting an unmatched one immediately,
- * ADR-0016), compares the resolved set against the Learner Model and
- * targets the weakest, then generates a 5-10 minute, Pre-Flight-verified
- * exercise for it (reusing `exercise`'s own generation + retry/circuit-
- * breaker pipeline, `sprintScoped: true`). The returned exercise is a
- * normal persisted `exercises` row joined to the target concept — solving
- * it runs through the exact same Stage 1 -> Stage 2 -> Learner Model
- * pipeline as any other exercise (AC 5), nothing sprint-specific downstream
- * of generation.
+ * against the Concept Graph, ranks the resolved set against the Learner
+ * Model, and targets the weakest — ad-hoc drafting it immediately
+ * (ADR-0016's runtime-gap case) only if it's unmatched, so a losing
+ * unmatched candidate never costs a draft call or a Concept Graph write
+ * (issue #125) — then generates a 5-10 minute, Pre-Flight-verified exercise
+ * for it (reusing `exercise`'s own generation + retry/circuit-breaker
+ * pipeline, `sprintScoped: true`). The returned exercise is a normal
+ * persisted `exercises` row joined to the target concept — solving it runs
+ * through the exact same Stage 1 -> Stage 2 -> Learner Model pipeline as
+ * any other exercise (AC 5), nothing sprint-specific downstream of
+ * generation.
  */
 export async function runTacticalSprint(input: {
   learnerId: string
@@ -147,26 +145,48 @@ export async function runTacticalSprint(input: {
     throw error
   }
 
-  const resolved = await resolveIdentifiedConcepts({
-    language: input.language,
+  const resolved = resolveIdentifiedConcepts({
     usableGraph,
     concepts: identification.concepts,
   })
 
+  // Only matched candidates have a persisted id to look up mastery for; an
+  // unmatched one is deterministically `unknown` (the lowest rank) without
+  // needing a lookup.
+  const matchedConceptIds = resolved.flatMap((concept) =>
+    concept.matched ? [concept.conceptId] : [],
+  )
   const masteryStates = await getMasteryStates(
     input.learnerId,
-    resolved.map((concept) => concept.conceptId),
+    matchedConceptIds,
   )
 
-  const weakest = pickWeakest(resolved, masteryStates)
+  const ranked: RankedConcept[] = resolved.map((concept) =>
+    concept.matched
+      ? {
+          ...concept,
+          masteryState: masteryStates[concept.conceptId] ?? 'unknown',
+        }
+      : { ...concept, masteryState: 'unknown' },
+  )
 
-  const identifiedConcepts: IdentifiedConcept[] = resolved.map((concept) => ({
-    conceptId: concept.conceptId,
-    slug: concept.slug,
-    description: concept.description,
-    matched: concept.matched,
-    masteryState: masteryStates[concept.conceptId] ?? 'unknown',
-  }))
+  const weakest = pickWeakest(ranked)
+
+  // Only the winning candidate is drafted — a losing unmatched candidate
+  // stays undrafted (issue #125).
+  const targetConceptId = weakest.matched
+    ? weakest.conceptId
+    : (
+        await draftFocusedConcept({
+          language: input.language,
+          slug: weakest.slug,
+          description: weakest.description,
+        })
+      ).conceptId
+
+  const identifiedConcepts: IdentifiedConcept[] = ranked.map((concept) =>
+    concept === weakest ? { ...concept, conceptId: targetConceptId } : concept,
+  )
 
   const exercise = await generateExerciseForConcept({
     language: input.language,

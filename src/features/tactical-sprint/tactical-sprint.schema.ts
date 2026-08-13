@@ -54,7 +54,13 @@ export type MasteryStateView = (typeof MASTERY_STATES)[number]
  * mastery so the UI can show why the weakest one was targeted.
  */
 export type IdentifiedConcept = {
-  conceptId: string
+  /**
+   * Undefined for an unmatched candidate that lost the weakest-concept
+   * ranking (issue #125): ranking runs before drafting, and only the
+   * winning candidate is ad-hoc drafted, so a losing unmatched slug was
+   * never persisted and has no id to key or link it by.
+   */
+  conceptId: string | undefined
   slug: string
   description: string
   /**
