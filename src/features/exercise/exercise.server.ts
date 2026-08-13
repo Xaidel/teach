@@ -2,12 +2,20 @@ import { and, asc, eq, inArray } from 'drizzle-orm'
 
 import { db } from '#/db/client.server'
 import {
+  attemptHints,
+  attempts,
   exerciseConcepts,
   exercises,
-  results,
-  submissionHints,
-  submissions,
 } from '#/db/schema'
+// Deliberate, documented cross-feature dependency (arch_docs/dependency-rules.md
+// "Feature Dependencies"): completing an exercise is the one place attempt
+// outcomes drive Learner Model mastery, so `exercise` depends one-way on the
+// narrow, server-only public surface `learners/mastery.server.ts` exposes.
+// `learners` never imports back from `exercise` — the graph stays acyclic.
+import {
+  advanceMastery,
+  getExerciseConceptIds,
+} from '#/features/learners/mastery.server'
 import { TeacherEngineError } from '#/lib/ai/client.server'
 import { generateHint, reviewSubmission } from '#/lib/ai/functions.server'
 import type { EvaluationRubric, Hint } from '#/lib/ai/schemas'
@@ -101,24 +109,23 @@ type HintContext = {
 }
 
 /**
- * Loads the exercise, persisted result, and already-served hints for one
- * submission, scoped to the calling learner so one learner can never request
- * hints on another learner's attempt. Missing or foreign submissions surface
+ * Loads the exercise, persisted attempt, and already-served hints for one
+ * attempt, scoped to the calling learner so one learner can never request
+ * hints on another learner's attempt. Missing or foreign attempts surface
  * as a stable escalation error.
  */
 async function getHintContext(input: {
-  submissionId: string
+  attemptId: string
   learnerId: string
 }): Promise<HintContext> {
   const rows = await db
-    .select({ exercise: exercises, result: results })
-    .from(submissions)
-    .innerJoin(exercises, eq(exercises.id, submissions.exerciseId))
-    .innerJoin(results, eq(results.submissionId, submissions.id))
+    .select({ exercise: exercises, attempt: attempts })
+    .from(attempts)
+    .innerJoin(exercises, eq(exercises.id, attempts.exerciseId))
     .where(
       and(
-        eq(submissions.id, input.submissionId),
-        eq(submissions.learnerId, input.learnerId),
+        eq(attempts.id, input.attemptId),
+        eq(attempts.learnerId, input.learnerId),
       ),
     )
     .limit(1)
@@ -130,19 +137,21 @@ async function getHintContext(input: {
 
   const priorHints = await db
     .select({
-      level: submissionHints.hintLevel,
-      content: submissionHints.content,
+      level: attemptHints.hintLevel,
+      content: attemptHints.content,
     })
-    .from(submissionHints)
-    .where(eq(submissionHints.submissionId, input.submissionId))
-    .orderBy(asc(submissionHints.hintLevel))
+    .from(attemptHints)
+    .where(eq(attemptHints.attemptId, input.attemptId))
+    .orderBy(asc(attemptHints.hintLevel))
+
+  const message = row.attempt.compilerErrors?.message ?? null
 
   return {
     exercise: rowToExercise(row.exercise),
     result: {
-      passed: row.result.passed,
-      tests: row.result.tests,
-      ...(row.result.message === null ? {} : { message: row.result.message }),
+      passed: row.attempt.outcome === 'pass',
+      tests: row.attempt.compilerErrors?.tests ?? [],
+      ...(message === null ? {} : { message }),
     },
     priorHints,
     referenceSolution: row.exercise.referenceSolution,
@@ -198,9 +207,69 @@ export async function getAvailableExercises(): Promise<Exercise[]> {
 }
 
 /**
- * Runs one submission through the sandbox of the exercise's language and
- * persists the submission and its normalized result. The caller resolves the
- * current learner once and passes the id down (ADR-0014).
+ * Seconds elapsed since the learner's earliest attempt at this exercise —
+ * 0 on that first attempt (ADR-0010's `time_to_solution`, SPEC story 42).
+ * A plain read-then-write, not a single atomic query: v1 has one learner
+ * and no concurrent submissions on the same exercise to race against
+ * (ADR-0014's solo-maintainer-operability driver).
+ */
+async function computeTimeToSolutionSeconds(
+  learnerId: string,
+  exerciseId: string,
+): Promise<number> {
+  const [earliest] = await db
+    .select({ createdAt: attempts.createdAt })
+    .from(attempts)
+    .where(
+      and(
+        eq(attempts.learnerId, learnerId),
+        eq(attempts.exerciseId, exerciseId),
+      ),
+    )
+    .orderBy(asc(attempts.createdAt))
+    .limit(1)
+
+  if (!earliest) return 0
+  return Math.max(
+    0,
+    Math.round((Date.now() - earliest.createdAt.getTime()) / 1000),
+  )
+}
+
+/**
+ * Advances the exercise's Concept Graph concepts' Learner Model mastery
+ * (ADR-0010, SPEC story 41): any attempt — pass or fail — marks its
+ * concepts at least `introduced` (attributing the attempt to the learner
+ * and concept even on failure, per this ticket's acceptance criteria);
+ * completing the exercise (Stage 1 pass, and Stage 2 pass wherever the
+ * exercise has a rubric) additionally advances them to `practiced`.
+ * Hardcoded seed exercises have no `exercise_concepts` rows and this is a
+ * no-op for them.
+ */
+async function advanceMasteryOnAttempt(input: {
+  learnerId: string
+  exerciseId: string
+  stage1Passed: boolean
+  stage2Review: Stage2Review | null
+}): Promise<void> {
+  const conceptIds = await getExerciseConceptIds(input.exerciseId)
+  if (conceptIds.length === 0) return
+
+  await advanceMastery(input.learnerId, conceptIds, 'introduced')
+
+  const completed =
+    input.stage1Passed &&
+    (input.stage2Review === null || input.stage2Review.passed)
+  if (completed) {
+    await advanceMastery(input.learnerId, conceptIds, 'practiced')
+  }
+}
+
+/**
+ * Runs one attempt through the sandbox of the exercise's language and
+ * persists it (ADR-0010: merges the walking skeleton's `submissions` +
+ * `results` into `attempts`). The caller resolves the current learner once
+ * and passes the id down (ADR-0014).
  *
  * On Stage 1 failure the AI Teacher Engine generates a Level 0 Socratic hint
  * (empty prior-hints list for a fresh attempt); the hint only accompanies the
@@ -210,6 +279,8 @@ export async function getAvailableExercises(): Promise<Exercise[]> {
  *
  * On Stage 1 success with a rubric-bearing exercise, the submission is
  * reviewed against the rubric (Stage 2, issue #6) — see `runStage2Review`.
+ * Either way, the attempt's concepts advance in the Learner Model
+ * (`advanceMasteryOnAttempt`) before the result reaches the caller.
  */
 export async function submitExercise(input: {
   exerciseId: string
@@ -226,34 +297,54 @@ export async function submitExercise(input: {
     }),
   )
 
-  const [submission] = await db
-    .insert(submissions)
+  const timeToSolution = await computeTimeToSolutionSeconds(
+    input.learnerId,
+    exercise.id,
+  )
+
+  const [attempt] = await db
+    .insert(attempts)
     .values({
       learnerId: input.learnerId,
       exerciseId: exercise.id,
       code: input.code,
+      outcome: sandboxResult.passed ? 'pass' : 'fail',
+      timeToSolution,
+      compilerErrors: {
+        tests: sandboxResult.tests,
+        message: sandboxResult.message ?? null,
+      },
     })
     .returning()
 
-  if (!submission) {
-    throw new Error('The submission insert returned no row.')
+  if (!attempt) {
+    throw new Error('The attempt insert returned no row.')
   }
-
-  await db.insert(results).values({
-    submissionId: submission.id,
-    passed: sandboxResult.passed,
-    tests: sandboxResult.tests,
-    message: sandboxResult.message ?? null,
-  })
 
   if (sandboxResult.passed) {
+    const stage2Review = await runStage2Review(exercise, input.code)
+
+    await advanceMasteryOnAttempt({
+      learnerId: input.learnerId,
+      exerciseId: exercise.id,
+      stage1Passed: true,
+      stage2Review,
+    })
+
     return {
-      submissionId: submission.id,
+      attemptId: attempt.id,
       result: sandboxResult,
       hint: null,
-      stage2Review: await runStage2Review(exercise, input.code),
+      stage2Review,
     }
   }
+
+  await advanceMasteryOnAttempt({
+    learnerId: input.learnerId,
+    exerciseId: exercise.id,
+    stage1Passed: false,
+    stage2Review: null,
+  })
 
   let hint: Hint | null = null
   // Best-effort auto-hint: silently skipped when the exercise has no
@@ -278,15 +369,15 @@ export async function submitExercise(input: {
   }
 
   if (hint) {
-    await db.insert(submissionHints).values({
-      submissionId: submission.id,
+    await db.insert(attemptHints).values({
+      attemptId: attempt.id,
       hintLevel: hint.level,
       content: hint.content,
     })
   }
 
   return {
-    submissionId: submission.id,
+    attemptId: attempt.id,
     result: sandboxResult,
     hint,
     stage2Review: null,
@@ -333,13 +424,13 @@ async function runStage2Review(
  * recorded against the attempt (issue #4): the next action climbs Levels
  * 0-4 one at a time, and the full-solution action serves Level 5, only after
  * Level 4 was served. Requests against a passed attempt, a level past the
- * ladder, or a foreign submission are rejected. Concurrent requests that
+ * ladder, or a foreign attempt are rejected. Concurrent requests that
  * resolve the same level (two parallel reads of the same prior-hints list)
  * fail gracefully as `HINT_ESCALATION_INVALID` instead of surfacing a raw
- * unique-violation on the `submission_hints_level_unique` index (issue #55).
+ * unique-violation on the `attempt_hints_level_unique` index (issue #55).
  */
 export async function requestHint(input: {
-  submissionId: string
+  attemptId: string
   action: HintRequestAction
   learnerId: string
 }): Promise<RequestHintOutput> {
@@ -369,16 +460,16 @@ export async function requestHint(input: {
   })
 
   const inserted = await db
-    .insert(submissionHints)
+    .insert(attemptHints)
     .values({
-      submissionId: input.submissionId,
+      attemptId: input.attemptId,
       hintLevel: hint.level,
       content: hint.content,
     })
     .onConflictDoNothing({
-      target: [submissionHints.submissionId, submissionHints.hintLevel],
+      target: [attemptHints.attemptId, attemptHints.hintLevel],
     })
-    .returning({ id: submissionHints.id })
+    .returning({ id: attemptHints.id })
 
   if (inserted.length === 0) {
     throw new ExerciseError('HINT_ESCALATION_INVALID')

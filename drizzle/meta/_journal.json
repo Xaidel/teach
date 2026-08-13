@@ -57,6 +57,20 @@
       "when": 1786611032959,
       "tag": "0007_shocking_firebird",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1786619789305,
+      "tag": "0008_learner-model-mastery-attempts",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786619830229,
+      "tag": "0009_rekey-drop-submissions-results-hints",
+      "breakpoints": true
     }
   ]
 }

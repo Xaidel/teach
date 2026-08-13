@@ -41,13 +41,13 @@ export type SubmitExerciseInput = z.infer<typeof SubmitExerciseInputSchema>
  * Output of a submission: the deterministic Sandbox Result, plus a Socratic
  * hint when Stage 1 failed and the AI Teacher Engine produced one. The hint
  * is never the pass/fail authority — `result.passed` always is (issue #3).
- * `submissionId` anchors later manual hint requests against the attempt
- * (issue #4). `stage2Review` carries the qualitative review when Stage 1
- * passed and the exercise has a rubric (issue #6); it is null when Stage 2
- * does not apply.
+ * `attemptId` anchors later manual hint requests against the attempt
+ * (issue #4, ADR-0010). `stage2Review` carries the qualitative review when
+ * Stage 1 passed and the exercise has a rubric (issue #6); it is null when
+ * Stage 2 does not apply.
  */
 export type SubmitExerciseOutput = {
-  submissionId: string
+  attemptId: string
   result: SandboxResult
   hint: Hint | null
   stage2Review: Stage2Review | null
@@ -82,7 +82,7 @@ export type HintRequestAction = z.infer<typeof HintRequestActionSchema>
 
 /** Input for requesting another hint on a persisted exercise attempt. */
 export const RequestHintInputSchema = z.object({
-  submissionId: z.uuid(),
+  attemptId: z.uuid(),
   action: HintRequestActionSchema,
 })
 

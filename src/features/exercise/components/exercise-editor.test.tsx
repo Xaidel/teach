@@ -34,7 +34,7 @@ describe('ExerciseEditor', () => {
   it('prefills the editor with starter code and submits it', async () => {
     const user = userEvent.setup()
     submitMock.mockResolvedValue({
-      submissionId: 's1',
+      attemptId: 's1',
       result: { passed: true, tests: [] },
       hint: null,
       stage2Review: null,
@@ -58,7 +58,7 @@ describe('ExerciseEditor', () => {
   it('shows the result after editing the code', async () => {
     const user = userEvent.setup()
     submitMock.mockResolvedValue({
-      submissionId: 's1',
+      attemptId: 's1',
       result: {
         passed: false,
         tests: [{ name: 'handles_zero', status: 'failed' }],
@@ -86,7 +86,7 @@ describe('ExerciseEditor', () => {
   it('shows the socratic hint when stage 1 fails and a hint is produced', async () => {
     const user = userEvent.setup()
     submitMock.mockResolvedValue({
-      submissionId: 's1',
+      attemptId: 's1',
       result: {
         passed: false,
         tests: [{ name: 'handles_zero', status: 'failed' }],
@@ -125,7 +125,7 @@ describe('ExerciseEditor', () => {
   it('requests the next hint level against the attempt submission', async () => {
     const user = userEvent.setup()
     submitMock.mockResolvedValue({
-      submissionId: 's1',
+      attemptId: 's1',
       result: {
         passed: false,
         tests: [{ name: 'handles_zero', status: 'failed' }],
@@ -147,7 +147,7 @@ describe('ExerciseEditor', () => {
     )
 
     expect(requestHintMock).toHaveBeenCalledWith({
-      data: { submissionId: 's1', action: 'next' },
+      data: { attemptId: 's1', action: 'next' },
     })
     expect(
       await screen.findByText('Check the remainder operation.'),
@@ -158,7 +158,7 @@ describe('ExerciseEditor', () => {
   it('offers the full solution through a distinct action after Level 4', async () => {
     const user = userEvent.setup()
     submitMock.mockResolvedValue({
-      submissionId: 's1',
+      attemptId: 's1',
       result: {
         passed: false,
         tests: [{ name: 'handles_zero', status: 'failed' }],
@@ -188,7 +188,7 @@ describe('ExerciseEditor', () => {
     )
 
     expect(requestHintMock).toHaveBeenCalledWith({
-      data: { submissionId: 's1', action: 'full_solution' },
+      data: { attemptId: 's1', action: 'full_solution' },
     })
     expect(
       await screen.findByText('pub fn is_even(n: u32) -> bool { n % 2 == 0 }', {
@@ -201,7 +201,7 @@ describe('ExerciseEditor', () => {
   it('hides the next-level request when the attempt passed', async () => {
     const user = userEvent.setup()
     submitMock.mockResolvedValue({
-      submissionId: 's1',
+      attemptId: 's1',
       result: {
         passed: true,
         tests: [{ name: 'handles_zero', status: 'passed' }],
@@ -228,7 +228,7 @@ describe('ExerciseEditor', () => {
   it('shows a failure message when the hint cannot be generated', async () => {
     const user = userEvent.setup()
     submitMock.mockResolvedValue({
-      submissionId: 's1',
+      attemptId: 's1',
       result: {
         passed: false,
         tests: [{ name: 'handles_zero', status: 'failed' }],
