@@ -10,9 +10,13 @@ import { isSandboxLanguage } from '#/lib/sandbox/types'
 // "Feature Dependencies" exception): assessing a concept requires the
 // Concept Graph's definition of it (prerequisites/related) and the
 // deterministic usability gate — one-way, `concepts` never imports back
-// from `explanation-assessment`. The `UsableConceptGraph` type import is
-// covered by the same exception (type-only, runtime-safe).
+// from `explanation-assessment`.
 import { getUsableConceptGraph } from '#/features/concepts/concepts.server'
+// `UsableConceptGraph` is imported as a type only, from `concepts.schema.ts`
+// rather than `concepts.server.ts`: the schema file has no `#/db` or other
+// server-only import, so the type is erased at compile time and carries none
+// of the bundling risk the `*.server.ts`-to-`*.server.ts` exception in
+// `arch_docs/dependency-rules.md` is written to guard against.
 import type { UsableConceptGraph } from '#/features/concepts/concepts.schema'
 // Same exception: the assessment's pass feeds the Learner Model's
 // Practiced → Demonstrated gate (ADR-0015), so this feature reports through

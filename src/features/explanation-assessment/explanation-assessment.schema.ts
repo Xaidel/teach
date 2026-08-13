@@ -5,10 +5,8 @@ import type { AnalyzeMisconceptionsOutput } from '#/lib/ai/schemas'
 // mastery states (ADR-0010, SPEC story 41) for display only — importing the
 // single source keeps this browser-reachable schema module from duplicating
 // (and drifting from) the ordering `learners` and `tactical-sprint` use.
-import { MASTERY_STATES, type MasteryState } from '#/lib/mastery-states'
+import type { MasteryState } from '#/lib/mastery-states'
 import type { SandboxLanguage } from '#/lib/sandbox/types'
-
-export { MASTERY_STATES }
 
 /**
  * Input to submitting an Explanation Assessment (SPEC stories 44-45, issue

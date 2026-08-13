@@ -58,10 +58,10 @@ We will:
    the sandbox run passed, `fail` otherwise — exactly what `results.passed`
    recorded pre-rekey. A Stage 2 rubric violation is reported to the learner
    through `stage2Review` and does not flip `outcome`; hint eligibility
-    (`requestHint`) keys off this same Stage 1 verdict, unchanged from the
-    walking skeleton's behavior. Explain-mode attempts (Explanation
-    Assessment, #16) are amended by [ADR-0026](./0026-explain-mode-attempts-null-outcome.md):
-    they write NULL, having no Stage 1 sandbox verdict.
+   (`requestHint`) keys off this same Stage 1 verdict, unchanged from the
+   walking skeleton's behavior. Explain-mode attempts (Explanation
+   Assessment, #16) are amended by [ADR-0026](./0026-explain-mode-attempts-null-outcome.md):
+   they write NULL, having no Stage 1 sandbox verdict.
 3. **`attempts.compiler_errors` carries the full Sandbox Result diagnostic**,
    `{ tests: SandboxTest[], message: string | null }` — the same detail
    `results` split across its `tests` and `message` columns, on every attempt
