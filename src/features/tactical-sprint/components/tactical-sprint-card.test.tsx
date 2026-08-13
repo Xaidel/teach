@@ -48,6 +48,7 @@ const RESULT: TacticalSprintResult = {
       title: 'Fix the lifetime',
       prompt: 'Fill in the body.',
       starterCode: 'pub fn f() -> u32 { 0 }',
+      guidance: 'guided',
     },
     conceptSlug: 'rust.lifetimes',
     targetConcepts: ['rust.lifetimes'],

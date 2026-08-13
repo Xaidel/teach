@@ -1,0 +1,1 @@
+ALTER TABLE "exercises" ADD COLUMN "sprint_scoped" boolean DEFAULT false NOT NULL;

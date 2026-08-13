@@ -68,6 +68,18 @@ export const exerciseMode = pgEnum('exercise_mode', [
 ])
 
 /**
+ * Exercise guidance discriminator (issue #14, Class A curriculum steps):
+ * `guided` exercises are served with the full Socratic hint ladder; an
+ * `independent` exercise is served without hints — the learner must solve
+ * it on their own. Guidance is orthogonal to `mode`: it is a step-level
+ * property of how the exercise is presented, not of what is evaluated.
+ */
+export const exerciseGuidance = pgEnum('exercise_guidance', [
+  'guided',
+  'independent',
+])
+
+/**
  * Learner Model mastery state (ADR-0010, SPEC story 41): Unknown is the
  * implicit absence of a `learner_concept_mastery` row, not a stored value —
  * a row is created no earlier than `introduced`, on a concept's first
@@ -157,6 +169,14 @@ export const exercises = pgTable(
     evaluationRubric: jsonb('evaluation_rubric').$type<EvaluationRubric>(),
     defect: jsonb('defect').$type<ExerciseDefect>(),
     mode: exerciseMode('mode').notNull().default('implement'),
+    guidance: exerciseGuidance('guidance').notNull().default('guided'),
+    // Set exclusively by Tactical Sprint (Class B, ticket #13, issue #14
+    // Round 3): Class B is deliberately exempt from the Class A no-skip-
+    // ahead gate (SPEC story 8 — a passed sprint accelerates the curriculum,
+    // it doesn't wait for it), and the exemption on submission has to be
+    // read back from the persisted row rather than a submission-time input,
+    // or any learner could set it themselves to bypass the gate.
+    sprintScoped: boolean('sprint_scoped').notNull().default(false),
     difficulty: integer('difficulty').notNull(),
     constraints: jsonb('constraints').$type<string[]>(),
     status: exerciseStatus('status').notNull().default('pending'),

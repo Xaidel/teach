@@ -26,6 +26,10 @@ export function ExerciseEditor({
   const [isHintPending, setIsHintPending] = useState(false)
   const codeInputId = `exercise-code-${exercise.slug}`
   const codeErrorId = `exercise-code-error-${exercise.slug}`
+  // An independent exercise (issue #14's curriculum step) is solved without
+  // Socratic scaffolding: the hint affordance is not rendered, and the
+  // server rejects hint requests for it regardless of the UI.
+  const hintsDisabled = exercise.guidance === 'independent'
 
   async function handleSubmit(
     event: React.SyntheticEvent<HTMLFormElement>,
@@ -109,10 +113,20 @@ export function ExerciseEditor({
         <ResultPanel
           hint={outcome.hint}
           isHintPending={isHintPending}
-          onRequestHint={handleHintRequest}
+          {...(hintsDisabled
+            ? {}
+            : {
+                onRequestHint: (action: HintRequestAction) =>
+                  void handleHintRequest(action),
+              })}
           result={outcome.result}
           stage2Review={outcome.stage2Review}
         />
+      ) : null}
+      {hintsDisabled ? (
+        <p className="text-xs text-muted-foreground">
+          Independent exercise — hints are disabled for this step.
+        </p>
       ) : null}
     </form>
   )

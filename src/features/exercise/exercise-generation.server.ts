@@ -30,7 +30,14 @@ import type {
   ExerciseGenerationLanguage,
   GenerateExerciseOutput,
 } from './exercise-generation.schema'
+// Deliberate, documented cross-feature dependency (arch_docs/dependency-rules.md
+// "Feature Dependencies" exception): the no-skip-ahead gate (issue #14, AC 4)
+// is owned by the Concept Graph, so exercise generation depends one-way on
+// the single named entry point `concepts/concepts.server.ts` exposes for it.
+// `concepts` never imports back from `exercise`, so the graph stays acyclic.
+import { assertPrerequisitesPracticed } from '../concepts/concepts.server'
 import { parseSandboxResult } from './exercise.schema'
+import type { ExerciseGuidance } from './exercise.schema'
 import { rowToExercise } from './exercise.server'
 
 /**
@@ -156,6 +163,8 @@ async function persistVerifiedExercise(input: {
   attemptNumber: number
   diagnostics: PreFlightDiagnostics
   mode: 'implement' | 'debug'
+  guidance: ExerciseGuidance
+  sprintScoped: boolean
 }): Promise<GenerateExerciseOutput & { kind: 'generated' }> {
   // Persist only the join rows whose concepts exist in the graph; the
   // requested concept is guaranteed among them.
@@ -189,6 +198,8 @@ async function persistVerifiedExercise(input: {
         referenceSolution: input.generated.referenceSolution,
         evaluationRubric: input.generated.evaluation.rubric,
         mode: input.mode,
+        guidance: input.guidance,
+        sprintScoped: input.sprintScoped,
         difficulty: input.generated.difficulty,
         constraints: input.generated.constraints,
         status: 'verified',
@@ -246,14 +257,31 @@ async function persistVerifiedExercise(input: {
  * new Pre-Flight run happens, because the row was verified when it entered
  * the bank. Most recent first, so repeat generations of the same concept
  * keep surfacing the newest verified exercise.
+ *
+ * The fallback preserves the requested `guidance` (issue #14): a guided
+ * slot may only fall back to a guided row and an independent slot to an
+ * independent row — an independent slot served a guided row would carry
+ * working hints, and vice versa. Adversarial `mode` stays selection-agnostic
+ * exactly as before (SPEC story 34's contract is that a learner is never
+ * blocked by a failed generation, not that the fallback preserves the
+ * requested mode); a stored adversarial row it serves is still labeled via
+ * its persisted defect (issue #120). The same preservation applies to
+ * `sprintScoped` (issue #14 Round 3): crossing it either direction would
+ * reopen the no-skip-ahead gate exemption as a bypass — a non-sprint
+ * request must never be served a gate-exempt row, and a sprint request must
+ * never silently lose the exemption on its own served row.
  */
 async function findVerifiedFallback(input: {
   conceptId: string
   conceptSlug: string
+  guidance: ExerciseGuidance
+  sprintScoped: boolean
 }): Promise<GenerateExerciseOutput | null> {
   const row = await db.query.exercises.findFirst({
     where: and(
       eq(exercises.status, 'verified'),
+      eq(exercises.guidance, input.guidance),
+      eq(exercises.sprintScoped, input.sprintScoped),
       inArray(
         exercises.id,
         db
@@ -311,13 +339,37 @@ async function findVerifiedFallback(input: {
  * mode-agnostic in selection (SPEC story 34's contract is that a learner
  * is never blocked by a failed generation, not that the fallback preserves
  * the requested mode) — but a stored adversarial row it serves carries its
- * persisted defect, so the card labels it consistently (issue #120).
+ * persisted defect, so the card labels it consistently (issue #120). The
+ * fallback's selection *does* preserve the requested `guidance` (issue
+ * #14), so a step slot never silently crosses the guided/independent
+ * boundary.
+ *
+ * The no-skip-ahead gate (issue #14, AC 4) runs before any AI call: the
+ * learner's mastery of this concept's prerequisites in the usable graph is
+ * checked server-side, so no surface — including the standalone generation
+ * card — can mint an exercise for a concept the learner may not practice
+ * yet. `learnerId` scopes that check.
+ *
+ * `sprintScoped` exempts the call from that gate (issue #14 Round 3): Class
+ * B (Tactical Sprint, ticket #13) is deliberately allowed to reach concepts
+ * out of curriculum order (SPEC story 8 — a passed sprint accelerates the
+ * curriculum, it doesn't wait for it). AC4 is a Class A acceptance
+ * criterion; it was never meant to gate Class B's own, different mechanism.
+ * `sprintScoped` is absent from `GenerateExerciseForConceptInputSchema` —
+ * the standalone card's client-validated input — specifically so this
+ * exemption can only be reached through `runTacticalSprint`'s own direct
+ * call, never through a client-controlled request. The exemption is
+ * persisted onto the generated row (`persistVerifiedExercise`) so
+ * `submitExercise` can honor the same exemption later without trusting a
+ * submission-time flag (which a learner could set on any exercise).
  */
 export async function generateExerciseForConcept(input: {
   language: string
   conceptSlug: string
+  learnerId: string
   adversarial?: boolean | undefined
   sprintScoped?: boolean | undefined
+  guidance?: ExerciseGuidance | undefined
 }): Promise<GenerateExerciseOutput> {
   if (!isExerciseGenerationLanguage(input.language)) {
     throw new GenerationError('EXERCISE_GENERATION_UNSUPPORTED')
@@ -333,6 +385,15 @@ export async function generateExerciseForConcept(input: {
     throw new GenerationError('CONCEPT_NOT_FOUND')
   }
 
+  if (!input.sprintScoped) {
+    await assertPrerequisitesPracticed({
+      learnerId: input.learnerId,
+      language: input.language,
+      conceptIds: [concept.id],
+    })
+  }
+
+  const guidance = input.guidance ?? 'guided'
   let previousDiagnostics: PreFlightDiagnosticsInput | undefined
   for (
     let attemptNumber = 1;
@@ -349,6 +410,7 @@ export async function generateExerciseForConcept(input: {
       simplifiedConstraints: false,
       adversarial: input.adversarial,
       sprintScoped: input.sprintScoped,
+      guidance,
     })
     if (attempt.kind === 'succeeded') {
       return attempt.outcome
@@ -360,6 +422,8 @@ export async function generateExerciseForConcept(input: {
   const fallback = await findVerifiedFallback({
     conceptId: concept.id,
     conceptSlug: input.conceptSlug,
+    guidance,
+    sprintScoped: input.sprintScoped ?? false,
   })
   if (fallback) {
     return fallback
@@ -377,6 +441,7 @@ export async function generateExerciseForConcept(input: {
     simplifiedConstraints: true,
     adversarial: input.adversarial,
     sprintScoped: input.sprintScoped,
+    guidance,
   })
   if (finalAttempt.kind === 'succeeded') {
     return finalAttempt.outcome
@@ -406,6 +471,7 @@ async function runGenerationAttempt(input: {
   simplifiedConstraints: boolean
   adversarial: boolean | undefined
   sprintScoped: boolean | undefined
+  guidance: ExerciseGuidance
 }): Promise<
   | {
       kind: 'succeeded'
@@ -475,6 +541,8 @@ async function runGenerationAttempt(input: {
       attemptNumber: input.attemptNumber,
       diagnostics: preflight.diagnostics,
       mode: input.adversarial ? 'debug' : 'implement',
+      guidance: input.guidance,
+      sprintScoped: input.sprintScoped ?? false,
     }),
   }
 }

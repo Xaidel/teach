@@ -1,12 +1,20 @@
-import { inArray, sql } from 'drizzle-orm'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { and, eq, inArray, sql } from 'drizzle-orm'
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest'
 
 vi.mock('#/lib/ai/functions.server', () => ({
   draftConceptGraph: vi.fn(),
 }))
 
 import { db } from '#/db/client.server'
-import { conceptEdges, concepts } from '#/db/schema'
+import { conceptEdges, concepts, learnerConceptMastery } from '#/db/schema'
 import { TeacherEngineError } from '#/lib/ai/client.server'
 import { draftConceptGraph } from '#/lib/ai/functions.server'
 import type {
@@ -15,10 +23,13 @@ import type {
   DraftConceptGraphOutput,
 } from '#/lib/ai/schemas'
 
+import { getCurrentLearnerId } from '../learners/learners.server'
+import { advanceMastery } from '../learners/mastery.server'
 import { ConceptError } from './concepts.schema'
 import type { UsableConceptGraph } from './concepts.schema'
 import {
   addConceptEdge,
+  assertPrerequisitesPracticed,
   draftConcepts,
   draftFocusedConcept,
   getConceptReview,
@@ -107,6 +118,18 @@ afterEach(async () => {
     .where(inArray(concepts.slug, [...TEST_SLUGS]))
   const ids = testConceptIds.map((row) => row.id)
   if (ids.length > 0) {
+    // Scoped to this suite's fixture concepts: the seeded learner is shared
+    // with other DB suites (issue #115), and a learner-wide delete would
+    // clobber their mastery rows under file-parallel execution.
+    const learnerId = await getCurrentLearnerId()
+    await db
+      .delete(learnerConceptMastery)
+      .where(
+        and(
+          eq(learnerConceptMastery.learnerId, learnerId),
+          inArray(learnerConceptMastery.conceptId, ids),
+        ),
+      )
     await db
       .delete(conceptEdges)
       .where(
@@ -598,5 +621,140 @@ describe.skipIf(!dbUp)('concept review mutations against Postgres', () => {
         kind: 'prerequisite',
       }),
     ).rejects.toMatchObject({ code: 'CONCEPT_EDGE_NOT_FOUND' })
+  })
+})
+
+describe.skipIf(!dbUp)('no-skip-ahead gate (issue #14, AC 4)', () => {
+  let learnerId: string
+
+  beforeAll(async () => {
+    learnerId = await getCurrentLearnerId()
+  })
+
+  it('passes trivially for concepts with no prerequisites', async () => {
+    const aId = await insertConcept('test.graph.a')
+    const bId = await insertConcept('test.graph.b')
+    // A `related` edge is never a gate (issue #14: only prerequisite edges
+    // order or gate the curriculum).
+    await insertEdge(aId, bId, 'related')
+
+    await expect(
+      assertPrerequisitesPracticed({
+        learnerId,
+        language: 'rust',
+        conceptIds: [bId],
+      }),
+    ).resolves.toBeUndefined()
+  })
+
+  it('rejects a concept whose prerequisite is below Practiced', async () => {
+    const aId = await insertConcept('test.graph.a')
+    const bId = await insertConcept('test.graph.b')
+    await insertEdge(aId, bId, 'prerequisite')
+
+    // No mastery rows at all — the prerequisite is Unknown.
+    await expect(
+      assertPrerequisitesPracticed({
+        learnerId,
+        language: 'rust',
+        conceptIds: [bId],
+      }),
+    ).rejects.toMatchObject({ code: 'PREREQUISITES_NOT_PRACTICED' })
+
+    // Introduced is still below Practiced — only a full pass unlocks.
+    await advanceMastery(learnerId, [aId], 'introduced')
+    await expect(
+      assertPrerequisitesPracticed({
+        learnerId,
+        language: 'rust',
+        conceptIds: [bId],
+      }),
+    ).rejects.toMatchObject({ code: 'PREREQUISITES_NOT_PRACTICED' })
+  })
+
+  it('passes once every prerequisite is Practiced or better', async () => {
+    const aId = await insertConcept('test.graph.a')
+    const bId = await insertConcept('test.graph.b')
+    await insertEdge(aId, bId, 'prerequisite')
+    await advanceMastery(learnerId, [aId], 'practiced')
+
+    await expect(
+      assertPrerequisitesPracticed({
+        learnerId,
+        language: 'rust',
+        conceptIds: [bId],
+      }),
+    ).resolves.toBeUndefined()
+
+    // Retained (above Practiced) satisfies the gate too.
+    const cId = await insertConcept('test.graph.c')
+    await insertEdge(bId, cId, 'prerequisite')
+    await advanceMastery(learnerId, [bId], 'retained')
+
+    await expect(
+      assertPrerequisitesPracticed({
+        learnerId,
+        language: 'rust',
+        conceptIds: [cId],
+      }),
+    ).resolves.toBeUndefined()
+  })
+
+  it('requires every concept in the batch to be unlocked', async () => {
+    const aId = await insertConcept('test.graph.a')
+    const bId = await insertConcept('test.graph.b')
+    const cId = await insertConcept('test.graph.c')
+    await insertEdge(aId, bId, 'prerequisite')
+    await advanceMastery(learnerId, [aId], 'practiced')
+
+    // `bId` is unlocked, `cId` has no prerequisites at all — the batch
+    // passes. Adding a gated concept must fail the whole batch (a
+    // multi-concept exercise advances every linked concept, so all must be
+    // gate-safe).
+    await expect(
+      assertPrerequisitesPracticed({
+        learnerId,
+        language: 'rust',
+        conceptIds: [bId, cId],
+      }),
+    ).resolves.toBeUndefined()
+
+    const dId = await insertConcept('test.graph.d')
+    await insertEdge(cId, dId, 'prerequisite')
+
+    await expect(
+      assertPrerequisitesPracticed({
+        learnerId,
+        language: 'rust',
+        conceptIds: [bId, dId],
+      }),
+    ).rejects.toMatchObject({ code: 'PREREQUISITES_NOT_PRACTICED' })
+  })
+
+  it('passes trivially for an empty batch', async () => {
+    await expect(
+      assertPrerequisitesPracticed({
+        learnerId,
+        language: 'rust',
+        conceptIds: [],
+      }),
+    ).resolves.toBeUndefined()
+  })
+
+  it('ignores prerequisites excluded from the usable graph', async () => {
+    const aId = await insertConcept('test.graph.a')
+    const bId = await insertConcept('test.graph.b')
+    // A cycle edge is excluded from the usable projection (the prerequisite
+    // subgraph must stay a DAG), so it never gates.
+    await insertEdge(aId, bId, 'prerequisite')
+    await insertEdge(bId, aId, 'prerequisite')
+
+    await expect(
+      assertPrerequisitesPracticed({
+        learnerId,
+        language: 'rust',
+        conceptIds: [bId],
+      }),
+    ).resolves.toBeUndefined()
   })
 })

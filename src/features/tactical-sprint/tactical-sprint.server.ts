@@ -124,6 +124,15 @@ function pickWeakest(candidates: RankedConcept[]): RankedConcept {
  * through the exact same Stage 1 -> Stage 2 -> Learner Model pipeline as
  * any other exercise (AC 5), nothing sprint-specific downstream of
  * generation.
+ *
+ * The weakest concept picked here may have Class A curriculum
+ * prerequisites the learner hasn't Practiced yet — that's expected, not an
+ * error (SPEC story 8: a passed sprint accelerates the curriculum, it
+ * doesn't wait for it). `sprintScoped: true` exempts both this generation
+ * call and the exercise's later submission from Class A's no-skip-ahead
+ * gate (issue #14, AC 4 — a Class A criterion Class B was never meant to be
+ * bound by); see `generateExerciseForConcept`'s doc comment for how the
+ * exemption stays safe from a client-controlled bypass.
  */
 export async function runTacticalSprint(input: {
   learnerId: string
@@ -197,6 +206,7 @@ export async function runTacticalSprint(input: {
   const exercise = await generateExerciseForConcept({
     language: input.language,
     conceptSlug: weakest.slug,
+    learnerId: input.learnerId,
     sprintScoped: true,
   })
 

@@ -17,6 +17,25 @@ export {
   type SandboxTestStatus,
 } from '#/lib/sandbox/types'
 
+/**
+ * The guidance discriminator values (issue #14, Class A curriculum steps):
+ * `guided` exercises are served with the full Socratic hint ladder; an
+ * `independent` exercise is served without hints. Defined once here — the
+ * `exercise` feature owns the Exercise shape — and shared by every schema
+ * and server module that accepts or carries a guidance value.
+ */
+export const EXERCISE_GUIDANCE = ['guided', 'independent'] as const
+
+export type ExerciseGuidance = (typeof EXERCISE_GUIDANCE)[number]
+
+/** Runtime validation for guidance values from untrusted input. */
+export const ExerciseGuidanceSchema = z.enum(EXERCISE_GUIDANCE)
+
+/** Narrowing guard for guidance values from untrusted input. */
+export function isExerciseGuidance(value: string): value is ExerciseGuidance {
+  return (EXERCISE_GUIDANCE as readonly string[]).includes(value)
+}
+
 /** One exercise a learner can attempt, as exposed to routes and browser UI. */
 export const ExerciseSchema = z.object({
   id: z.string().min(1),
@@ -25,6 +44,11 @@ export const ExerciseSchema = z.object({
   title: z.string().min(1),
   prompt: z.string().min(1),
   starterCode: z.string(),
+  /**
+   * Guidance discriminator (issue #14): `guided` exercises serve the
+   * Socratic hint ladder; `independent` exercises are solved without hints.
+   */
+  guidance: ExerciseGuidanceSchema,
 })
 
 export type Exercise = z.infer<typeof ExerciseSchema>
@@ -98,6 +122,7 @@ export type ExerciseErrorCode =
   | 'EXERCISE_NOT_FOUND'
   | 'EXERCISE_NOT_SUBMITTABLE'
   | 'EXERCISE_NOT_HINTABLE'
+  | 'EXERCISE_HINTS_DISABLED'
   | 'SANDBOX_RESULT_INVALID'
   | 'HINT_ESCALATION_INVALID'
 
@@ -107,6 +132,8 @@ const EXERCISE_ERROR_MESSAGES: Record<ExerciseErrorCode, string> = {
     'This exercise is not verified and cannot be submitted.',
   EXERCISE_NOT_HINTABLE:
     'This exercise has no reference solution and cannot serve hints.',
+  EXERCISE_HINTS_DISABLED:
+    'This is an independent exercise — hints are disabled.',
   SANDBOX_RESULT_INVALID:
     'The sandbox produced an invalid result; the submission was not persisted.',
   HINT_ESCALATION_INVALID:

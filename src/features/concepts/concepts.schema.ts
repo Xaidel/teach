@@ -178,6 +178,7 @@ export type ConceptErrorCode =
   | 'CONCEPT_EDGE_CONFLICT'
   | 'CONCEPT_EDGE_NOT_FOUND'
   | 'CONCEPT_DRAFT_FAILED'
+  | 'PREREQUISITES_NOT_PRACTICED'
 
 const CONCEPT_ERROR_MESSAGES: Record<ConceptErrorCode, string> = {
   CONCEPT_NOT_FOUND: 'Concept not found.',
@@ -189,6 +190,8 @@ const CONCEPT_ERROR_MESSAGES: Record<ConceptErrorCode, string> = {
   CONCEPT_EDGE_CONFLICT: 'That edge already exists.',
   CONCEPT_EDGE_NOT_FOUND: 'That edge does not exist.',
   CONCEPT_DRAFT_FAILED: 'The Concept Graph draft could not be generated.',
+  PREREQUISITES_NOT_PRACTICED:
+    "This concept's prerequisites are not all Practiced yet — complete the earlier steps first.",
 }
 
 /** Safe error surfaced by Concept Graph server boundaries. */

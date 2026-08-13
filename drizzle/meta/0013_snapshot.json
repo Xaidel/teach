@@ -1,6 +1,6 @@
 {
-  "id": "2b353a6a-dbca-47e5-887b-2b73696f86e4",
-  "prevId": "4b01638a-16c0-453d-8175-71cf0fefea7a",
+  "id": "76a52600-8677-44d6-91ce-0c5862bf99a2",
+  "prevId": "99979af2-948c-4442-86c3-22a3f55b6915",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -137,7 +137,7 @@
           "type": "attempt_outcome",
           "typeSchema": "public",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "time_to_solution": {
           "name": "time_to_solution",
@@ -147,12 +147,6 @@
         },
         "compiler_errors": {
           "name": "compiler_errors",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "explanation_assessment": {
-          "name": "explanation_assessment",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
@@ -534,6 +528,21 @@
           "notNull": true,
           "default": "'implement'"
         },
+        "guidance": {
+          "name": "guidance",
+          "type": "exercise_guidance",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'guided'"
+        },
+        "sprint_scoped": {
+          "name": "sprint_scoped",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
         "difficulty": {
           "name": "difficulty",
           "type": "integer",
@@ -814,6 +823,14 @@
       "values": [
         "draft",
         "approved"
+      ]
+    },
+    "public.exercise_guidance": {
+      "name": "exercise_guidance",
+      "schema": "public",
+      "values": [
+        "guided",
+        "independent"
       ]
     },
     "public.exercise_mode": {

@@ -15,6 +15,15 @@ import {
 // only reports the two outcome booleans; `learners` never imports back from
 // `exercise`, so the graph stays acyclic.
 import { recordAttemptOutcome } from '#/features/learners/mastery.server'
+// Same exception: `getExerciseConceptIds` resolves an exercise's Concept
+// Graph concepts for the no-skip-ahead gate (issue #14, AC 4) — the same
+// lookup the mastery transition itself uses.
+import { getExerciseConceptIds } from '#/features/learners/mastery.server'
+// Same exception: the no-skip-ahead gate (issue #14, AC 4) is owned by the
+// Concept Graph, so submission depends one-way on the single named entry
+// point `concepts/concepts.server.ts` exposes for it. `concepts` never
+// imports back from `exercise`, so the graph stays acyclic.
+import { assertPrerequisitesPracticed } from '#/features/concepts/concepts.server'
 // Same exception: serving a hint is the one place a learner's explanation
 // preferences (issue #12) shape an AI Teacher Engine call, so `exercise`
 // depends one-way on the single named entry point `learners/learners.server.ts`
@@ -54,6 +63,13 @@ type ServerExercise = Exercise & {
   testSource: string
   referenceSolution: string | null
   evaluationRubric: EvaluationRubric | null
+  /**
+   * Whether this row was generated through Tactical Sprint (Class B, issue
+   * #14 Round 3) — exempts submission from the no-skip-ahead gate, the same
+   * exemption `generateExerciseForConcept` already applied at generation.
+   * Server-only: never exposed on the client-facing `Exercise` shape.
+   */
+  sprintScoped: boolean
 }
 
 type ExerciseRow = typeof exercises.$inferSelect
@@ -74,6 +90,7 @@ export function rowToExercise(row: ExerciseRow): Exercise {
     title: row.title,
     prompt: row.prompt,
     starterCode: row.starterCode,
+    guidance: row.guidance,
   }
 }
 
@@ -101,6 +118,7 @@ async function getExerciseById(exerciseId: string): Promise<ServerExercise> {
     testSource: row.testSource,
     referenceSolution: row.referenceSolution,
     evaluationRubric: row.evaluationRubric,
+    sprintScoped: row.sprintScoped,
   }
 }
 
@@ -137,6 +155,13 @@ async function getHintContext(input: {
   const row = rows[0]
   if (!row) {
     throw new ExerciseError('HINT_ESCALATION_INVALID')
+  }
+
+  // An independent exercise (issue #14's Class A curriculum step) is solved
+  // without any Socratic scaffolding: no hint level may ever be served for
+  // it, whatever the request claims.
+  if (row.exercise.guidance === 'independent') {
+    throw new ExerciseError('EXERCISE_HINTS_DISABLED')
   }
 
   const priorHints = await db
@@ -270,6 +295,24 @@ export async function submitExercise(input: {
 }): Promise<SubmitExerciseOutput> {
   const exercise = await getExerciseById(input.exerciseId)
 
+  // The no-skip-ahead gate (issue #14, AC 4), enforced on submission too:
+  // a banked exercise for a concept whose prerequisites aren't Practiced
+  // must not be submittable — passing it would advance the Learner Model
+  // to `practiced` out of order and flip the curriculum step to complete.
+  // Hardcoded v1 seeds carry no concept links and pass trivially. A
+  // Tactical Sprint (Class B) exercise is exempt (issue #14 Round 3) — the
+  // same exemption generation already applied — read from the persisted
+  // row rather than a submission-time input, since a learner-supplied flag
+  // here would let anyone bypass the gate on any exercise.
+  const conceptIds = await getExerciseConceptIds(exercise.id)
+  if (conceptIds.length > 0 && !exercise.sprintScoped) {
+    await assertPrerequisitesPracticed({
+      learnerId: input.learnerId,
+      language: exercise.language,
+      conceptIds,
+    })
+  }
+
   const sandboxResult = parseSandboxResult(
     await runSandboxSubmission({
       language: exercise.language,
@@ -321,8 +364,13 @@ export async function submitExercise(input: {
   let hint: Hint | null = null
   // Best-effort auto-hint: silently skipped when the exercise has no
   // reference solution (unlike requestHint's explicit EXERCISE_NOT_HINTABLE),
-  // because a failed submission must still be recorded and returned.
-  if (exercise.referenceSolution !== null) {
+  // because a failed submission must still be recorded and returned. Also
+  // skipped for independent exercises — issue #14's curriculum step makes
+  // them hint-free, so no automatic scaffolding may reach them either.
+  if (
+    exercise.referenceSolution !== null &&
+    exercise.guidance !== 'independent'
+  ) {
     try {
       const preferences = await getExplanationPreferences(input.learnerId)
       hint = await generateHint({
