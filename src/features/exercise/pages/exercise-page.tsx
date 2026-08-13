@@ -1,4 +1,4 @@
-import { Link, getRouteApi } from '@tanstack/react-router'
+import { getRouteApi, Link } from '@tanstack/react-router'
 import { useEffect, useRef } from 'react'
 
 import type { ExplanationPreferences } from '#/features/learners/learners.schema'
@@ -67,9 +67,17 @@ export function ExercisePage(): React.JSX.Element {
               language&apos;s real test toolchain.
             </p>
           </div>
-          <p className="text-sm font-semibold text-muted-foreground md:pb-1">
-            {String(data.exercises.length)} exercises · {languages || 'none'}
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-3 md:pb-1">
+            <p className="text-sm font-semibold text-muted-foreground">
+              {String(data.exercises.length)} exercises · {languages || 'none'}
+            </p>
+            <Link
+              className="text-sm font-semibold text-primary hover:text-primary/80"
+              to="/curriculum"
+            >
+              Class A — Structured Path →
+            </Link>
+          </div>
         </div>
         <Link
           className="w-fit text-sm font-semibold text-primary underline"

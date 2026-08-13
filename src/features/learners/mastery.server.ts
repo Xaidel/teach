@@ -23,6 +23,42 @@ export const MASTERY_STATE_ORDER: Record<MasteryState, number> = {
   retained: 4,
 }
 
+/**
+ * The mastery states that satisfy a prerequisite (SPEC story 41, issue #14):
+ * the Learner Model's definition of "Practiced or better", shared by every
+ * caller that gates on it (the curriculum's no-skip-ahead rule, AC 4).
+ */
+export const PRACTICED_OR_BETTER: readonly MasteryState[] = [
+  'practiced',
+  'demonstrated',
+  'retained',
+]
+
+/** Whether a mastery state counts as Practiced (the curriculum's gate). */
+export function isPracticedOrBetter(state: MasteryState): boolean {
+  return PRACTICED_OR_BETTER.includes(state)
+}
+
+/**
+ * Whether every one of these concept ids is Practiced or better in an
+ * already-loaded mastery map (issue #14, AC 4) — the shared "all
+ * prerequisites Practiced" predicate over data the caller already fetched.
+ * Two callers share this exact shape: `concepts.server.ts`'s
+ * `assertPrerequisitesPracticed` (the no-skip-ahead gate, which loads the
+ * graph and mastery itself) and `curriculum.server.ts`'s `buildCurriculum`
+ * (which batch-loads mastery once for every step up front — a non-throwing
+ * async sibling of the gate would reintroduce the N+1 that batching avoids,
+ * so this stays a pure function over already-loaded data instead).
+ */
+export function allPracticedOrBetter(
+  conceptIds: Iterable<string>,
+  mastery: Record<string, MasteryState>,
+): boolean {
+  return [...conceptIds].every((id) =>
+    isPracticedOrBetter(mastery[id] ?? 'unknown'),
+  )
+}
+
 /** Maps a mastery-state column's value to its rank for a SQL comparison. */
 function masteryStateRank(column: AnyPgColumn) {
   return sql`(case ${column} ${sql.join(

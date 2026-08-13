@@ -18,6 +18,15 @@ import {
   conceptEdgeKey,
   validateConceptGraph,
 } from './concept-validation'
+// Deliberate, documented cross-feature dependency (arch_docs/dependency-rules.md
+// "Feature Dependencies" exception): the no-skip-ahead gate (issue #14, AC 4)
+// reads the Learner Model's mastery states, so `concepts` depends one-way on
+// the named entry points `learners/mastery.server.ts` exposes for this.
+// `learners` never imports back from `concepts`, so the graph stays acyclic.
+import {
+  allPracticedOrBetter,
+  getMasteryStates,
+} from '../learners/mastery.server'
 import { ConceptError } from './concepts.schema'
 import type {
   Concept,
@@ -145,6 +154,43 @@ export async function getConceptReview(
     .sort((a, b) => a.slug.localeCompare(b.slug))
 
   return { language, concepts: reviewItems }
+}
+
+/**
+ * The no-skip-ahead gate (issue #14, AC 4), shared by every learner-facing
+ * surface that practices a concept: a concept is only actionable once every
+ * direct `prerequisite` edge of it in the usable graph is Practiced or
+ * better in the Learner Model. `related` edges never gate, and concepts
+ * with no usable prerequisites (or none at all — e.g. the hardcoded v1
+ * seeds, which carry no concept links) pass trivially. Throws
+ * `PREREQUISITES_NOT_PRACTICED` otherwise, so the enforcement lives here —
+ * at the concept graph — rather than in any single UI. The usable-graph
+ * projection is recomputed at read time, so the gate can never drift from
+ * the graph tables (the same property as `getUsableConceptGraph`).
+ */
+export async function assertPrerequisitesPracticed(input: {
+  learnerId: string
+  language: SandboxLanguage
+  conceptIds: string[]
+}): Promise<void> {
+  if (input.conceptIds.length === 0) return
+
+  const graph = await getUsableConceptGraph(input.language)
+  const prerequisiteIds = new Set(
+    graph.edges
+      .filter(
+        (edge) =>
+          edge.kind === 'prerequisite' &&
+          input.conceptIds.includes(edge.toConceptId),
+      )
+      .map((edge) => edge.fromConceptId),
+  )
+  if (prerequisiteIds.size === 0) return
+
+  const mastery = await getMasteryStates(input.learnerId, [...prerequisiteIds])
+  if (!allPracticedOrBetter(prerequisiteIds, mastery)) {
+    throw new ConceptError('PREREQUISITES_NOT_PRACTICED')
+  }
 }
 
 /**

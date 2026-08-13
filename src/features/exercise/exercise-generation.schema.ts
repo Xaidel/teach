@@ -6,6 +6,7 @@ import { CONCEPT_SLUG_PATTERN } from '#/lib/concept-graph'
 import { SANDBOX_LANGUAGES } from '#/lib/sandbox/types'
 
 import type { Exercise } from './exercise.schema'
+import { ExerciseGuidanceSchema } from './exercise.schema'
 
 /**
  * The languages exercise generation is enabled for. Issue #8 ships Rust;
@@ -32,10 +33,12 @@ export function isExerciseGenerationLanguage(
  * learner must find and fix, gated by the same Pre-Flight Validation as
  * any other exercise (SPEC stories 51-52, PRD §20, issue #11); when set,
  * the persisted row carries `mode = 'debug'` and the generation output
- * declares the defect. `sprintScoped` targets a Class B Tactical Sprint
- * exercise (SPEC stories 6-7, ticket #13): a 5-10 minute estimate is
- * enforced (`EXERCISE_GENERATION_INVALID` otherwise) rather than the
- * general 1-15 minute range.
+ * declares the defect. `guidance` discriminates how the exercise is served
+ * (issue #14): a `guided` row carries the Socratic hint ladder, an
+ * `independent` row is solved without hints. Defaults to `guided`, so the
+ * standalone generation card keeps today's behavior. `sprintScoped` is
+ * deliberately absent from this client-validated schema (issue #14 Round 3)
+ * — see `generateExerciseForConcept`'s own doc comment.
  */
 export const GenerateExerciseForConceptInputSchema = z.object({
   language: z.enum(SANDBOX_LANGUAGES),
@@ -45,7 +48,7 @@ export const GenerateExerciseForConceptInputSchema = z.object({
     .min(1)
     .regex(CONCEPT_SLUG_PATTERN, 'Concept slug must be dotted lowercase'),
   adversarial: z.boolean().optional(),
-  sprintScoped: z.boolean().optional(),
+  guidance: ExerciseGuidanceSchema.default('guided'),
 })
 
 export type GenerateExerciseForConceptInput = z.infer<
@@ -130,7 +133,9 @@ export type PreFlightAttemptAggregate = {
  * For `generated` outcomes, `prerequisites` surfaces the model-declared
  * prerequisite slugs at the feature boundary so they are not silently
  * dropped (issue #91); for `verified-fallback` they are absent because
- * `exercises` does not persist them. `defect` is present on a
+ * `exercises` does not persist them. The fallback's selection preserves
+ * the requested `guidance` (issue #14), so a served row always matches
+ * the slot's guided/independent semantics. `defect` is present on a
  * `verified-fallback` exactly when the stored row is adversarial
  * (issue #120): the fallback stays mode-agnostic (SPEC story 34), but a
  * served adversarial row carries its persisted defect so the card renders

@@ -38,12 +38,16 @@ export const getPreFlightAggregatesFn = createServerFn({
 /**
  * Generates an exercise for a Concept Graph concept and runs it through
  * the deterministic Pre-Flight Validation gate; only a verified exercise
- * is persisted and shown (issue #8).
+ * is persisted and shown (issue #8). The no-skip-ahead gate (issue #14,
+ * AC 4) runs server-side inside the generation pipeline before any AI
+ * call — the standalone card cannot mint an exercise for a concept whose
+ * prerequisites aren't Practiced.
  */
 export const generateExerciseFn = createServerFn({ method: 'POST' })
   .validator(GenerateExerciseForConceptInputSchema)
-  .handler(({ data }) => {
-    return generateExerciseForConcept(data)
+  .handler(async ({ data }) => {
+    const learnerId = await getCurrentLearnerId()
+    return generateExerciseForConcept({ ...data, learnerId })
   })
 
 /** Submits learner code for sandboxed evaluation, persisting the result. */
