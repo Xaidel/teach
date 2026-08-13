@@ -50,6 +50,13 @@
       "when": 1786557190190,
       "tag": "0006_happy_hercules",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786611032959,
+      "tag": "0007_shocking_firebird",
+      "breakpoints": true
     }
   ]
 }

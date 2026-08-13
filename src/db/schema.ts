@@ -282,7 +282,10 @@ export type PreFlightDiagnostics = {
  * The generation-time Pre-Flight log (ADR-0010): one row per Pre-Flight
  * run, keyed by concept — a failed run may never produce a savable
  * `exercises` row at all, and this table is where its record lives. A
- * successful generation is also logged here for observability.
+ * successful generation is also logged here for observability. `attempt_number`
+ * is 1-3 for the retry loop's cap (SPEC story 33); the circuit breaker's
+ * terminal simplified-constraints fallback regeneration is the one
+ * additional run (SPEC story 34, PRD §5.2) and is logged as attempt 4.
  */
 export const preFlightAttempts = pgTable(
   'pre_flight_attempts',
@@ -304,7 +307,7 @@ export const preFlightAttempts = pgTable(
     index('pre_flight_attempts_concept_idx').on(table.conceptId),
     check(
       'pre_flight_attempts_number_check',
-      sql`${table.attemptNumber} between 1 and 3`,
+      sql`${table.attemptNumber} between 1 and 4`,
     ),
   ],
 )

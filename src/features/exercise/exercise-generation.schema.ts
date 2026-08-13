@@ -42,28 +42,63 @@ export type GenerateExerciseForConceptInput = z.infer<
 >
 
 /**
- * Outcome of one generation + Pre-Flight cycle (issue #8): the persisted,
- * verified exercise plus the generation metadata and the Pre-Flight
- * verdict. `targetConcepts` are the slugs actually joined to persisted
- * concepts (drafts referencing concepts outside the graph are dropped).
- * `prerequisites` surfaces the model-declared prerequisite slugs at the
- * feature boundary so they are not silently dropped — the Concept Graph's
- * edges already model prerequisites structurally, and this field lets
- * callers compare the model's claim against the graph (issue #91).
+ * The 3-attempt cap of the Pre-Flight retry loop (SPEC story 33, PRD §5.2,
+ * issue #9). After this many failed attempts the circuit breaker trips and
+ * the fallback strategy runs (SPEC story 34).
  */
-export type GenerateExerciseOutput = {
-  exercise: Exercise
-  conceptSlug: string
-  targetConcepts: string[]
-  prerequisites: string[]
-  estimatedMinutes: number
-  constraints: string[]
-  preflight: {
-    attemptNumber: number
-    passed: true
-    checks: PreFlightCheck[]
-  }
-}
+export const MAX_PREFLIGHT_ATTEMPTS = 3
+
+/**
+ * The attempt number of the circuit-breaker's terminal fallback
+ * regeneration with a simplified constraint set (SPEC story 34, PRD §5.2):
+ * one run beyond the 3-attempt cap, never looped further. Mirrors the
+ * `pre_flight_attempts.attempt_number` check constraint (ADR-0010).
+ */
+export const SIMPLIFIED_FALLBACK_ATTEMPT_NUMBER = MAX_PREFLIGHT_ATTEMPTS + 1
+
+/**
+ * Outcome of one generation + Pre-Flight cycle (issue #8, retried per issue
+ * #9), discriminated by how the exercise was produced:
+ *
+ * - `generated`: a fresh generation that passed Pre-Flight and was
+ *   persisted as verified — on attempt 1-3, or on the circuit-breaker's
+ *   terminal simplified-constraints regeneration (`simplified: true`,
+ *   attempt 4, SPEC story 34).
+ * - `verified-fallback`: no new generation. All 3 retry attempts failed and
+ *   a previously verified exercise on the same concept exists, so its
+ *   stored row — including `test_source` and `reference_solution` (ADR-0019)
+ *   — is served as-is; nothing was regenerated and no new Pre-Flight run
+ *   happened (the row was verified when it entered the bank).
+ *
+ * `targetConcepts` are the slugs actually joined to persisted concepts.
+ * For `generated` outcomes, `prerequisites` surfaces the model-declared
+ * prerequisite slugs at the feature boundary so they are not silently
+ * dropped (issue #91); for `verified-fallback` they are absent because
+ * `exercises` does not persist them.
+ */
+export type GenerateExerciseOutput =
+  | {
+      kind: 'generated'
+      exercise: Exercise
+      conceptSlug: string
+      targetConcepts: string[]
+      prerequisites: string[]
+      estimatedMinutes: number
+      constraints: string[]
+      preflight: {
+        attemptNumber: number
+        passed: true
+        checks: PreFlightCheck[]
+      }
+      simplified: boolean
+    }
+  | {
+      kind: 'verified-fallback'
+      exercise: Exercise
+      conceptSlug: string
+      targetConcepts: string[]
+      constraints: string[]
+    }
 
 /** Stable public exercise-generation error codes. */
 export type GenerationErrorCode =
