@@ -126,6 +126,15 @@ const BROKEN_FAILS_UNRELATED: SandboxResult = {
   ],
 }
 
+/**
+ * The seeded fallback exercise's stored ADR-0019 artifacts. Deliberately
+ * distinct from `GENERATED.testSource` / `GENERATED.referenceSolution` so a
+ * test can prove the served verified exercise reuses its *stored* harness
+ * and solution rather than a regenerated draft's.
+ */
+const FALLBACK_TEST_SOURCE = '#[test]\nfn works() { assert!(true); }\n'
+const FALLBACK_REFERENCE_SOLUTION = 'pub fn seeded() {}'
+
 /** Schedules the sandbox mocks for one failing pre-flight run. */
 function scheduleFailingPreFlight(
   sequence: [SandboxResult, SandboxResult],
@@ -597,8 +606,8 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
         title: 'Seeded verified',
         prompt: 'Do the thing.',
         starterCode: 'pub fn seeded() {}',
-        testSource: '#[test]\nfn works() { assert!(true); }\n',
-        referenceSolution: 'pub fn seeded() {}',
+        testSource: FALLBACK_TEST_SOURCE,
+        referenceSolution: FALLBACK_REFERENCE_SOLUTION,
         evaluationRubric: {
           required: ['Does the thing'],
           prohibited: [],
@@ -639,6 +648,24 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
     expect(outcome.targetConcepts).toEqual([FIXTURE_CONCEPT_SLUG])
     expect(outcome.constraints).toEqual(['std_only'])
     expect(generateExerciseMock).toHaveBeenCalledTimes(3)
+
+    // ADR-0019 AC-3: the served verified exercise reuses its stored
+    // `test_source` / `reference_solution` — the row that was served still
+    // carries exactly the artifacts seeded into the bank, untouched.
+    const [servedRow] = await db
+      .select({
+        testSource: exercises.testSource,
+        referenceSolution: exercises.referenceSolution,
+      })
+      .from(exercises)
+      .where(eq(exercises.id, outcome.exercise.id))
+    expect(servedRow?.testSource).toBe(FALLBACK_TEST_SOURCE)
+    expect(servedRow?.referenceSolution).toBe(FALLBACK_REFERENCE_SOLUTION)
+    // ...and they are the stored ones, not the last failed draft's
+    // regenerated source (a regeneration would have produced different
+    // artifacts entirely).
+    expect(servedRow?.testSource).not.toBe(GENERATED.testSource)
+    expect(servedRow?.referenceSolution).not.toBe(GENERATED.referenceSolution)
 
     const attempts = await db
       .select()
