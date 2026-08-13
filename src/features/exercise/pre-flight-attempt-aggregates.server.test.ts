@@ -1,4 +1,5 @@
 import { inArray, sql } from 'drizzle-orm'
+import type { SQL } from 'drizzle-orm'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 import { db } from '#/db/client.server'
@@ -6,7 +7,7 @@ import { concepts, preFlightAttempts } from '#/db/schema'
 
 import { PRE_FLIGHT_RECENCY_WINDOW_DAYS } from './exercise-generation.schema'
 import type { PreFlightAttemptAggregate } from './exercise-generation.schema'
-import { getPreFlightAttemptAggregates } from './pre-flight-signals.server'
+import { getPreFlightAttemptAggregates } from './pre-flight-attempt-aggregates.server'
 
 async function dbAvailable(): Promise<boolean> {
   try {
@@ -40,14 +41,19 @@ function byConceptId(
   )
 }
 
+type AttemptRowInsert = Omit<
+  typeof preFlightAttempts.$inferInsert,
+  'createdAt'
+> & { createdAt?: Date | SQL }
+
 /** One Pre-Flight attempt fixture row; `createdAt` defaults to now. */
 function attemptRow(input: {
   conceptId: string
   attemptNumber: number
   passed: boolean
-  createdAt?: Date
-}): typeof preFlightAttempts.$inferInsert {
-  const row: typeof preFlightAttempts.$inferInsert = {
+  createdAt?: Date | SQL
+}): AttemptRowInsert {
+  const row: AttemptRowInsert = {
     conceptId: input.conceptId,
     attemptNumber: input.attemptNumber,
     passed: input.passed,
@@ -90,7 +96,7 @@ afterAll(async () => {
   await db.delete(concepts).where(inArray(concepts.id, FIXTURE_CONCEPT_IDS))
 })
 
-describe.skipIf(!dbUp)('pre-flight failure signals against Postgres', () => {
+describe.skipIf(!dbUp)('pre-flight attempt aggregates against Postgres', () => {
   it('aggregates total and failed attempts per concept (SPEC story 35)', async () => {
     const conceptA = fixtureConceptId(0)
     const conceptB = fixtureConceptId(1)
@@ -155,6 +161,48 @@ describe.skipIf(!dbUp)('pre-flight failure signals against Postgres', () => {
       failedAttempts: 0,
     })
     expect(byConcept.get(conceptB)).toBeUndefined()
+  })
+
+  it('includes a row exactly at the recency boundary and excludes one microsecond past it (issue #106)', async () => {
+    const conceptA = fixtureConceptId(0)
+    const conceptB = fixtureConceptId(1)
+
+    await db.transaction(async (tx) => {
+      await tx.insert(preFlightAttempts).values([
+        attemptRow({
+          conceptId: conceptA,
+          attemptNumber: 1,
+          passed: false,
+          createdAt: sql`now() - make_interval(days => ${PRE_FLIGHT_RECENCY_WINDOW_DAYS})`,
+        }),
+        attemptRow({
+          conceptId: conceptA,
+          attemptNumber: 2,
+          passed: false,
+          createdAt: sql`now() - make_interval(days => ${PRE_FLIGHT_RECENCY_WINDOW_DAYS}) - interval '1 microsecond'`,
+        }),
+        attemptRow({
+          conceptId: conceptB,
+          attemptNumber: 1,
+          passed: true,
+          createdAt: sql`now() - make_interval(days => ${PRE_FLIGHT_RECENCY_WINDOW_DAYS})`,
+        }),
+      ])
+
+      const aggregates = await getPreFlightAttemptAggregates(tx)
+      const byConcept = byConceptId(aggregates)
+
+      expect(byConcept.get(conceptA)).toEqual({
+        conceptId: conceptA,
+        totalAttempts: 1,
+        failedAttempts: 1,
+      })
+      expect(byConcept.get(conceptB)).toEqual({
+        conceptId: conceptB,
+        totalAttempts: 1,
+        failedAttempts: 0,
+      })
+    })
   })
 
   it('omits concepts with no Pre-Flight attempts', async () => {

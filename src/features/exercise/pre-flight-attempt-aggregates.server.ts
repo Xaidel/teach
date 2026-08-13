@@ -14,10 +14,10 @@ import type { PreFlightAttemptAggregate } from './exercise-generation.schema'
  * and feeds the repeated-failure quality signal surfaced on the generation
  * card.
  */
-export async function getPreFlightAttemptAggregates(): Promise<
-  PreFlightAttemptAggregate[]
-> {
-  const rows = await db
+export async function getPreFlightAttemptAggregates(
+  executor: Pick<typeof db, 'select'> = db,
+): Promise<PreFlightAttemptAggregate[]> {
+  const rows = await executor
     .select({
       conceptId: preFlightAttempts.conceptId,
       totalAttempts: sql<number>`count(*)::int`,
