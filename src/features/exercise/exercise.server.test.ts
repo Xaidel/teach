@@ -340,7 +340,13 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
 
     const rustExercise = await getRustFixture()
     const learnerId = await getCurrentLearnerId()
-    const attemptsBefore = await db.$count(attempts)
+    // Scoped to this suite's own fixture exercise (issue #115): concurrent
+    // suites persist their own `attempts` rows, so a whole-table count can
+    // shift between the two reads.
+    const attemptsBefore = await db.$count(
+      attempts,
+      eq(attempts.exerciseId, rustExercise.id),
+    )
 
     await expect(
       submitExercise({
@@ -350,7 +356,9 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       }),
     ).rejects.toMatchObject({ code: 'SANDBOX_RESULT_INVALID' })
 
-    expect(await db.$count(attempts)).toBe(attemptsBefore)
+    expect(
+      await db.$count(attempts, eq(attempts.exerciseId, rustExercise.id)),
+    ).toBe(attemptsBefore)
   })
 
   it('rejects a sandbox result with unknown keys (strict parsing) without persisting it', async () => {
@@ -362,7 +370,11 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
 
     const rustExercise = await getRustFixture()
     const learnerId = await getCurrentLearnerId()
-    const attemptsBefore = await db.$count(attempts)
+    // Scoped to this suite's own fixture exercise, like the test above.
+    const attemptsBefore = await db.$count(
+      attempts,
+      eq(attempts.exerciseId, rustExercise.id),
+    )
 
     await expect(
       submitExercise({
@@ -372,7 +384,9 @@ describe.skipIf(!dbUp)('exercise server operations against Postgres', () => {
       }),
     ).rejects.toMatchObject({ code: 'SANDBOX_RESULT_INVALID' })
 
-    expect(await db.$count(attempts)).toBe(attemptsBefore)
+    expect(
+      await db.$count(attempts, eq(attempts.exerciseId, rustExercise.id)),
+    ).toBe(attemptsBefore)
   })
 
   it('throws a stable error for an unknown exercise', async () => {
