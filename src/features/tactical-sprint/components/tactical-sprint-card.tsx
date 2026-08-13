@@ -11,13 +11,19 @@ import { Textarea } from '#/shared/components/ui/textarea'
 
 import { errorMessage } from '../client-utils'
 import { startTacticalSprintFn } from '../tactical-sprint.functions'
-import type { TacticalSprintResult } from '../tactical-sprint.schema'
+import type {
+  MasteryStateView,
+  TacticalSprintResult,
+} from '../tactical-sprint.schema'
 
-/** Human-readable label for a mastery state (mirrors ADR-0010's five states). */
-const MASTERY_LABELS: Record<
-  TacticalSprintResult['identifiedConcepts'][number]['masteryState'],
-  string
-> = {
+/**
+ * Human-readable label for a mastery state (mirrors ADR-0010's five
+ * states). Keyed directly off `MasteryStateView` — derived from
+ * `tactical-sprint.schema.ts`'s `MASTERY_STATES` — so adding or removing a
+ * state fails this `Record`'s exhaustiveness check at compile time instead
+ * of silently drifting.
+ */
+const MASTERY_LABELS: Record<MasteryStateView, string> = {
   unknown: 'Unknown',
   introduced: 'Introduced',
   practiced: 'Practiced',
@@ -146,6 +152,7 @@ export function TacticalSprintCard({
                 </p>
                 <Link
                   className="inline-flex w-fit rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  search={{ exerciseId: result.exercise.exercise.id }}
                   to="/"
                 >
                   Go solve it

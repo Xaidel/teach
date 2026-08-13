@@ -1,21 +1,27 @@
 import { TeacherEngineError } from '#/lib/ai/client.server'
 import { identifySnippetConcepts } from '#/lib/ai/functions.server'
 import type { SnippetConcept } from '#/lib/ai/schemas'
-// Narrow, documented cross-feature dependencies (arch_docs/dependency-rules.md
-// "Feature Dependencies" exception): a Tactical Sprint resolves its
-// identified concepts against the Concept Graph, ad-hoc drafts an unmatched
-// one (ADR-0016's runtime-gap case), ranks the resolved set by Learner
-// Model mastery, and generates the resulting exercise — four narrow,
-// one-way, server-to-server entry points into `concepts`, `learners`, and
-// `exercise`. None of those features imports back from `tactical-sprint`,
-// so the dependency graph stays acyclic.
+// Narrow, documented cross-feature dependency (arch_docs/dependency-rules.md
+// "Feature Dependencies" exception): a Tactical Sprint resolves each
+// identified concept against the Concept Graph, ad-hoc drafting an unmatched
+// one immediately (ADR-0016's runtime-gap case) — one-way, `concepts` never
+// imports back from `tactical-sprint`.
 import {
   draftFocusedConcept,
   getUsableConceptGraph,
 } from '#/features/concepts/concepts.server'
 import type { UsableConceptGraph } from '#/features/concepts/concepts.schema'
+// Narrow, documented cross-feature dependency (arch_docs/dependency-rules.md
+// "Feature Dependencies" exception): once the weakest concept is targeted,
+// a Tactical Sprint generates its exercise through `exercise`'s own
+// generation pipeline (`sprintScoped`) rather than duplicating it — one-way,
+// `exercise` never imports back from `tactical-sprint`.
 import { generateExerciseForConcept } from '#/features/exercise/exercise-generation.server'
 import type { ExerciseGenerationLanguage } from '#/features/exercise/exercise-generation.schema'
+// Narrow, documented cross-feature dependency (arch_docs/dependency-rules.md
+// "Feature Dependencies" exception): ranking identified concepts by
+// weakness reads the learner's current Learner Model mastery — one-way,
+// `learners` never imports back from `tactical-sprint`.
 import {
   getMasteryStates,
   MASTERY_STATE_ORDER,

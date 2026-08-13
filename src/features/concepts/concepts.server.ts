@@ -211,9 +211,10 @@ function isSelfLoop(edge: ConceptEdgeDraft): boolean {
 async function persistDraftedGraph(
   language: SandboxLanguage,
   draft: DraftConceptGraphOutput,
-): Promise<
-  Omit<DraftConceptsOutput, 'language'> & { slugToId: Map<string, string> }
-> {
+): Promise<{
+  output: Omit<DraftConceptsOutput, 'language'>
+  slugToId: Map<string, string>
+}> {
   const report = validateConceptGraph(draft.concepts, draft.edges)
 
   return db.transaction(async (tx) => {
@@ -293,13 +294,15 @@ async function persistDraftedGraph(
     }
 
     return {
-      conceptsInserted,
-      edgesInserted,
-      duplicateConcepts: draft.concepts.length - conceptsInserted,
-      duplicateEdges: duplicates,
-      cycleEdges,
-      droppedSelfLoops,
-      droppedDanglingEdges,
+      output: {
+        conceptsInserted,
+        edgesInserted,
+        duplicateConcepts: draft.concepts.length - conceptsInserted,
+        duplicateEdges: duplicates,
+        cycleEdges,
+        droppedSelfLoops,
+        droppedDanglingEdges,
+      },
       slugToId,
     }
   })
@@ -323,17 +326,8 @@ export async function draftConcepts(
     throw error
   }
 
-  const persisted = await persistDraftedGraph(language, draft)
-  return {
-    language,
-    conceptsInserted: persisted.conceptsInserted,
-    edgesInserted: persisted.edgesInserted,
-    duplicateConcepts: persisted.duplicateConcepts,
-    duplicateEdges: persisted.duplicateEdges,
-    cycleEdges: persisted.cycleEdges,
-    droppedSelfLoops: persisted.droppedSelfLoops,
-    droppedDanglingEdges: persisted.droppedDanglingEdges,
-  }
+  const { output } = await persistDraftedGraph(language, draft)
+  return { language, ...output }
 }
 
 /**

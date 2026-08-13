@@ -1,6 +1,8 @@
 import { Link, getRouteApi } from '@tanstack/react-router'
+import { useEffect, useRef } from 'react'
 
 import type { ExplanationPreferences } from '#/features/learners/learners.schema'
+import { cn } from '#/lib/cn'
 import { Badge } from '#/shared/components/ui/badge'
 import { Card, CardContent, CardHeader } from '#/shared/components/ui/card'
 
@@ -28,6 +30,18 @@ export type ExercisePageData = {
  */
 export function ExercisePage(): React.JSX.Element {
   const data: ExercisePageData = exerciseRoute.useLoaderData()
+  const { exerciseId: targetExerciseId }: { exerciseId?: string } =
+    exerciseRoute.useSearch()
+  const targetRef = useRef<HTMLElement | null>(null)
+
+  // A Tactical Sprint hand-off (issue #13) lands here with `exerciseId` set
+  // to the generated exercise's id — scroll straight to it once on load
+  // rather than leaving the learner to find it in the flat list below.
+  useEffect(() => {
+    if (targetExerciseId) {
+      targetRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [targetExerciseId])
 
   const languages = [
     ...new Set(data.exercises.map((exercise) => exercise.language)),
@@ -80,32 +94,47 @@ export function ExercisePage(): React.JSX.Element {
             AI Teacher Engine produce one for a concept.
           </p>
         ) : (
-          data.exercises.map((exercise: Exercise) => (
-            <article
-              aria-label={exercise.title}
-              className="mx-auto w-full max-w-4xl"
-              key={exercise.id}
-            >
-              <Card>
-                <CardHeader>
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <h2 className="font-display text-3xl font-semibold tracking-tight">
-                      {exercise.title}
-                    </h2>
-                    <Badge className="border-border bg-background text-muted-foreground">
-                      {exercise.language}
-                    </Badge>
-                  </div>
-                  <p className="leading-relaxed text-muted-foreground">
-                    {exercise.prompt}
-                  </p>
-                </CardHeader>
-                <CardContent>
-                  <ExerciseEditor exercise={exercise} />
-                </CardContent>
-              </Card>
-            </article>
-          ))
+          data.exercises.map((exercise: Exercise) => {
+            const isTarget = exercise.id === targetExerciseId
+            return (
+              <article
+                aria-label={exercise.title}
+                className={cn(
+                  'mx-auto w-full max-w-4xl',
+                  isTarget &&
+                    'rounded-3xl ring-2 ring-primary ring-offset-4 ring-offset-background',
+                )}
+                key={exercise.id}
+                ref={isTarget ? targetRef : undefined}
+              >
+                <Card>
+                  <CardHeader>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <h2 className="font-display text-3xl font-semibold tracking-tight">
+                        {exercise.title}
+                      </h2>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {isTarget ? (
+                          <Badge className="border-primary/40 bg-primary/10 text-primary">
+                            From Tactical Sprint
+                          </Badge>
+                        ) : null}
+                        <Badge className="border-border bg-background text-muted-foreground">
+                          {exercise.language}
+                        </Badge>
+                      </div>
+                    </div>
+                    <p className="leading-relaxed text-muted-foreground">
+                      {exercise.prompt}
+                    </p>
+                  </CardHeader>
+                  <CardContent>
+                    <ExerciseEditor exercise={exercise} />
+                  </CardContent>
+                </Card>
+              </article>
+            )
+          })
         )}
       </div>
 
