@@ -106,6 +106,7 @@ Start new ADRs from [`template.md`](./template.md).
 | [ADR-0022](./0022-adversarial-exercises-debug-mode-generation.md) | Adversarial exercises as debug-mode generation with contract-only defect metadata | Proposed | Refines ADR-0010; related to ADR-0017, ADR-0019 |
 | [ADR-0023](./0023-defect-metadata-persistence-for-fallback-labeling.md) | Defect metadata persistence on `exercises` for fallback labeling fidelity | Proposed | Refines ADR-0022; related to ADR-0010, ADR-0017, ADR-0019 |
 | [ADR-0024](./0024-curriculum-lesson-caching.md) | Curriculum lesson caching: persist generated lessons keyed by generation inputs | Accepted | Related to ADR-0007, ADR-0010, ADR-0014 |
+| [ADR-0025](./0025-recurring-mistakes-evidence-query.md) | "Recurring mistakes" evidence: read-time aggregation over `attempts`, no dedicated storage | Accepted | Related to ADR-0010, ADR-0014, ADR-0021 |
 
 Keep this table in the same change as any status or relationship update. Every ADR file
 appears here exactly once.

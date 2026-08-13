@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 import { db } from '#/db/client.server'
 import {
+  attempts,
   concepts,
   exerciseConcepts,
   exercises,
@@ -14,6 +15,7 @@ import {
   advanceMastery,
   getExerciseConceptIds,
   getMasteryStates,
+  getRecurringMistakeEvidence,
   recordAttemptOutcome,
 } from './mastery.server'
 
@@ -226,6 +228,129 @@ describe.skipIf(!dbUp)('mastery.server', () => {
       } finally {
         await db.delete(exercises).where(eq(exercises.id, bareExercise.id))
       }
+    })
+  })
+
+  describe('getRecurringMistakeEvidence', () => {
+    let exerciseId: string
+    let bareExerciseId: string
+
+    beforeAll(async () => {
+      const [exercise] = await db
+        .insert(exercises)
+        .values({
+          slug: 'test-mastery-server-recurring',
+          language: 'rust',
+          title: 'Recurring-mistake fixture',
+          prompt: 'p',
+          starterCode: 's',
+          difficulty: 1,
+          status: 'verified',
+        })
+        .returning()
+      if (!exercise) throw new Error('expected a persisted exercise')
+      exerciseId = exercise.id
+
+      await db.insert(exerciseConcepts).values({ exerciseId, conceptId })
+
+      const [bareExercise] = await db
+        .insert(exercises)
+        .values({
+          slug: 'test-mastery-server-recurring-bare',
+          language: 'rust',
+          title: 'Recurring-mistake bare fixture',
+          prompt: 'p',
+          starterCode: 's',
+          difficulty: 1,
+          status: 'verified',
+        })
+        .returning()
+      if (!bareExercise) throw new Error('expected a persisted exercise')
+      bareExerciseId = bareExercise.id
+    })
+
+    afterAll(async () => {
+      await db
+        .delete(attempts)
+        .where(eq(attempts.exerciseId, exerciseId))
+      await db
+        .delete(attempts)
+        .where(eq(attempts.exerciseId, bareExerciseId))
+      await db
+        .delete(exerciseConcepts)
+        .where(eq(exerciseConcepts.exerciseId, exerciseId))
+      await db.delete(exercises).where(eq(exercises.id, exerciseId))
+      await db.delete(exercises).where(eq(exercises.id, bareExerciseId))
+    })
+
+    afterEach(async () => {
+      await db.delete(attempts).where(eq(attempts.learnerId, learnerId))
+    })
+
+    it('reports concepts failed at least twice, sorted by count', async () => {
+      await db.insert(attempts).values([
+        {
+          learnerId,
+          exerciseId,
+          code: 'attempt-1',
+          outcome: 'fail',
+          timeToSolution: 60,
+        },
+        {
+          learnerId,
+          exerciseId,
+          code: 'attempt-2',
+          outcome: 'fail',
+          timeToSolution: 30,
+        },
+        {
+          learnerId,
+          exerciseId,
+          code: 'attempt-3',
+          outcome: 'pass',
+          timeToSolution: 120,
+        },
+      ])
+
+      const evidence = await getRecurringMistakeEvidence(learnerId)
+      expect(evidence).toHaveLength(1)
+      expect(evidence[0]).toMatchObject({
+        conceptId,
+        failedAttemptCount: 2,
+      })
+    })
+
+    it('excludes concepts with fewer than two failed attempts', async () => {
+      await db.insert(attempts).values({
+        learnerId,
+        exerciseId,
+        code: 'single-failure',
+        outcome: 'fail',
+        timeToSolution: 45,
+      })
+
+      await expect(getRecurringMistakeEvidence(learnerId)).resolves.toEqual([])
+    })
+
+    it('excludes attempts on exercises with no concept rows', async () => {
+      await db.insert(attempts).values([
+        {
+          learnerId,
+          exerciseId: bareExerciseId,
+          code: 'bare-1',
+          outcome: 'fail',
+          timeToSolution: 10,
+        },
+        {
+          learnerId,
+          exerciseId: bareExerciseId,
+          code: 'bare-2',
+          outcome: 'fail',
+          timeToSolution: 10,
+        },
+      ])
+
+      await expect(getRecurringMistakeEvidence(learnerId)).resolves.toEqual([])
     })
   })
 })
