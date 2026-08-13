@@ -53,6 +53,12 @@ has failed it repeatedly, reconstructed from evidence issue #10 already persists
   retrofits the schema.
 - **Scope of the aggregation**: attempts with no `exercise_concepts` row (hardcoded v1
   seed exercises) are excluded — they carry no concept to attribute a mistake to.
+- **Counting semantics**: a failed attempt on a multi-concept exercise is counted once
+  per `exercise_concepts` row it joins to — the count is per concept, not per attempt.
+  One failed attempt on a two-concept exercise contributes one to each of its concepts;
+  the number of concepts an exercise targets scales the join rows, not the per-concept
+  count. A future consumer that needs per-attempt attribution should dedupe at the
+  `attempts` level instead.
 - **The threshold is a query detail, not a schema contract**: "two or more" is the current
   read-side choice; a consumer with different sensitivity changes the query, not the data
   model.
@@ -120,7 +126,8 @@ Detect repeated error *patterns* from the failed attempts' diagnostics.
 
 - `src/features/learners/mastery.server.test.ts` — `getRecurringMistakeEvidence`: reports
   concepts failed at least twice sorted by count; excludes single-failure concepts;
-  excludes attempts with no `exercise_concepts` row.
+  excludes attempts with no `exercise_concepts` row; counts each failed attempt once per
+  joined concept row on a multi-concept exercise.
 - No migration: the query reads only tables ADR-0010/0021 already define.
 
 ## Relationships and References

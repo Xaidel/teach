@@ -285,9 +285,7 @@ describe.skipIf(!dbUp)('mastery.server', () => {
       // seeded learner.
       await db
         .delete(attempts)
-        .where(
-          inArray(attempts.exerciseId, [exerciseId, bareExerciseId]),
-        )
+        .where(inArray(attempts.exerciseId, [exerciseId, bareExerciseId]))
     })
 
     it('reports concepts failed at least twice, sorted by count', async () => {
@@ -354,6 +352,78 @@ describe.skipIf(!dbUp)('mastery.server', () => {
       ])
 
       await expect(getRecurringMistakeEvidence(learnerId)).resolves.toEqual([])
+    })
+
+    it('counts each failed attempt once per joined concept row on a multi-concept exercise', async () => {
+      const [secondConcept] = await db
+        .insert(concepts)
+        .values({
+          language: 'rust',
+          slug: 'test.mastery-server-recurring-second',
+          difficulty: 1,
+        })
+        .returning()
+      if (!secondConcept) throw new Error('expected a persisted concept')
+
+      const [multiExercise] = await db
+        .insert(exercises)
+        .values({
+          slug: 'test-mastery-server-recurring-multi',
+          language: 'rust',
+          title: 'Recurring-mistake multi-concept fixture',
+          prompt: 'p',
+          starterCode: 's',
+          difficulty: 1,
+          status: 'verified',
+        })
+        .returning()
+      if (!multiExercise) throw new Error('expected a persisted exercise')
+
+      await db.insert(exerciseConcepts).values([
+        { exerciseId: multiExercise.id, conceptId },
+        { exerciseId: multiExercise.id, conceptId: secondConcept.id },
+      ])
+
+      await db.insert(attempts).values([
+        {
+          learnerId,
+          exerciseId: multiExercise.id,
+          code: 'multi-1',
+          outcome: 'fail',
+          timeToSolution: 20,
+        },
+        {
+          learnerId,
+          exerciseId: multiExercise.id,
+          code: 'multi-2',
+          outcome: 'fail',
+          timeToSolution: 15,
+        },
+      ])
+
+      const evidence = await getRecurringMistakeEvidence(learnerId)
+      // The join counts each failed attempt once per concept row, so the
+      // two attempts land on both concepts — documented in ADR-0025.
+      expect(evidence).toHaveLength(2)
+      expect(evidence).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            conceptId,
+            failedAttemptCount: 2,
+          }),
+          expect.objectContaining({
+            conceptId: secondConcept.id,
+            failedAttemptCount: 2,
+          }),
+        ]),
+      )
+
+      await db.delete(attempts).where(eq(attempts.exerciseId, multiExercise.id))
+      await db
+        .delete(exerciseConcepts)
+        .where(eq(exerciseConcepts.exerciseId, multiExercise.id))
+      await db.delete(exercises).where(eq(exercises.id, multiExercise.id))
+      await db.delete(concepts).where(eq(concepts.id, secondConcept.id))
     })
   })
 })

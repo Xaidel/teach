@@ -196,11 +196,13 @@ export type RecurringMistakeEvidence = {
  * `exercise_concepts` join. No dedicated column or table exists — the
  * raw evidence is aggregated at read time from the rows issue #10 already
  * persists, exactly the documented query pattern ADR-0025 chooses. The
- * more speculative consumers (clustering `compiler_errors` into repeated
- * failure *patterns*, `attempt_hints` escalation signals) are explicitly
- * deferred until a remediation/scheduling consumer exists (issues #16-#18,
- * Retrieval Queue) — see ADR-0025. Sorted by failure count, most
- * repeated first.
+ * count is per concept, not per attempt: a failed attempt on a
+ * multi-concept exercise is counted once per joined `exercise_concepts`
+ * row. The more speculative consumers (clustering `compiler_errors` into
+ * repeated failure *patterns*, `attempt_hints` escalation signals) are
+ * explicitly deferred until a remediation/scheduling consumer exists
+ * (issues #16-#18, Retrieval Queue) — see ADR-0025. Sorted by failure
+ * count, most repeated first.
  */
 export async function getRecurringMistakeEvidence(
   learnerId: string,
