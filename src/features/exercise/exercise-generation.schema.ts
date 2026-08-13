@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import type { PreFlightCheck } from '#/db/schema'
+import type { ExerciseDefect } from '#/lib/ai/schemas'
 import { CONCEPT_SLUG_PATTERN } from '#/lib/concept-graph'
 import { SANDBOX_LANGUAGES } from '#/lib/sandbox/types'
 
@@ -26,7 +27,12 @@ export function isExerciseGenerationLanguage(
  * Input to the generation flow: the language and the Concept Graph concept
  * the exercise must target. The concept must already exist for that
  * language — the AI Teacher Engine never invents concepts outside the
- * graph.
+ * graph. `adversarial` targets an adversarial (debug-mode) exercise whose
+ * starterCode intentionally contains one known, declared defect the
+ * learner must find and fix, gated by the same Pre-Flight Validation as
+ * any other exercise (SPEC stories 51-52, PRD §20, issue #11); when set,
+ * the persisted row carries `mode = 'debug'` and the generation output
+ * declares the defect.
  */
 export const GenerateExerciseForConceptInputSchema = z.object({
   language: z.enum(SANDBOX_LANGUAGES),
@@ -35,6 +41,7 @@ export const GenerateExerciseForConceptInputSchema = z.object({
     .trim()
     .min(1)
     .regex(CONCEPT_SLUG_PATTERN, 'Concept slug must be dotted lowercase'),
+  adversarial: z.boolean().optional(),
 })
 
 export type GenerateExerciseForConceptInput = z.infer<
@@ -126,6 +133,14 @@ export type GenerateExerciseOutput =
         checks: PreFlightCheck[]
       }
       simplified: boolean
+      /**
+       * The declared intentional defect of an adversarial (debug-mode)
+       * generation (SPEC story 52, PRD §20, issue #11): kind, description,
+       * location, and the expected behavior of the fixed code. Present
+       * exactly when the generation targeted an adversarial exercise;
+       * absent otherwise.
+       */
+      defect?: ExerciseDefect
     }
   | {
       kind: 'verified-fallback'

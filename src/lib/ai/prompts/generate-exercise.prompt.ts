@@ -19,7 +19,9 @@ Rules:
 - difficulty: a 1-5 integer, consistent with the requested concept difficulty.
 - estimated_minutes: a plausible 1-15 integer for the exercise.
 - constraints: short constraint tags, e.g. "std_only", "no_unsafe".
-- Keep the exercise small and focused: one function or a tiny set of functions, a handful of tests, no cleverness.`
+- Keep the exercise small and focused: one function or a tiny set of functions, a handful of tests, no cleverness.
+
+ADVERSARIAL EXERCISES (debug mode): when the user request marks the exercise adversarial, the starterCode intentionally contains ONE known defect of a declared kind — incorrect ownership, incorrect lifetime assumptions, a race condition, a broken invariant, broken error handling, invalid concurrency, or subtle API misuse (PRD §20). The defect must be deliberate, realistic, and THE reason the starterCode fails the tests: the broken state must fail because of that defect, not because of an incidental typo or compile error (starterCode must COMPILE). The referenceSolution is the fixed solution; the tests encode the expected behavior of the fix. The learner-facing prompt presents the broken code and asks the learner to FIND the defect and FIX it, framing the debugging task rather than an implementation task. Always declare the defect in the output's defect field: kind (one of ownership, lifetime, race_condition, broken_invariant, error_handling, api_misuse, other), a description of what is wrong, the location (function/symbol) of the defect, and the expected behavior of the fixed code. Never invent a defect you cannot implement concretely in the starterCode — an adversarial exercise that fails Pre-Flight is discarded and regenerated, so only produce defects that pass the same deterministic gate as any exercise.`
 
 /**
  * Renders one failed Pre-Flight run as a compact, deterministic
@@ -83,23 +85,31 @@ export function buildGenerateExerciseMessages(
     ? `SIMPLIFIED CONSTRAINT SET (final fallback attempt): this is the last regeneration after repeated failures. Produce the simplest possible exercise for the target concept: ONE tiny function, 1-2 tests, difficulty at or below the requested difficulty, and the smallest constraint set (only "std_only"). Simplify the task rather than exercising edge cases.
 `
     : ''
+  const adversarialBlock = input.adversarial
+    ? `ADVERSARIAL EXERCISE: produce a debug-mode exercise. The starterCode intentionally contains ONE known defect (incorrect ownership, incorrect lifetime assumptions, a race condition, a broken invariant, broken error handling, invalid concurrency, or subtle API misuse). The defect is the only reason the starterCode fails; the learner-facing prompt presents the broken code and asks to find and fix the defect; the referenceSolution is the fixed solution; the tests encode the expected behavior. Include the defect declaration in the output.
+`
+    : ''
+  const defectContractLine = input.adversarial
+    ? `  "defect": {"kind": "ownership|lifetime|race_condition|broken_invariant|error_handling|api_misuse|other", "description": "<what is wrong>", "location": "<function/symbol with the defect>", "expectedBehavior": "<behavior of the fixed code>"},
+`
+    : ''
 
   const userPrompt = `Language: ${input.language}
 Target concept: ${input.conceptSlug}
 Concept difficulty: ${String(input.conceptDifficulty)} / 5
 
-${simplifiedBlock}${diagnosticsBlock}Generate a practice exercise targeting this concept. Respond with a JSON object of the form {
+${simplifiedBlock}${adversarialBlock}${diagnosticsBlock}Generate a practice exercise targeting this concept. Respond with a JSON object of the form {
   "title": "<short exercise title>",
   "prompt": "<learner instructions>",
-  "starterCode": "<compiling but wrong implementation>",
-  "referenceSolution": "<correct implementation>",
+  "starterCode": "<compiling but wrong implementation${input.adversarial ? ', with the known defect' : ''}>",
+  "referenceSolution": "<correct implementation${input.adversarial ? ', fixing the defect' : ''}>",
   "testSource": "<one test file, one #[test] per evaluation.tests name>",
   "targetConcepts": ["<dotted slugs>"],
   "prerequisites": ["<dotted slugs>"],
   "difficulty": <1-5>,
   "estimatedMinutes": <1-15>,
   "constraints": ["<tag>"],
-  "evaluation": {
+${defectContractLine}  "evaluation": {
     "tests": ["<test names, matching testSource exactly>"],
     "rubric": {"required": ["<pattern>"], "prohibited": ["<pattern>"], "advisory": ["<pattern>"]}
   }

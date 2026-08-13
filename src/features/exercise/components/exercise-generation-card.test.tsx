@@ -2,7 +2,7 @@
 import '@testing-library/jest-dom/vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@tanstack/react-router', () => ({
   useRouter: () => ({ invalidate: vi.fn() }),
@@ -12,6 +12,8 @@ vi.mock('../exercise.functions', () => ({
   generateExerciseFn: vi.fn(),
 }))
 
+import { generateExerciseFn } from '../exercise.functions'
+import type { GenerateExerciseOutput } from '../exercise-generation.schema'
 import {
   ExerciseGenerationCard,
   type GenerationConcept,
@@ -45,7 +47,40 @@ const CONCEPT_AT_THRESHOLD: GenerationConcept = {
   preFlight: { conceptId: 'c4', totalAttempts: 5, failedAttempts: 2 },
 }
 
+/** A fully-verified generated outcome as the card's mocked fn returns it. */
+const GENERATED_OUTCOME: GenerateExerciseOutput = {
+  kind: 'generated',
+  exercise: {
+    id: 'e1',
+    slug: 'rust-test-rust-borrowing-a1b2c3d4',
+    language: 'rust',
+    title: 'Borrow or move?',
+    prompt: 'Implement first.',
+    starterCode: 'pub fn first(v: Vec<u32>) -> u32 { v[0] }',
+  },
+  conceptSlug: 'test.rust.borrowing',
+  targetConcepts: ['test.rust.borrowing'],
+  prerequisites: [],
+  estimatedMinutes: 8,
+  constraints: ['std_only'],
+  preflight: {
+    attemptNumber: 1,
+    passed: true,
+    checks: [
+      { name: 'reference_passes', passed: true },
+      { name: 'broken_state_fails', passed: true },
+      { name: 'failure_matches_concept', passed: true },
+    ],
+  },
+  simplified: false,
+}
+
 describe('ExerciseGenerationCard', () => {
+  const generateExerciseFnMock = vi.mocked(generateExerciseFn)
+
+  beforeEach(() => {
+    generateExerciseFnMock.mockReset()
+  })
   it('surfaces repeated Pre-Flight failures on the selected concept as a quality signal (SPEC story 35)', async () => {
     const user = userEvent.setup()
     render(
@@ -105,6 +140,76 @@ describe('ExerciseGenerationCard', () => {
     expect(
       screen.getByText(
         /2 of the 5 Pre-Flight runs for this concept failed; repeated failures mean generation has been unreliable here/,
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('generates a non-adversarial exercise by default', async () => {
+    const user = userEvent.setup()
+    generateExerciseFnMock.mockResolvedValue(GENERATED_OUTCOME)
+    render(
+      <ExerciseGenerationCard concepts={[CONCEPT_CLEAN]} language="rust" />,
+    )
+
+    await user.click(
+      screen.getByRole('button', { name: 'Generate rust exercise' }),
+    )
+
+    expect(generateExerciseFn).toHaveBeenCalledWith({
+      data: {
+        language: 'rust',
+        conceptSlug: 'test.rust.borrowing',
+        adversarial: false,
+      },
+    })
+    expect(screen.getByText(/Verified — Borrow or move\?/)).toBeInTheDocument()
+  })
+
+  it('targets an adversarial exercise when the toggle is checked', async () => {
+    const user = userEvent.setup()
+    generateExerciseFnMock.mockResolvedValue(GENERATED_OUTCOME)
+    render(
+      <ExerciseGenerationCard concepts={[CONCEPT_CLEAN]} language="rust" />,
+    )
+
+    await user.click(screen.getByRole('checkbox', { name: /Adversarial/ }))
+    await user.click(
+      screen.getByRole('button', { name: 'Generate rust exercise' }),
+    )
+
+    expect(generateExerciseFn).toHaveBeenCalledWith({
+      data: {
+        language: 'rust',
+        conceptSlug: 'test.rust.borrowing',
+        adversarial: true,
+      },
+    })
+  })
+
+  it('renders the declared defect of a verified adversarial generation', async () => {
+    const user = userEvent.setup()
+    generateExerciseFnMock.mockResolvedValue({
+      ...GENERATED_OUTCOME,
+      defect: {
+        kind: 'ownership',
+        description: 'first consumes the vector instead of borrowing it',
+        location: 'first',
+        expectedBehavior:
+          'first returns the first element while leaving the vector usable',
+      },
+    })
+    render(
+      <ExerciseGenerationCard concepts={[CONCEPT_CLEAN]} language="rust" />,
+    )
+
+    await user.click(screen.getByRole('checkbox', { name: /Adversarial/ }))
+    await user.click(
+      screen.getByRole('button', { name: 'Generate rust exercise' }),
+    )
+
+    expect(
+      screen.getByText(
+        /adversarial \(ownership\) first consumes the vector instead of borrowing it/,
       ),
     ).toBeInTheDocument()
   })
