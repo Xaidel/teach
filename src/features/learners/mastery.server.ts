@@ -22,6 +22,7 @@ import { MASTERY_STATE_ORDER, type MasteryState } from '#/lib/mastery-states'
 import {
   findTransferTestConceptForExercise,
   hasPassedTransferTest,
+  markTransferTestExercisePassed,
 } from './transfer-test.server'
 
 /**
@@ -154,13 +155,15 @@ export async function recordAttemptOutcome(
     await advanceMastery(learnerId, conceptIds, 'practiced')
   }
 
-  // Transfer Test (ADR-0015, ADR-0010, issue #17): a learner may submit
-  // their registered Transfer Test exercise through this general practice
-  // path instead of the dedicated Transfer Test flow — it is an ordinary
-  // debug-mode `exercises` row (ADR-0010), not a separate submission
-  // surface. Stage 1 alone is the Transfer Test's pass bar (ADR-0008); a
-  // Stage 2 rubric outcome, when this path runs one, does not gate it.
-  if (stage1Passed) {
+  // Transfer Test (ADR-0015, ADR-0010, ADR-0027, issue #17): a learner may
+  // submit their registered Transfer Test exercise through this general
+  // practice path instead of the dedicated Transfer Test flow — it is an
+  // ordinary debug-mode `exercises` row (ADR-0010), not a separate
+  // submission surface. `stage1Passed && stage2Passed` mirrors Practiced's
+  // own bar exactly — a Transfer Test that only clears Stage 1 is no
+  // stronger evidence of transfer than a submission that never reached
+  // Practiced in the first place.
+  if (stage1Passed && stage2Passed) {
     const transferConceptId = await findTransferTestConceptForExercise({
       learnerId,
       exerciseId,
@@ -390,18 +393,20 @@ export async function recordExplanationAssessmentOutcome(input: {
 }
 
 /**
- * Records one Transfer Test outcome against the Learner Model (issue #17) —
- * the single intent-level entry point the transfer-test feature reports
- * into (see `arch_docs/dependency-rules.md`'s Feature Dependencies
- * exception; the import is one-way and `learners` never imports back). Also
- * called internally by `recordAttemptOutcome` when a passing generic-path
- * submission targets a learner's registered Transfer Test exercise. A
- * passed Transfer Test feeds ADR-0015's gate: the concept promotes
- * Practiced → Demonstrated only when a passed Explanation Assessment is
- * also recorded (`promoteToDemonstrated`). A failed initial-gate attempt
- * leaves the concept at Practiced with a retry available — every attempt is
- * recorded as evidence, and mastery never regresses on a failure
- * (ADR-0015).
+ * Records one Transfer Test outcome against the Learner Model (issue #17,
+ * ADR-0027) — the single intent-level entry point the transfer-test
+ * feature reports into (see `arch_docs/dependency-rules.md`'s Feature
+ * Dependencies exception; the import is one-way and `learners` never
+ * imports back). Also called internally by `recordAttemptOutcome` when a
+ * passing generic-path submission (Stage 1 *and* Stage 2, matching
+ * Practiced's own bar) targets a learner's registered Transfer Test
+ * exercise. Durably marks the registered instance passed
+ * (`markTransferTestExercisePassed`) before checking the gate: a passed
+ * Transfer Test feeds ADR-0015's gate, promoting the concept Practiced →
+ * Demonstrated only when a passed Explanation Assessment is also recorded
+ * (`promoteToDemonstrated`). A failed initial-gate attempt leaves the
+ * concept at Practiced with a retry available — every attempt is recorded
+ * as evidence, and mastery never regresses on a failure (ADR-0015).
  */
 export async function recordTransferTestOutcome(input: {
   learnerId: string
@@ -410,10 +415,50 @@ export async function recordTransferTestOutcome(input: {
 }): Promise<void> {
   if (!input.passed) return
 
+  await markTransferTestExercisePassed({
+    learnerId: input.learnerId,
+    conceptId: input.conceptId,
+  })
+
   await promoteToDemonstrated({
     learnerId: input.learnerId,
     conceptId: input.conceptId,
   })
+}
+
+/**
+ * Whether the learner has a `pass`-outcome attempt against any exercise of
+ * `mode` targeting the concept (ADR-0015, issue #17) — the Transfer Test
+ * generation path's "has the learner already faced this shape" read, so it
+ * can pick a genuinely different one (AC1: "using a different exercise
+ * shape than the one originally solved"). Deliberately broader than "the
+ * one specific attempt that flipped this concept to Practiced": any
+ * Stage-1-passing attempt in a shape is treated as the learner having
+ * already faced it, since the practice list's adversarial toggle (issue
+ * #11) lets a learner reach Practiced via a debug-mode exercise through
+ * ordinary practice, not only through this feature's own generation.
+ */
+export async function hasPassedExerciseModeForConcept(
+  learnerId: string,
+  conceptId: string,
+  mode: 'implement' | 'debug',
+): Promise<boolean> {
+  const [row] = await db
+    .select({ exerciseId: exercises.id })
+    .from(attempts)
+    .innerJoin(exercises, eq(exercises.id, attempts.exerciseId))
+    .innerJoin(exerciseConcepts, eq(exerciseConcepts.exerciseId, exercises.id))
+    .where(
+      and(
+        eq(attempts.learnerId, learnerId),
+        eq(exerciseConcepts.conceptId, conceptId),
+        eq(exercises.mode, mode),
+        eq(attempts.outcome, 'pass'),
+      ),
+    )
+    .limit(1)
+
+  return row !== undefined
 }
 
 // Cross-feature evidence read (issue #17): the transfer-test feature's

@@ -567,10 +567,14 @@ describe.skipIf(!dbUp)('mastery.server', () => {
       await db
         .insert(exerciseConcepts)
         .values({ exerciseId: transferExercise.id, conceptId })
+      // `passed: true` (ADR-0027) — the durable flag `hasPassedTransferTest`
+      // reads directly; a bare passing `attempts` row is no longer
+      // sufficient on its own (Stage 2 must also have passed).
       await db.insert(transferTestExercises).values({
         learnerId,
         conceptId,
         exerciseId: transferExercise.id,
+        passed: true,
       })
       await db.insert(attempts).values({
         learnerId,
@@ -707,6 +711,12 @@ describe.skipIf(!dbUp)('mastery.server', () => {
       await db
         .delete(attempts)
         .where(eq(attempts.exerciseId, transferExerciseId))
+      // `passed` (ADR-0027) is a durable, never-unset-by-the-app flag — reset
+      // it between tests so each one starts from a clean pointer row.
+      await db
+        .update(transferTestExercises)
+        .set({ passed: false })
+        .where(eq(transferTestExercises.exerciseId, transferExerciseId))
     })
 
     it('reports no passed test before any attempt on the registered exercise', async () => {
@@ -726,13 +736,14 @@ describe.skipIf(!dbUp)('mastery.server', () => {
         outcome: 'fail',
         timeToSolution: 0,
       })
+      await recordAttemptOutcome(learnerId, transferExerciseId, false, false)
 
       await expect(hasPassedTransferTest(learnerId, conceptId)).resolves.toBe(
         false,
       )
     })
 
-    it('reports a passed attempt on the registered exercise as evidence', async () => {
+    it('reports a full Stage 1 + Stage 2 pass on the registered exercise as evidence (ADR-0027)', async () => {
       await db.insert(attempts).values({
         learnerId,
         exerciseId: transferExerciseId,
@@ -740,6 +751,7 @@ describe.skipIf(!dbUp)('mastery.server', () => {
         outcome: 'pass',
         timeToSolution: 0,
       })
+      await recordAttemptOutcome(learnerId, transferExerciseId, true, true)
 
       await expect(hasPassedTransferTest(learnerId, conceptId)).resolves.toBe(
         true,
@@ -776,6 +788,10 @@ describe.skipIf(!dbUp)('mastery.server', () => {
           outcome: 'pass',
           timeToSolution: 0,
         })
+        // Not registered as this learner's Transfer Test exercise for the
+        // concept, so recordAttemptOutcome finds no transfer concept to
+        // mark passed — `findTransferTestConceptForExercise` returns null.
+        await recordAttemptOutcome(learnerId, otherExercise.id, true, true)
 
         await expect(hasPassedTransferTest(learnerId, conceptId)).resolves.toBe(
           false,
@@ -799,6 +815,9 @@ describe.skipIf(!dbUp)('mastery.server', () => {
       await expect(getMasteryStates(learnerId, [conceptId])).resolves.toEqual({
         [conceptId]: 'practiced',
       })
+      await expect(hasPassedTransferTest(learnerId, conceptId)).resolves.toBe(
+        false,
+      )
     })
 
     it('never promotes a concept with a TT pass alone — Explanation Assessment is also required', async () => {
@@ -829,7 +848,7 @@ describe.skipIf(!dbUp)('mastery.server', () => {
       )
     })
 
-    it('recordAttemptOutcome does not require Stage 2 to record Transfer Test evidence', async () => {
+    it('requires Stage 2 to record Transfer Test evidence, mirroring Practiced’s own bar (ADR-0027)', async () => {
       await db.insert(attempts).values({
         learnerId,
         exerciseId: transferExerciseId,
@@ -839,6 +858,33 @@ describe.skipIf(!dbUp)('mastery.server', () => {
       })
 
       await recordAttemptOutcome(learnerId, transferExerciseId, true, false)
+
+      await expect(hasPassedTransferTest(learnerId, conceptId)).resolves.toBe(
+        false,
+      )
+    })
+
+    it('a later full pass still records evidence after an earlier Stage-2-failing attempt', async () => {
+      await db.insert(attempts).values({
+        learnerId,
+        exerciseId: transferExerciseId,
+        code: 'fixture solution, stage 2 fails',
+        outcome: 'pass',
+        timeToSolution: 0,
+      })
+      await recordAttemptOutcome(learnerId, transferExerciseId, true, false)
+      await expect(hasPassedTransferTest(learnerId, conceptId)).resolves.toBe(
+        false,
+      )
+
+      await db.insert(attempts).values({
+        learnerId,
+        exerciseId: transferExerciseId,
+        code: 'fixture solution, retry',
+        outcome: 'pass',
+        timeToSolution: 1,
+      })
+      await recordAttemptOutcome(learnerId, transferExerciseId, true, true)
 
       await expect(hasPassedTransferTest(learnerId, conceptId)).resolves.toBe(
         true,

@@ -19,6 +19,7 @@ import { generateExerciseForConcept } from '#/features/exercise/exercise-generat
 import {
   getMasteryStates,
   getPassedTransferTestConceptIds,
+  hasPassedExerciseModeForConcept,
 } from '#/features/learners/mastery.server'
 import {
   getTransferTestExerciseId,
@@ -104,12 +105,19 @@ async function getExerciseView(exerciseId: string): Promise<{
  * Generates (or reuses) one learner's Transfer Test exercise for an
  * already-Practiced concept (SPEC story 46, ADR-0015, ADR-0010, issue #17):
  * validates the concept is gate-eligible (usable, at Practiced), then
- * requests a debug-mode exercise from the exact same generation + Pre-Flight
- * pipeline every other exercise goes through (`generateExerciseForConcept`,
- * issue #8) — `adversarial: true` is ADR-0010's fixed "structurally
- * different exercise" shape for Transfer Testing, not dynamically chosen
- * per learner (regular curriculum practice is `implement`-mode by default,
- * so `debug` is reliably different from what was originally solved).
+ * requests an exercise from the exact same generation + Pre-Flight pipeline
+ * every other exercise goes through (`generateExerciseForConcept`, issue
+ * #8). ADR-0010's fixed "structurally different exercise" shape for
+ * Transfer Testing is debug-mode (`adversarial: true`) — but "different"
+ * means different from what the learner actually solved, not a hardcoded
+ * mode: the practice list's adversarial toggle (issue #11) lets a learner
+ * reach Practiced via a debug-mode exercise through ordinary practice, in
+ * which case a debug-mode Transfer Test would be the *same* shape (AC1).
+ * `hasPassedExerciseModeForConcept` checks whether the learner has already
+ * passed debug-mode on this concept; if so, the Transfer Test requests
+ * `implement`-mode instead. If the learner has already passed *both* shapes
+ * (no shape left that's guaranteed novel), this falls back to ADR-0010's
+ * debug-mode default — no third shape exists in this pipeline.
  *
  * The generated instance is registered (`registerTransferTestExercise`) so
  * a retry — or a second call to this function — resolves back to the same
@@ -165,6 +173,26 @@ export async function generateTransferTestExercise(input: {
     }
   }
 
+  // AC1's "structurally different exercise shape" (see this function's doc
+  // comment): default to debug-mode (ADR-0010), but switch to implement-mode
+  // when the learner already passed debug-mode on this concept through the
+  // practice list's own adversarial toggle — otherwise the Transfer Test
+  // would silently regenerate the same shape already solved.
+  const alreadyPassedDebug = await hasPassedExerciseModeForConcept(
+    input.learnerId,
+    concept.id,
+    'debug',
+  )
+  const alreadyPassedImplement = await hasPassedExerciseModeForConcept(
+    input.learnerId,
+    concept.id,
+    'implement',
+  )
+  // Only switch away from the debug-mode default when debug is the shape
+  // already faced and implement genuinely offers something different —
+  // otherwise (neither passed, or both passed) debug stays the default.
+  const adversarial = !(alreadyPassedDebug && !alreadyPassedImplement)
+
   let generated
   try {
     // `guidance: 'independent'` — a test of transferred mastery is solved
@@ -175,7 +203,7 @@ export async function generateTransferTestExercise(input: {
       language: concept.language,
       conceptSlug: concept.slug,
       learnerId: input.learnerId,
-      adversarial: true,
+      adversarial,
       guidance: 'independent',
     })
   } catch {

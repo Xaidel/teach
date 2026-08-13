@@ -1,7 +1,7 @@
 import { and, eq, inArray } from 'drizzle-orm'
 
 import { db } from '#/db/client.server'
-import { attempts, transferTestExercises } from '#/db/schema'
+import { transferTestExercises } from '#/db/schema'
 
 /**
  * Registers the exercise generated for one learner's Transfer Test on one
@@ -72,16 +72,43 @@ export async function findTransferTestConceptForExercise(input: {
 }
 
 /**
+ * Marks one learner's registered Transfer Test exercise for one concept as
+ * passed (ADR-0015, ADR-0027, issue #17) — the durable write behind
+ * `hasPassedTransferTest`. Called once by `recordAttemptOutcome`
+ * (`mastery.server.ts`) the moment it observes a full pass (Stage 1 *and*
+ * Stage 2, matching Practiced's own bar) against the learner's registered
+ * instance. Written as a one-way flag, never unset: idempotent, and a
+ * concurrent/later call is a no-op once already true. This is a write, not
+ * a re-derived read, because Stage 2's rubric result is never persisted on
+ * `attempts` (only Stage 1's `outcome` is) — there is nothing a
+ * retrospective query against `attempts` could consult for Stage 2, so the
+ * pass verdict must be captured durably at the moment both stages are known
+ * (submission time), not reconstructed later.
+ */
+export async function markTransferTestExercisePassed(input: {
+  learnerId: string
+  conceptId: string
+}): Promise<void> {
+  await db
+    .update(transferTestExercises)
+    .set({ passed: true })
+    .where(
+      and(
+        eq(transferTestExercises.learnerId, input.learnerId),
+        eq(transferTestExercises.conceptId, input.conceptId),
+      ),
+    )
+}
+
+/**
  * Whether the learner has a passed Transfer Test recorded for the concept
- * (issue #17): a `pass` outcome on the exercise instance registered as this
- * learner's Transfer Test for the concept (`transferTestExercises`). Stage
- * 1's deterministic sandbox verdict is the sole bar — Stage 1 stays the
- * authoritative gate (ADR-0008, mirrored by `attempts.outcome`'s own doc
- * comment); a Stage 2 qualitative rubric review, when the generic
- * submission path happens to run one, is informational only and never
- * consulted here. This is the Learner Model's evidence read for ADR-0015's
- * Practiced → Demonstrated gate — the Transfer Test feature reports through
- * `recordTransferTestOutcome` and never reaches into `attempts` itself.
+ * (issue #17, ADR-0027): the durable `passed` flag on the exercise instance
+ * registered as this learner's Transfer Test for the concept
+ * (`transferTestExercises`), set once by `markTransferTestExercisePassed`
+ * when both Stage 1 and Stage 2 pass. This is the Learner Model's evidence
+ * read for ADR-0015's Practiced → Demonstrated gate — the Transfer Test
+ * feature reports through `recordTransferTestOutcome` and never reaches
+ * into `attempts` itself.
  */
 export async function hasPassedTransferTest(
   learnerId: string,
@@ -95,7 +122,7 @@ export async function hasPassedTransferTest(
 
 /**
  * The subset of `conceptIds` the learner has a passed Transfer Test
- * recorded for (issue #17) — the batched evidence read behind
+ * recorded for (issue #17, ADR-0027) — the batched evidence read behind
  * `hasPassedTransferTest`, kept as its own function so the transfer-test
  * feature's overview can annotate a whole list of eligible concepts without
  * an n+1, mirroring `getPassedExplanationAssessmentConceptIds`.
@@ -107,20 +134,13 @@ export async function getPassedTransferTestConceptIds(
   if (conceptIds.length === 0) return []
 
   const rows = await db
-    .selectDistinct({ conceptId: transferTestExercises.conceptId })
+    .select({ conceptId: transferTestExercises.conceptId })
     .from(transferTestExercises)
-    .innerJoin(
-      attempts,
-      and(
-        eq(attempts.exerciseId, transferTestExercises.exerciseId),
-        eq(attempts.learnerId, transferTestExercises.learnerId),
-      ),
-    )
     .where(
       and(
         eq(transferTestExercises.learnerId, learnerId),
         inArray(transferTestExercises.conceptId, conceptIds),
-        eq(attempts.outcome, 'pass'),
+        eq(transferTestExercises.passed, true),
       ),
     )
 

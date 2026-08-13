@@ -5,6 +5,7 @@ import { Alert } from '#/shared/components/ui/alert'
 import { Badge } from '#/shared/components/ui/badge'
 import { Button } from '#/shared/components/ui/button'
 import { Card, CardContent, CardHeader } from '#/shared/components/ui/card'
+import { Label } from '#/shared/components/ui/label'
 
 import { errorMessage } from '../client-utils'
 import { generateTransferTestExerciseFn } from '../transfer-test.functions'
@@ -84,9 +85,7 @@ export function TransferTestCard({
         ) : (
           <div className="grid gap-4">
             <div className="grid gap-2">
-              <p className="text-sm font-semibold text-foreground">
-                Eligible concepts
-              </p>
+              <Label>Eligible concepts</Label>
               <ul className="flex flex-wrap gap-2">
                 {concepts.map((concept) => (
                   <li key={concept.conceptId}>

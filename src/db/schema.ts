@@ -334,7 +334,8 @@ export const learnerConceptMastery = pgTable(
  * exercise is a genuine per-instance AI generation — nothing else identifies
  * "the" Transfer Test among a learner's many debug-mode attempts on a
  * concept. Unique on `(learner_id, concept_id)`: a learner gets exactly one
- * assigned Transfer Test exercise per concept.
+ * assigned Transfer Test exercise per concept. `passed` (ADR-0027) records
+ * the ADR-0015 pass bar once it's met — see its own column comment.
  */
 export const transferTestExercises = pgTable(
   'transfer_test_exercises',
@@ -351,6 +352,12 @@ export const transferTestExercises = pgTable(
     exerciseId: uuid('exercise_id')
       .notNull()
       .references(() => exercises.id),
+    // ADR-0027: the ADR-0015 pass bar (Stage 1 + Stage 2, mirroring
+    // Practiced's own bar), written exactly once by `recordAttemptOutcome`.
+    // A durable flag, not a re-derived read, because Stage 2's rubric result
+    // is never persisted on `attempts` (only Stage 1's `outcome` is) — there
+    // is nothing on `attempts` a retrospective query could consult.
+    passed: boolean('passed').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
