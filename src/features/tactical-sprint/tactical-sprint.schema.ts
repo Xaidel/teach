@@ -6,7 +6,7 @@ import { SNIPPET_MAX_LENGTH } from '#/lib/ai/schemas'
 // single source keeps this browser-reachable schema module from duplicating
 // (and drifting from) the ordering `learners` and `explanation-assessment`
 // use.
-import { MASTERY_STATES, type MasteryState } from '#/lib/mastery-states'
+import type { MasteryState } from '#/lib/mastery-states'
 // Narrow, client-safe entry point from the `exercise` feature (see
 // arch_docs/dependency-rules.md's Feature Dependencies section): a Tactical
 // Sprint can only ever finish by generating an exercise, so it is scoped
@@ -18,8 +18,6 @@ import {
   EXERCISE_GENERATION_LANGUAGES,
   type GenerateExerciseOutput,
 } from '#/features/exercise/exercise-generation.schema'
-
-export { MASTERY_STATES }
 
 /**
  * Input to start a Tactical Sprint (SPEC stories 4, 6-7, ticket #13): the
