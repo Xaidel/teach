@@ -12,7 +12,7 @@ import {
   requestHint,
   submitExercise,
 } from './exercise.server'
-import { getPreFlightFailureSignals } from './pre-flight-signals.server'
+import { getPreFlightAttemptAggregates } from './pre-flight-signals.server'
 
 /**
  * Loads every exercise a learner may attempt — the hardcoded v1 seeds plus
@@ -29,11 +29,11 @@ export const getAvailableExercisesFn = createServerFn({
  * the generation surface can surface repeated failures on a concept as a
  * quality signal.
  */
-export const getPreFlightSignalsFn = createServerFn({ method: 'GET' }).handler(
-  () => {
-    return getPreFlightFailureSignals()
-  },
-)
+export const getPreFlightAggregatesFn = createServerFn({
+  method: 'GET',
+}).handler(() => {
+  return getPreFlightAttemptAggregates()
+})
 
 /**
  * Generates an exercise for a Concept Graph concept and runs it through

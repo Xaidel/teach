@@ -67,11 +67,25 @@ export const SIMPLIFIED_FALLBACK_ATTEMPT_NUMBER = MAX_PREFLIGHT_ATTEMPTS + 1
 export const PRE_FLIGHT_REPEATED_FAILURE_THRESHOLD = 2
 
 /**
+ * The recency window of the Pre-Flight attempt aggregate (SPEC story 35,
+ * issue #103): only runs within the last N days count toward a concept's
+ * aggregate. A lifetime aggregate lets two old failures followed by forty
+ * successes still render "generation has been unreliable here"; the window
+ * keeps the signal about the concept's current generation health. Chosen
+ * to match a learner's weekly usage rhythm — the threshold semantics
+ * (PRE_FLIGHT_REPEATED_FAILURE_THRESHOLD) are unaffected.
+ */
+export const PRE_FLIGHT_RECENCY_WINDOW_DAYS = 7
+
+/**
  * One concept's Pre-Flight attempt aggregate (ADR-0010), the raw material
  * of the story-35 quality signal: how many generations have been attempted
- * for the concept and how many of those runs failed.
+ * for the concept and how many of those runs failed. A concept can carry
+ * one of these while signalling nothing — it attaches below the threshold
+ * (PRE_FLIGHT_REPEATED_FAILURE_THRESHOLD) — hence the aggregate name, not
+ * a signal.
  */
-export type PreFlightFailureSignal = {
+export type PreFlightAttemptAggregate = {
   conceptId: string
   totalAttempts: number
   failedAttempts: number

@@ -4,7 +4,9 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '#/db/client.server'
 import { concepts, preFlightAttempts } from '#/db/schema'
 
-import { getPreFlightFailureSignals } from './pre-flight-signals.server'
+import { PRE_FLIGHT_RECENCY_WINDOW_DAYS } from './exercise-generation.schema'
+import type { PreFlightAttemptAggregate } from './exercise-generation.schema'
+import { getPreFlightAttemptAggregates } from './pre-flight-signals.server'
 
 async function dbAvailable(): Promise<boolean> {
   try {
@@ -21,6 +23,45 @@ const FIXTURE_CONCEPT_IDS = [
   '44444444-4444-7444-8444-444444444444',
   '55555555-5555-7555-8555-555555555555',
 ]
+
+function fixtureConceptId(offset: number): string {
+  const id = FIXTURE_CONCEPT_IDS[offset]
+  if (!id) {
+    throw new Error('expected the fixture concept ids')
+  }
+  return id
+}
+
+function byConceptId(
+  aggregates: PreFlightAttemptAggregate[],
+): Map<string, PreFlightAttemptAggregate> {
+  return new Map(
+    aggregates.map((aggregate) => [aggregate.conceptId, aggregate]),
+  )
+}
+
+/** One Pre-Flight attempt fixture row; `createdAt` defaults to now. */
+function attemptRow(input: {
+  conceptId: string
+  attemptNumber: number
+  passed: boolean
+  createdAt?: Date
+}): typeof preFlightAttempts.$inferInsert {
+  const row: typeof preFlightAttempts.$inferInsert = {
+    conceptId: input.conceptId,
+    attemptNumber: input.attemptNumber,
+    passed: input.passed,
+    diagnostics: {
+      checks: [],
+      referenceResult: { passed: input.passed, tests: [] },
+      brokenResult: { passed: false, tests: [] },
+    },
+  }
+  if (input.createdAt) {
+    row.createdAt = input.createdAt
+  }
+  return row
+}
 
 beforeAll(async () => {
   await db.insert(concepts).values([
@@ -51,83 +92,78 @@ afterAll(async () => {
 
 describe.skipIf(!dbUp)('pre-flight failure signals against Postgres', () => {
   it('aggregates total and failed attempts per concept (SPEC story 35)', async () => {
-    const [conceptA] = FIXTURE_CONCEPT_IDS
-    const [conceptB] = FIXTURE_CONCEPT_IDS.slice(1)
-    if (!conceptA || !conceptB) {
-      throw new Error('expected the fixture concept ids')
-    }
-    await db.insert(preFlightAttempts).values([
-      {
-        conceptId: conceptA,
-        attemptNumber: 1,
-        passed: false,
-        diagnostics: {
-          checks: [],
-          referenceResult: { passed: false, tests: [] },
-          brokenResult: { passed: false, tests: [] },
-        },
-      },
-      {
-        conceptId: conceptA,
-        attemptNumber: 2,
-        passed: false,
-        diagnostics: {
-          checks: [],
-          referenceResult: { passed: false, tests: [] },
-          brokenResult: { passed: false, tests: [] },
-        },
-      },
-      {
-        conceptId: conceptA,
-        attemptNumber: 3,
-        passed: true,
-        diagnostics: {
-          checks: [],
-          referenceResult: { passed: true, tests: [] },
-          brokenResult: { passed: false, tests: [] },
-        },
-      },
-      {
-        conceptId: conceptB,
-        attemptNumber: 1,
-        passed: true,
-        diagnostics: {
-          checks: [],
-          referenceResult: { passed: true, tests: [] },
-          brokenResult: { passed: false, tests: [] },
-        },
-      },
-    ])
+    const conceptA = fixtureConceptId(0)
+    const conceptB = fixtureConceptId(1)
+    await db
+      .insert(preFlightAttempts)
+      .values([
+        attemptRow({ conceptId: conceptA, attemptNumber: 1, passed: false }),
+        attemptRow({ conceptId: conceptA, attemptNumber: 2, passed: false }),
+        attemptRow({ conceptId: conceptA, attemptNumber: 3, passed: true }),
+        attemptRow({ conceptId: conceptB, attemptNumber: 1, passed: true }),
+      ])
 
-    const signals = await getPreFlightFailureSignals()
-    const byConceptId = new Map(
-      signals.map((signal) => [signal.conceptId, signal]),
-    )
+    const aggregates = await getPreFlightAttemptAggregates()
+    const byConcept = byConceptId(aggregates)
 
-    expect(byConceptId.get(conceptA)).toEqual({
+    expect(byConcept.get(conceptA)).toEqual({
       conceptId: conceptA,
       totalAttempts: 3,
       failedAttempts: 2,
     })
-    expect(byConceptId.get(conceptB)).toEqual({
+    expect(byConcept.get(conceptB)).toEqual({
       conceptId: conceptB,
       totalAttempts: 1,
       failedAttempts: 0,
     })
   })
+  it('ignores attempts outside the recency window (issue #103)', async () => {
+    const conceptA = fixtureConceptId(0)
+    const conceptB = fixtureConceptId(1)
+    const staleCutoff = new Date(
+      Date.now() - 2 * PRE_FLIGHT_RECENCY_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+    )
+    await db.insert(preFlightAttempts).values([
+      attemptRow({
+        conceptId: conceptA,
+        attemptNumber: 1,
+        passed: false,
+        createdAt: staleCutoff,
+      }),
+      attemptRow({
+        conceptId: conceptA,
+        attemptNumber: 2,
+        passed: false,
+        createdAt: staleCutoff,
+      }),
+      attemptRow({ conceptId: conceptA, attemptNumber: 3, passed: true }),
+      attemptRow({ conceptId: conceptA, attemptNumber: 4, passed: true }),
+      attemptRow({
+        conceptId: conceptB,
+        attemptNumber: 1,
+        passed: false,
+        createdAt: staleCutoff,
+      }),
+    ])
+
+    const aggregates = await getPreFlightAttemptAggregates()
+    const byConcept = byConceptId(aggregates)
+
+    expect(byConcept.get(conceptA)).toEqual({
+      conceptId: conceptA,
+      totalAttempts: 2,
+      failedAttempts: 0,
+    })
+    expect(byConcept.get(conceptB)).toBeUndefined()
+  })
 
   it('omits concepts with no Pre-Flight attempts', async () => {
-    const signals = await getPreFlightFailureSignals()
+    const aggregates = await getPreFlightAttemptAggregates()
 
-    const byConceptId = new Map(
-      signals.map((signal) => [signal.conceptId, signal]),
-    )
-    const [conceptA] = FIXTURE_CONCEPT_IDS
-    const [conceptB] = FIXTURE_CONCEPT_IDS.slice(1)
-    if (!conceptA || !conceptB) {
-      throw new Error('expected the fixture concept ids')
-    }
-    expect(byConceptId.get(conceptA)).toBeUndefined()
-    expect(byConceptId.get(conceptB)).toBeUndefined()
+    const byConcept = byConceptId(aggregates)
+    const conceptA = fixtureConceptId(0)
+    const conceptB = fixtureConceptId(1)
+    expect(byConcept.get(conceptA)).toBeUndefined()
+    expect(byConcept.get(conceptB)).toBeUndefined()
   })
 })
