@@ -64,8 +64,11 @@ export type IdentifiedConcept = {
   slug: string
   description: string
   /**
-   * Whether this slug already existed in the Concept Graph, or was
-   * ad-hoc drafted for this sprint (ADR-0016's runtime-gap case).
+   * Whether this slug already existed in the Concept Graph when the sprint
+   * resolved it (ADR-0016). A `false` here spans two states: the winning
+   * unmatched candidate, ad-hoc drafted during this sprint, and a losing
+   * unmatched candidate, never persisted at all — which is why the loser's
+   * `conceptId` is undefined (see above, issue #125).
    */
   matched: boolean
   masteryState: MasteryStateView

@@ -3,9 +3,10 @@ import { identifySnippetConcepts } from '#/lib/ai/functions.server'
 import type { SnippetConcept } from '#/lib/ai/schemas'
 // Narrow, documented cross-feature dependency (arch_docs/dependency-rules.md
 // "Feature Dependencies" exception): a Tactical Sprint resolves each
-// identified concept against the Concept Graph, ad-hoc drafting an unmatched
-// one immediately (ADR-0016's runtime-gap case) — one-way, `concepts` never
-// imports back from `tactical-sprint`.
+// identified concept against the Concept Graph, deferring drafting until the
+// weakest concept is ranked — only that winner is ad-hoc drafted, and only
+// when it is unmatched (ADR-0016's runtime-gap case, issue #125) — one-way,
+// `concepts` never imports back from `tactical-sprint`.
 import {
   draftFocusedConcept,
   getUsableConceptGraph,
@@ -184,8 +185,13 @@ export async function runTacticalSprint(input: {
         })
       ).conceptId
 
+  // Keyed by slug rather than reference equality: slugs are unique after
+  // `resolveIdentifiedConcepts`' dedup, so the winner is still identified
+  // even if `pickWeakest` ever rebuilds its candidate object (issue #128).
   const identifiedConcepts: IdentifiedConcept[] = ranked.map((concept) =>
-    concept === weakest ? { ...concept, conceptId: targetConceptId } : concept,
+    concept.slug === weakest.slug
+      ? { ...concept, conceptId: targetConceptId }
+      : concept,
   )
 
   const exercise = await generateExerciseForConcept({

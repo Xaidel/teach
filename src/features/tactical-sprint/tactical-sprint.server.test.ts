@@ -374,6 +374,59 @@ describe.skipIf(!dbUp)(
       expect(losingRow).toBeUndefined()
     })
 
+    it('picks a matched concept over an unmatched one on an unknown tie, triggering no draft (issue #128)', async () => {
+      const [knownRow] = await db
+        .insert(concepts)
+        .values({ language: 'rust', slug: KNOWN_UNKNOWN_SLUG, difficulty: 2 })
+        .returning()
+      if (!knownRow) throw new Error('expected the fixture concept row')
+
+      identifySnippetConceptsMock.mockResolvedValue({
+        concepts: [
+          { slug: KNOWN_UNKNOWN_SLUG, description: 'Already known.' },
+          { slug: UNMATCHED_SLUG, description: 'A concept new to this graph.' },
+        ],
+      })
+      generateExerciseMock.mockResolvedValue(generatedFor(KNOWN_UNKNOWN_SLUG))
+      runSandboxSubmissionMock
+        .mockResolvedValueOnce(REFERENCE_PASSES)
+        .mockResolvedValueOnce(BROKEN_FAILS_ON_CONCEPT)
+
+      const result = await runTacticalSprint({
+        learnerId,
+        language: 'rust',
+        snippet: 'pub fn f() -> u32 { 0 }',
+      })
+
+      // Both tie at `unknown` (the lowest rank); the first-identified —
+      // matched — candidate wins the tie-break, so the sprint never drafts.
+      expect(result.targetConceptSlug).toBe(KNOWN_UNKNOWN_SLUG)
+      expect(draftConceptGraphMock).not.toHaveBeenCalled()
+
+      const winnerView = result.identifiedConcepts.find(
+        (concept) => concept.slug === KNOWN_UNKNOWN_SLUG,
+      )
+      const loserView = result.identifiedConcepts.find(
+        (concept) => concept.slug === UNMATCHED_SLUG,
+      )
+      expect(winnerView).toMatchObject({
+        matched: true,
+        conceptId: knownRow.id,
+        masteryState: 'unknown',
+      })
+      expect(loserView).toMatchObject({
+        matched: false,
+        conceptId: undefined,
+        masteryState: 'unknown',
+      })
+
+      const generateCall = generateExerciseMock.mock.calls[0]?.[0]
+      expect(generateCall).toMatchObject({
+        conceptSlug: KNOWN_UNKNOWN_SLUG,
+        sprintScoped: true,
+      })
+    })
+
     it('collapses duplicate identified slugs into one candidate', async () => {
       const [conceptRow] = await db
         .insert(concepts)
