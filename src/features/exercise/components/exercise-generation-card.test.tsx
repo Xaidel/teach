@@ -213,4 +213,112 @@ describe('ExerciseGenerationCard', () => {
       ),
     ).toBeInTheDocument()
   })
+
+  it('renders the adversarial label when the fallback serves a stored adversarial row', async () => {
+    const user = userEvent.setup()
+    generateExerciseFnMock.mockResolvedValue({
+      kind: 'verified-fallback',
+      exercise: {
+        id: 'e2',
+        slug: 'rust-test-rust-borrowing-f00df00d',
+        language: 'rust',
+        title: 'Seeded adversarial',
+        prompt: 'Find and fix the defect.',
+        starterCode: 'pub fn seeded() {}',
+      },
+      conceptSlug: 'test.rust.borrowing',
+      targetConcepts: ['test.rust.borrowing'],
+      constraints: ['std_only'],
+      defect: {
+        kind: 'ownership',
+        description: 'first consumes the vector instead of borrowing it',
+        location: 'first',
+        expectedBehavior:
+          'first returns the first element while leaving the vector usable',
+      },
+    })
+    render(
+      <ExerciseGenerationCard concepts={[CONCEPT_CLEAN]} language="rust" />,
+    )
+
+    await user.click(
+      screen.getByRole('button', { name: 'Generate rust exercise' }),
+    )
+
+    expect(
+      screen.getByText(
+        /Fell back to a previously verified exercise — Seeded adversarial — adversarial \(ownership\) first consumes the vector instead of borrowing it/,
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('renders a snake_case defect kind with spaces on the fallback branch', async () => {
+    const user = userEvent.setup()
+    generateExerciseFnMock.mockResolvedValue({
+      kind: 'verified-fallback',
+      exercise: {
+        id: 'e4',
+        slug: 'rust-test-rust-borrowing-cafebabe',
+        language: 'rust',
+        title: 'Seeded adversarial',
+        prompt: 'Find and fix the defect.',
+        starterCode: 'pub fn seeded() {}',
+      },
+      conceptSlug: 'test.rust.borrowing',
+      targetConcepts: ['test.rust.borrowing'],
+      constraints: ['std_only'],
+      defect: {
+        kind: 'race_condition',
+        description: 'the lock is never released after a failed acquire',
+        location: 'acquire',
+        expectedBehavior:
+          'acquire leaves the lock held only while the critical section runs',
+      },
+    })
+    render(
+      <ExerciseGenerationCard concepts={[CONCEPT_CLEAN]} language="rust" />,
+    )
+
+    await user.click(
+      screen.getByRole('button', { name: 'Generate rust exercise' }),
+    )
+
+    expect(
+      screen.getByText(
+        /Fell back to a previously verified exercise — Seeded adversarial — adversarial \(race condition\) the lock is never released after a failed acquire/,
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('renders no adversarial label when the fallback serves a non-adversarial row', async () => {
+    const user = userEvent.setup()
+    generateExerciseFnMock.mockResolvedValue({
+      kind: 'verified-fallback',
+      exercise: {
+        id: 'e3',
+        slug: 'rust-test-rust-borrowing-beefbeef',
+        language: 'rust',
+        title: 'Seeded implement',
+        prompt: 'Do the thing.',
+        starterCode: 'pub fn seeded() {}',
+      },
+      conceptSlug: 'test.rust.borrowing',
+      targetConcepts: ['test.rust.borrowing'],
+      constraints: ['std_only'],
+    })
+    render(
+      <ExerciseGenerationCard concepts={[CONCEPT_CLEAN]} language="rust" />,
+    )
+
+    await user.click(
+      screen.getByRole('button', { name: 'Generate rust exercise' }),
+    )
+
+    expect(
+      screen.getByText(
+        /Fell back to a previously verified exercise — Seeded implement/,
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/adversarial \(/)).not.toBeInTheDocument()
+  })
 })

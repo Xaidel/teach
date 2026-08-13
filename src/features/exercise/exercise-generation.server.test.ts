@@ -531,6 +531,9 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
       referenceSolution: ADVERSARIAL_GENERATED.referenceSolution,
       testSource: ADVERSARIAL_GENERATED.testSource,
     })
+    // ADR-0023: the declared defect is persisted from the generation
+    // contract so the verified-fallback path can surface it later.
+    expect(row?.defect).toEqual(ADVERSARIAL_GENERATED.defect)
 
     const [attempt] = await db
       .select()
@@ -847,6 +850,117 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
         like(exercises.slug, 'rust-test-rust-borrowing-%'),
       ),
     ).toBe(0)
+
+    await db
+      .delete(exerciseConcepts)
+      .where(eq(exerciseConcepts.exerciseId, fallbackRow.id))
+    await db.delete(exercises).where(eq(exercises.id, fallbackRow.id))
+  })
+
+  it('surfaces the persisted defect when the verified fallback serves an adversarial row', async () => {
+    const [fallbackRow] = await db
+      .insert(exercises)
+      .values({
+        slug: 'fallback-seeded-adversarial',
+        language: 'rust',
+        title: 'Seeded adversarial',
+        prompt: 'Find and fix the defect.',
+        starterCode: 'pub fn seeded() {}',
+        testSource: FALLBACK_TEST_SOURCE,
+        referenceSolution: FALLBACK_REFERENCE_SOLUTION,
+        evaluationRubric: {
+          required: ['Fixes the defect'],
+          prohibited: [],
+          advisory: [],
+        },
+        mode: 'debug',
+        defect: ADVERSARIAL_GENERATED.defect,
+        difficulty: 1,
+        constraints: ['std_only'],
+        status: 'verified',
+      })
+      .returning()
+    if (!fallbackRow) {
+      throw new Error('expected the fallback fixture exercise')
+    }
+    await db.insert(exerciseConcepts).values({
+      exerciseId: fallbackRow.id,
+      conceptId: FIXTURE_CONCEPT_ID,
+    })
+
+    generateExerciseMock.mockResolvedValue(GENERATED)
+    for (let attempt = 0; attempt < 3; attempt++) {
+      scheduleFailingPreFlight([REFERENCE_FAILS, BROKEN_FAILS_ON_CONCEPT])
+    }
+
+    const outcome = await generateExerciseForConcept({
+      language: 'rust',
+      conceptSlug: FIXTURE_CONCEPT_SLUG,
+    })
+
+    // The stored adversarial row is served as-is, with its persisted defect
+    // surfaced so the card labels it consistently (issue #120) — and only
+    // the stored row's defect, never a regenerated draft's.
+    expect(outcome.kind).toBe('verified-fallback')
+    if (outcome.kind !== 'verified-fallback') {
+      return
+    }
+    expect(outcome.exercise.id).toBe(fallbackRow.id)
+    expect(outcome.defect).toEqual(ADVERSARIAL_GENERATED.defect)
+    expect(generateExerciseMock).toHaveBeenCalledTimes(3)
+
+    await db
+      .delete(exerciseConcepts)
+      .where(eq(exerciseConcepts.exerciseId, fallbackRow.id))
+    await db.delete(exercises).where(eq(exercises.id, fallbackRow.id))
+  })
+
+  it('serves a fallback row without a defect when the stored exercise is not adversarial', async () => {
+    const [fallbackRow] = await db
+      .insert(exercises)
+      .values({
+        slug: 'fallback-seeded-implement',
+        language: 'rust',
+        title: 'Seeded implement',
+        prompt: 'Do the thing.',
+        starterCode: 'pub fn seeded() {}',
+        testSource: FALLBACK_TEST_SOURCE,
+        referenceSolution: FALLBACK_REFERENCE_SOLUTION,
+        evaluationRubric: {
+          required: ['Does the thing'],
+          prohibited: [],
+          advisory: [],
+        },
+        mode: 'implement',
+        difficulty: 1,
+        constraints: ['std_only'],
+        status: 'verified',
+      })
+      .returning()
+    if (!fallbackRow) {
+      throw new Error('expected the fallback fixture exercise')
+    }
+    await db.insert(exerciseConcepts).values({
+      exerciseId: fallbackRow.id,
+      conceptId: FIXTURE_CONCEPT_ID,
+    })
+
+    generateExerciseMock.mockResolvedValue(GENERATED)
+    for (let attempt = 0; attempt < 3; attempt++) {
+      scheduleFailingPreFlight([REFERENCE_FAILS, BROKEN_FAILS_ON_CONCEPT])
+    }
+
+    const outcome = await generateExerciseForConcept({
+      language: 'rust',
+      conceptSlug: FIXTURE_CONCEPT_SLUG,
+    })
+
+    expect(outcome.kind).toBe('verified-fallback')
+    if (outcome.kind !== 'verified-fallback') {
+      return
+    }
+    expect(outcome.exercise.id).toBe(fallbackRow.id)
+    expect(outcome.defect).toBeUndefined()
 
     await db
       .delete(exerciseConcepts)

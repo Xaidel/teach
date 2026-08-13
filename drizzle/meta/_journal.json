@@ -78,6 +78,13 @@
       "when": 1786625627296,
       "tag": "0010_heavy_the_anarchist",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1786632711454,
+      "tag": "0011_glorious_black_queen",
+      "breakpoints": true
     }
   ]
 }

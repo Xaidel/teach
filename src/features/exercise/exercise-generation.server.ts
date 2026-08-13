@@ -190,6 +190,11 @@ async function persistVerifiedExercise(input: {
         difficulty: input.generated.difficulty,
         constraints: input.generated.constraints,
         status: 'verified',
+        // ADR-0023: persist the declared defect of an adversarial
+        // (debug-mode) generation so the verified-fallback path can surface
+        // it — a stored adversarial row served via fallback must render the
+        // adversarial label consistently (issue #120).
+        ...(input.generated.defect ? { defect: input.generated.defect } : {}),
       })
       .returning()
     if (!row) {
@@ -273,6 +278,12 @@ async function findVerifiedFallback(input: {
     conceptSlug: input.conceptSlug,
     targetConcepts: targetRows.map((entry) => entry.slug),
     constraints: row.constraints ?? [],
+    // A stored adversarial row is served with its persisted defect so the
+    // card renders the adversarial label consistently with a freshly
+    // generated one (issue #120). The fallback stays mode-agnostic — the
+    // selection never preserves the requested mode — but what it serves is
+    // labeled for what it is.
+    ...(row.defect ? { defect: row.defect } : {}),
   }
 }
 
@@ -294,10 +305,11 @@ async function findVerifiedFallback(input: {
  * exact same gate and the same retry/discard loop, so an adversarial
  * exercise that fails Pre-Flight is never shipped — no invented, unverified
  * bug reaches the learner. The adversarial flag survives the retry loop and
- * the simplified fallback regeneration; only the verified-fallback path is
- * mode-agnostic (SPEC story 34's contract is that a learner is never
- * blocked by a failed generation, not that the fallback preserves the
- * requested mode).
+ * the simplified fallback regeneration; the verified-fallback path is
+ * mode-agnostic in selection (SPEC story 34's contract is that a learner
+ * is never blocked by a failed generation, not that the fallback preserves
+ * the requested mode) — but a stored adversarial row it serves carries its
+ * persisted defect, so the card labels it consistently (issue #120).
  */
 export async function generateExerciseForConcept(input: {
   language: string

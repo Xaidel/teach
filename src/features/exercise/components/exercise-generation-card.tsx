@@ -16,7 +16,18 @@ import type {
   PreFlightAttemptAggregate,
 } from '../exercise-generation.schema'
 import type { SandboxLanguage } from '#/lib/sandbox/types'
+import type { ExerciseDefect } from '#/lib/ai/schemas'
 import { errorMessage } from '../client-utils'
+
+/**
+ * The adversarial label suffix shared by the generated and verified-fallback
+ * branches (issue #120): ` — adversarial (kind) description`. Rendered when
+ * the served exercise declares a defect; kinds are stored snake_case and
+ * displayed with spaces.
+ */
+function renderAdversarialLabel(defect: ExerciseDefect): string {
+  return ` — adversarial (${defect.kind.replaceAll('_', ' ')}) ${defect.description}`
+}
 
 /** One selectable Concept Graph concept for the generation picker. */
 export type GenerationConcept = {
@@ -174,10 +185,11 @@ export function ExerciseGenerationCard({
                 result.kind === 'verified-fallback' ? (
                   <p className="text-sm leading-relaxed text-muted-foreground">
                     Fell back to a previously verified exercise —{' '}
-                    {result.exercise.title}. All{' '}
-                    {String(MAX_PREFLIGHT_ATTEMPTS)} generation attempts failed
-                    Pre-Flight, so the stored verified exercise for this concept
-                    is served as-is (issue #9).
+                    {result.exercise.title}
+                    {result.defect ? renderAdversarialLabel(result.defect) : ''}
+                    . All {String(MAX_PREFLIGHT_ATTEMPTS)} generation attempts
+                    failed Pre-Flight, so the stored verified exercise for this
+                    concept is served as-is (issue #9).
                   </p>
                 ) : (
                   <p className="text-sm leading-relaxed text-muted-foreground">
@@ -187,9 +199,7 @@ export function ExerciseGenerationCard({
                     {result.simplified
                       ? ' after a fallback regeneration with a simplified constraint set'
                       : ''}
-                    {result.defect
-                      ? ` — adversarial (${result.defect.kind.replaceAll('_', ' ')}) ${result.defect.description}`
-                      : ''}
+                    {result.defect ? renderAdversarialLabel(result.defect) : ''}
                     . The exercise now appears in the practice list below.
                   </p>
                 )

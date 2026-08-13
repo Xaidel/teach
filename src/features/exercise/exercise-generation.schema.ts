@@ -116,7 +116,11 @@ export type PreFlightAttemptAggregate = {
  * For `generated` outcomes, `prerequisites` surfaces the model-declared
  * prerequisite slugs at the feature boundary so they are not silently
  * dropped (issue #91); for `verified-fallback` they are absent because
- * `exercises` does not persist them.
+ * `exercises` does not persist them. `defect` is present on a
+ * `verified-fallback` exactly when the stored row is adversarial
+ * (issue #120): the fallback stays mode-agnostic (SPEC story 34), but a
+ * served adversarial row carries its persisted defect so the card renders
+ * the adversarial label consistently.
  */
 export type GenerateExerciseOutput =
   | {
@@ -148,6 +152,13 @@ export type GenerateExerciseOutput =
       conceptSlug: string
       targetConcepts: string[]
       constraints: string[]
+      /**
+       * The persisted declared defect of an adversarial (debug-mode) stored
+       * row (issue #120): surfaced so a fallback-served adversarial
+       * exercise renders the adversarial label consistently. Present
+       * exactly when the stored row carries a defect; absent otherwise.
+       */
+      defect?: ExerciseDefect
     }
 
 /** Stable public exercise-generation error codes. */

@@ -25,7 +25,7 @@ import {
   EXPLANATION_DEPTH_MIN,
 } from '../lib/explanation-depth'
 import { HINT_LADDER_MAX_LEVEL } from '../lib/hint-levels'
-import type { EvaluationRubric } from '../lib/ai/schemas'
+import type { EvaluationRubric, ExerciseDefect } from '../lib/ai/schemas'
 import type { SandboxResult, SandboxTest } from '../lib/sandbox/types'
 
 /**
@@ -134,6 +134,11 @@ export const learners = pgTable(
  * nullable because explain-mode rows never reach Stage 2 and therefore
  * have no rubric (ADR-0017). `status` is `verified` only after Pre-Flight
  * Validation passed — the only state ever shown to the learner.
+ * `defect` is the declared intentional defect of an adversarial (debug-mode)
+ * row (ADR-0022/0023, issue #11), persisted from the generation contract so
+ * the verified-fallback path can surface it — a stored adversarial row
+ * served via fallback must render the adversarial label consistently
+ * (issue #120). Null for `implement`/`explain` rows.
  */
 export const exercises = pgTable(
   'exercises',
@@ -149,6 +154,7 @@ export const exercises = pgTable(
     testSource: text('test_source'),
     referenceSolution: text('reference_solution'),
     evaluationRubric: jsonb('evaluation_rubric').$type<EvaluationRubric>(),
+    defect: jsonb('defect').$type<ExerciseDefect>(),
     mode: exerciseMode('mode').notNull().default('implement'),
     difficulty: integer('difficulty').notNull(),
     constraints: jsonb('constraints').$type<string[]>(),
