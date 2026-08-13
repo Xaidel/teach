@@ -663,6 +663,65 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
     expect(runSandboxSubmissionMock).not.toHaveBeenCalled()
   })
 
+  it('passes sprintScoped into the AI call and persists a 5-10 minute exercise (ticket #13)', async () => {
+    generateExerciseMock.mockResolvedValue({
+      ...GENERATED,
+      estimatedMinutes: 7,
+    })
+    runSandboxSubmissionMock
+      .mockResolvedValueOnce(REFERENCE_PASSES)
+      .mockResolvedValueOnce(BROKEN_FAILS_ON_CONCEPT)
+
+    const outcome = await generateExerciseForConcept({
+      language: 'rust',
+      conceptSlug: FIXTURE_CONCEPT_SLUG,
+      sprintScoped: true,
+    })
+
+    expect(outcome.kind).toBe('generated')
+    if (outcome.kind !== 'generated') {
+      return
+    }
+    expect(outcome.estimatedMinutes).toBe(7)
+
+    const aiCall = generateExerciseMock.mock.calls[0]?.[0]
+    expect(aiCall?.sprintScoped).toBe(true)
+  })
+
+  it('rejects a sprint-scoped draft whose estimate falls outside 5-10 minutes without retrying', async () => {
+    generateExerciseMock.mockResolvedValue({
+      ...GENERATED,
+      estimatedMinutes: 15,
+    })
+
+    await expect(
+      generateExerciseForConcept({
+        language: 'rust',
+        conceptSlug: FIXTURE_CONCEPT_SLUG,
+        sprintScoped: true,
+      }),
+    ).rejects.toMatchObject({ code: 'EXERCISE_GENERATION_INVALID' })
+    expect(generateExerciseMock).toHaveBeenCalledTimes(1)
+    expect(runSandboxSubmissionMock).not.toHaveBeenCalled()
+  })
+
+  it('does not enforce the 5-10 minute window on a non-sprint generation', async () => {
+    generateExerciseMock.mockResolvedValue({
+      ...GENERATED,
+      estimatedMinutes: 15,
+    })
+    runSandboxSubmissionMock
+      .mockResolvedValueOnce(REFERENCE_PASSES)
+      .mockResolvedValueOnce(BROKEN_FAILS_ON_CONCEPT)
+
+    const outcome = await generateExerciseForConcept({
+      language: 'rust',
+      conceptSlug: FIXTURE_CONCEPT_SLUG,
+    })
+
+    expect(outcome.kind).toBe('generated')
+  })
+
   it('rejects an unknown concept with a stable error', async () => {
     await expect(
       generateExerciseForConcept({

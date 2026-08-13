@@ -9,6 +9,15 @@ import { ExercisePage } from '../features/exercise/pages/exercise-page'
 import { getExplanationPreferencesFn } from '../features/learners/learners.functions'
 
 export const Route = createFileRoute('/')({
+  // A Tactical Sprint hand-off (issue #13's "Go solve it" link) carries the
+  // generated exercise's id so the practice page can scroll to and
+  // highlight the exact one instead of the learner having to find it in an
+  // ever-growing flat list. Purely a display concern — never affects the
+  // loader's data.
+  validateSearch: (search: Record<string, unknown>) => ({
+    exerciseId:
+      typeof search.exerciseId === 'string' ? search.exerciseId : undefined,
+  }),
   loader: async () => {
     const [
       exercises,

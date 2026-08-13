@@ -89,6 +89,10 @@ export function buildGenerateExerciseMessages(
     ? `ADVERSARIAL EXERCISE: produce a debug-mode exercise. The starterCode intentionally contains ONE known defect (incorrect ownership, incorrect lifetime assumptions, a race condition, a broken invariant, broken error handling, invalid concurrency, or subtle API misuse). The defect is the only reason the starterCode fails; the learner-facing prompt presents the broken code and asks to find and fix the defect; the referenceSolution is the fixed solution; the tests encode the expected behavior. Include the defect declaration in the output.
 `
     : ''
+  const sprintScopedBlock = input.sprintScoped
+    ? `TACTICAL SPRINT: this exercise targets a learner's weakest concept behind a snippet they just pasted and didn't understand — keep it short and constrained rather than open-ended. estimatedMinutes MUST be between 5 and 10 inclusive. Add a "preserve_signature" constraint and keep starterCode's public function/method signature exactly the shape the learner must fill in — the task is filling in or fixing a small body, not designing a new interface.
+`
+    : ''
   const defectContractLine = input.adversarial
     ? `  "defect": {"kind": "ownership|lifetime|race_condition|broken_invariant|error_handling|api_misuse|other", "description": "<what is wrong>", "location": "<function/symbol with the defect>", "expectedBehavior": "<behavior of the fixed code>"},
 `
@@ -98,7 +102,7 @@ export function buildGenerateExerciseMessages(
 Target concept: ${input.conceptSlug}
 Concept difficulty: ${String(input.conceptDifficulty)} / 5
 
-${simplifiedBlock}${adversarialBlock}${diagnosticsBlock}Generate a practice exercise targeting this concept. Respond with a JSON object of the form {
+${simplifiedBlock}${adversarialBlock}${sprintScopedBlock}${diagnosticsBlock}Generate a practice exercise targeting this concept. Respond with a JSON object of the form {
   "title": "<short exercise title>",
   "prompt": "<learner instructions>",
   "starterCode": "<compiling but wrong implementation${input.adversarial ? ', with the known defect' : ''}>",
@@ -107,7 +111,7 @@ ${simplifiedBlock}${adversarialBlock}${diagnosticsBlock}Generate a practice exer
   "targetConcepts": ["<dotted slugs>"],
   "prerequisites": ["<dotted slugs>"],
   "difficulty": <1-5>,
-  "estimatedMinutes": <1-15>,
+  "estimatedMinutes": <${input.sprintScoped ? '5-10' : '1-15'}>,
   "constraints": ["<tag>"],
 ${defectContractLine}  "evaluation": {
     "tests": ["<test names, matching testSource exactly>"],

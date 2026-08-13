@@ -121,9 +121,36 @@ export const ConceptEdgeDraftSchema = z
 
 export type ConceptEdgeDraft = z.infer<typeof ConceptEdgeDraftSchema>
 
-/** Input to `draftConceptGraph`: the language to draft a broad graph for. */
+/**
+ * The Class B runtime-gap case (ADR-0016): when a pasted snippet's
+ * identified concept has no match in the existing Concept Graph, generation
+ * is scoped to that one concept rather than a broad draft. `slug` is fixed
+ * by the caller (never renamed by the model, so the resulting id is known
+ * in advance); `description` is the short natural-language description the
+ * concept was identified by, giving the model context to set a plausible
+ * difficulty.
+ */
+export const ConceptGraphFocusSchema = z
+  .object({
+    slug: z
+      .string()
+      .trim()
+      .min(1)
+      .regex(CONCEPT_SLUG_PATTERN, 'Concept slug must be dotted lowercase'),
+    description: z.string().trim().min(1),
+  })
+  .strict()
+
+export type ConceptGraphFocus = z.infer<typeof ConceptGraphFocusSchema>
+
+/**
+ * Input to `draftConceptGraph`: the language to draft a broad graph for, or
+ * — when `focusConcept` is set — a single ad-hoc concept scoped to the
+ * Class B runtime gap (ADR-0016) instead of a broad draft.
+ */
 export const DraftConceptGraphInputSchema = z.object({
   language: z.enum(SANDBOX_LANGUAGES),
+  focusConcept: ConceptGraphFocusSchema.optional(),
 })
 
 export type DraftConceptGraphInput = z.infer<
@@ -238,6 +265,14 @@ export type ExerciseDefect = z.infer<typeof ExerciseDefectSchema>
  * learner is asked to find and fix it, gated by the same Pre-Flight
  * Validation as any other exercise (SPEC stories 51-52, PRD §20, issue
  * #11). When set, the generated output must carry a `defect` declaration.
+ * `sprintScoped` targets a Class B Tactical Sprint exercise (SPEC stories
+ * 6-7, ticket #13): scoped to a 5-10 minute estimate and a
+ * signature-preserving constraint rather than the general 1-15 minute
+ * range, so the sprint stays tactical rather than open-ended. The caller
+ * (ticket #13's tactical-sprint feature) rejects a draft whose
+ * `estimatedMinutes` falls outside 5-10 the same way an off-target
+ * `targetConcepts` draft is rejected — this schema only carries the model
+ * the instruction.
  */
 export const GenerateExerciseInputSchema = z.object({
   language: z.enum(SANDBOX_LANGUAGES),
@@ -253,6 +288,7 @@ export const GenerateExerciseInputSchema = z.object({
   previousDiagnostics: PreFlightDiagnosticsInputSchema.optional(),
   simplifiedConstraints: z.boolean().optional(),
   adversarial: z.boolean().optional(),
+  sprintScoped: z.boolean().optional(),
 })
 
 export type GenerateExerciseInput = z.infer<typeof GenerateExerciseInputSchema>
@@ -368,4 +404,69 @@ export const ReviewSubmissionOutputSchema = z
 
 export type ReviewSubmissionOutput = z.infer<
   typeof ReviewSubmissionOutputSchema
+>
+
+/**
+ * Max pasted-snippet length accepted by `identifySnippetConcepts` (SPEC
+ * stories 4-7, ticket #13): generous for a real AI-generated snippet a
+ * learner doesn't understand, small enough to keep the identification
+ * prompt bounded.
+ */
+export const SNIPPET_MAX_LENGTH = 20_000
+
+/**
+ * One concept identified in a pasted snippet (SPEC stories 4-5, ticket
+ * #13): a dotted slug — matching an existing Concept Graph slug when the
+ * model recognizes one from `knownConceptSlugs`, or a plausible new slug
+ * otherwise — plus a short description. The caller resolves each slug
+ * against the graph and ad-hoc drafts an unmatched one immediately
+ * (ADR-0016's runtime-gap case), using `description` as that draft's
+ * context; the model never decides graph membership itself. Parsed
+ * strictly as model output.
+ */
+export const SnippetConceptSchema = z
+  .object({
+    slug: z
+      .string()
+      .trim()
+      .min(1)
+      .regex(CONCEPT_SLUG_PATTERN, 'Concept slug must be dotted lowercase'),
+    description: z.string().trim().min(1),
+  })
+  .strict()
+
+export type SnippetConcept = z.infer<typeof SnippetConceptSchema>
+
+/**
+ * Input to `identifySnippetConcepts` (SPEC story 4, ticket #13): the
+ * pasted snippet and its language, plus the language's current usable
+ * Concept Graph slugs (ADR-0016) so the model prefers matching an existing
+ * concept over minting a new one whenever the snippet genuinely exercises
+ * it.
+ */
+export const IdentifySnippetConceptsInputSchema = z.object({
+  language: z.enum(SANDBOX_LANGUAGES),
+  snippet: z.string().trim().min(1).max(SNIPPET_MAX_LENGTH),
+  knownConceptSlugs: z.array(z.string()),
+})
+
+export type IdentifySnippetConceptsInput = z.infer<
+  typeof IdentifySnippetConceptsInputSchema
+>
+
+/**
+ * Structured output of `identifySnippetConcepts`: every concept the
+ * snippet genuinely depends on (SPEC story 4). At least one — a snippet
+ * with no identifiable concept is not a valid Class B input, and the
+ * caller (ticket #13's tactical-sprint feature) has nothing to compare
+ * against the Learner Model without it. Parsed strictly as model output.
+ */
+export const IdentifySnippetConceptsOutputSchema = z
+  .object({
+    concepts: z.array(SnippetConceptSchema).min(1),
+  })
+  .strict()
+
+export type IdentifySnippetConceptsOutput = z.infer<
+  typeof IdentifySnippetConceptsOutputSchema
 >

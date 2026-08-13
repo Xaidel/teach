@@ -20,6 +20,7 @@ import type { UsableConceptGraph } from './concepts.schema'
 import {
   addConceptEdge,
   draftConcepts,
+  draftFocusedConcept,
   getConceptReview,
   getUsableConceptGraph,
   removeConceptEdge,
@@ -47,6 +48,7 @@ const TEST_SLUGS = [
   'test.graph.d',
   'test.graph.renamed',
   'Test Graph',
+  'test.graph.focused',
 ] as const
 
 async function insertConcept(
@@ -368,6 +370,93 @@ describe.skipIf(!dbUp)('draftConcepts against Postgres', () => {
     })
   })
 })
+
+describe.skipIf(!dbUp)(
+  'draftFocusedConcept against Postgres (ADR-0016 runtime gap, ticket #13)',
+  () => {
+    it('persists exactly the given slug as a usable draft concept', async () => {
+      draftConceptGraphMock.mockResolvedValue({
+        concepts: [{ slug: 'test.graph.focused', difficulty: 4 }],
+        edges: [],
+      })
+
+      const output = await draftFocusedConcept({
+        language: 'rust',
+        slug: 'test.graph.focused',
+        description: 'Mutating shared state through a RefCell.',
+      })
+
+      expect(output.slug).toBe('test.graph.focused')
+      expect(output.conceptId).toEqual(expect.any(String))
+
+      const call = draftConceptGraphMock.mock.calls[0]?.[0]
+      expect(call).toEqual({
+        language: 'rust',
+        focusConcept: {
+          slug: 'test.graph.focused',
+          description: 'Mutating shared state through a RefCell.',
+        },
+      })
+
+      const review = await getConceptReview('rust')
+      const persisted = review.concepts.find(
+        (c) => c.slug === 'test.graph.focused',
+      )
+      expect(persisted?.status).toBe('draft')
+      expect(persisted?.difficulty).toBe(4)
+
+      const usable = filterUsableTo(await getUsableConceptGraph('rust'), [
+        'test.graph.focused',
+      ])
+      expect(usable.concepts).toHaveLength(1)
+    })
+
+    it('reuses the existing row when the concept already exists (idempotent)', async () => {
+      const existingId = await insertConcept('test.graph.focused', 2)
+      draftConceptGraphMock.mockResolvedValue({
+        concepts: [{ slug: 'test.graph.focused', difficulty: 4 }],
+        edges: [],
+      })
+
+      const output = await draftFocusedConcept({
+        language: 'rust',
+        slug: 'test.graph.focused',
+        description: 'Mutating shared state through a RefCell.',
+      })
+
+      expect(output.conceptId).toBe(existingId)
+    })
+
+    it('rejects a draft whose output omits the requested slug', async () => {
+      draftConceptGraphMock.mockResolvedValue({
+        concepts: [{ slug: 'test.graph.a', difficulty: 2 }],
+        edges: [],
+      })
+
+      await expect(
+        draftFocusedConcept({
+          language: 'rust',
+          slug: 'test.graph.focused',
+          description: 'Mutating shared state through a RefCell.',
+        }),
+      ).rejects.toMatchObject({ code: 'CONCEPT_DRAFT_FAILED' })
+    })
+
+    it('maps a Teacher Engine failure to the stable draft-failed error', async () => {
+      draftConceptGraphMock.mockRejectedValue(
+        new TeacherEngineError('api_error', 'API unreachable'),
+      )
+
+      await expect(
+        draftFocusedConcept({
+          language: 'rust',
+          slug: 'test.graph.focused',
+          description: 'Mutating shared state through a RefCell.',
+        }),
+      ).rejects.toMatchObject({ code: 'CONCEPT_DRAFT_FAILED' })
+    })
+  },
+)
 
 describe.skipIf(!dbUp)('concept review mutations against Postgres', () => {
   it('marks a concept approved and back to draft', async () => {
