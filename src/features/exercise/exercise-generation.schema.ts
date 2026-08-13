@@ -57,6 +57,27 @@ export const MAX_PREFLIGHT_ATTEMPTS = 3
 export const SIMPLIFIED_FALLBACK_ATTEMPT_NUMBER = MAX_PREFLIGHT_ATTEMPTS + 1
 
 /**
+ * The failed-attempt count at which a concept's Pre-Flight history is
+ * surfaced as a quality signal (SPEC story 35): "repeated failures on the
+ * same concept". `pre_flight_attempts` has no request/session key, so
+ * repetition is measured at attempt granularity — two or more failed runs
+ * on the same concept, whether they came from one request's retry loop or
+ * across several, mark the concept as hard to generate for.
+ */
+export const PRE_FLIGHT_REPEATED_FAILURE_THRESHOLD = 2
+
+/**
+ * One concept's Pre-Flight attempt aggregate (ADR-0010), the raw material
+ * of the story-35 quality signal: how many generations have been attempted
+ * for the concept and how many of those runs failed.
+ */
+export type PreFlightFailureSignal = {
+  conceptId: string
+  totalAttempts: number
+  failedAttempts: number
+}
+
+/**
  * Outcome of one generation + Pre-Flight cycle (issue #8, retried per issue
  * #9), discriminated by how the exercise was produced:
  *

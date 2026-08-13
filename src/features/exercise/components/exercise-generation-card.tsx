@@ -7,8 +7,14 @@ import { Card, CardContent, CardHeader } from '#/shared/components/ui/card'
 import { Label } from '#/shared/components/ui/label'
 
 import { generateExerciseFn } from '../exercise.functions'
-import { MAX_PREFLIGHT_ATTEMPTS } from '../exercise-generation.schema'
-import type { GenerateExerciseOutput } from '../exercise-generation.schema'
+import {
+  MAX_PREFLIGHT_ATTEMPTS,
+  PRE_FLIGHT_REPEATED_FAILURE_THRESHOLD,
+} from '../exercise-generation.schema'
+import type {
+  GenerateExerciseOutput,
+  PreFlightFailureSignal,
+} from '../exercise-generation.schema'
 import type { SandboxLanguage } from '#/lib/sandbox/types'
 import { errorMessage } from '../client-utils'
 
@@ -17,6 +23,12 @@ export type GenerationConcept = {
   id: string
   slug: string
   difficulty: number
+  /**
+   * The concept's Pre-Flight attempt aggregate (SPEC story 35), or null
+   * when no generation has ever been attempted for it — the raw material
+   * of the repeated-failure quality signal.
+   */
+  preFlight: PreFlightFailureSignal | null
 }
 
 /**
@@ -41,6 +53,15 @@ export function ExerciseGenerationCard({
   const [result, setResult] = useState<GenerateExerciseOutput>()
   const [error, setError] = useState<string>()
   const conceptSelectId = `generate-concept-${language}`
+  const selectedConcept = concepts.find(
+    (concept) => concept.slug === conceptSlug,
+  )
+  const preFlightSignal =
+    selectedConcept?.preFlight &&
+    selectedConcept.preFlight.failedAttempts >=
+      PRE_FLIGHT_REPEATED_FAILURE_THRESHOLD
+      ? selectedConcept.preFlight
+      : null
 
   async function handleGenerate(): Promise<void> {
     setError(undefined)
@@ -98,6 +119,17 @@ export function ExerciseGenerationCard({
                 ))}
               </select>
             </div>
+            {preFlightSignal ? (
+              <p className="rounded-2xl border border-border bg-muted/40 px-4 py-3 text-sm leading-relaxed text-muted-foreground">
+                <strong className="font-semibold text-foreground">
+                  Quality signal
+                </strong>{' '}
+                — {String(preFlightSignal.failedAttempts)} of the{' '}
+                {String(preFlightSignal.totalAttempts)} Pre-Flight runs for this
+                concept failed; repeated failures mean generation has been
+                unreliable here (SPEC story 35).
+              </p>
+            ) : null}
             <div className="grid justify-items-start gap-2">
               <Button
                 disabled={isPending}
