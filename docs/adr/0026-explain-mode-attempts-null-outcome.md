@@ -1,4 +1,4 @@
-# ADR-0026: Explain-mode attempts write NULL `outcome` (amends ADR-0021)
+# ADR-0026: Explain-mode attempts write NULL `outcome`
 
 - **Date**: 2026-08-14
 - **Status**: Accepted
