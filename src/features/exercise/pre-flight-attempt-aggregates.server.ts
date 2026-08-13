@@ -13,6 +13,10 @@ import type { PreFlightAttemptAggregate } from './exercise-generation.schema'
  * plain `GROUP BY concept_id` — the shape ADR-0010 chose this table for —
  * and feeds the repeated-failure quality signal surfaced on the generation
  * card.
+ * @param executor an optional executor (a `PgTransaction` or the default
+ * `db`) so the query can run on the same transaction as its caller — Postgres
+ * `now()` is transaction-start time, so passing the transaction ensures the
+ * exact-recency-boundary row lands on the query's cutoff.
  */
 export async function getPreFlightAttemptAggregates(
   executor: Pick<typeof db, 'select'> = db,

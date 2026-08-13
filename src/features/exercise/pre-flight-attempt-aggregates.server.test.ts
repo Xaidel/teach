@@ -74,13 +74,13 @@ beforeAll(async () => {
     {
       id: FIXTURE_CONCEPT_IDS[0],
       language: 'rust',
-      slug: 'test.rust.signal-a',
+      slug: 'test.rust.attempt-a',
       difficulty: 2,
     },
     {
       id: FIXTURE_CONCEPT_IDS[1],
       language: 'rust',
-      slug: 'test.rust.signal-b',
+      slug: 'test.rust.attempt-b',
       difficulty: 2,
     },
   ])
