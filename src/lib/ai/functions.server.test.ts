@@ -496,4 +496,90 @@ describe('generateExercise', () => {
       }),
     ).rejects.toMatchObject({ kind: 'invalid_output' })
   })
+
+  it('passes the adversarial flag into the prompt and returns the declared defect', async () => {
+    const ADVERSARIAL_DEFECT = {
+      kind: 'ownership',
+      description: 'first consumes the vector instead of borrowing it',
+      location: 'first',
+      expectedBehavior:
+        'first returns the first element while leaving the vector usable',
+    }
+    callMock.mockResolvedValue({
+      ...GENERATED_OUTPUT,
+      prompt:
+        'The function first(v: Vec<u32>) contains a defect: it consumes the vector. Find the defect and fix it so the vector is still usable afterwards.',
+      starterCode: 'pub fn first(v: Vec<u32>) -> u32 { v[0] }',
+      defect: ADVERSARIAL_DEFECT,
+    })
+
+    const output = await generateExercise({
+      language: 'rust',
+      conceptSlug: 'rust.borrowing',
+      conceptDifficulty: 3,
+      adversarial: true,
+    })
+
+    expect(output.defect).toEqual(ADVERSARIAL_DEFECT)
+
+    const call = callMock.mock.calls[0]?.[0]
+    const userMessage = call?.messages.find(
+      (message) => message.role === 'user',
+    )
+    expect(userMessage?.content).toContain('ADVERSARIAL EXERCISE')
+    expect(userMessage?.content).toContain(
+      '"defect": {"kind": "ownership|lifetime|race_condition|broken_invariant|error_handling|api_misuse|other"',
+    )
+  })
+
+  it('rejects an adversarial generation whose output declares no defect', async () => {
+    callMock.mockResolvedValue(GENERATED_OUTPUT)
+
+    await expect(
+      generateExercise({
+        language: 'rust',
+        conceptSlug: 'rust.borrowing',
+        conceptDifficulty: 3,
+        adversarial: true,
+      }),
+    ).rejects.toMatchObject({ kind: 'invalid_output' })
+  })
+
+  it('rejects an adversarial draft whose defect has an unknown kind', async () => {
+    mockGeneratedRawOutput({
+      ...GENERATED_OUTPUT,
+      defect: {
+        kind: 'random_bug',
+        description: 'a made-up defect',
+        location: 'first',
+        expectedBehavior: 'works',
+      },
+    })
+
+    await expect(
+      generateExercise({
+        language: 'rust',
+        conceptSlug: 'rust.borrowing',
+        conceptDifficulty: 3,
+        adversarial: true,
+      }),
+    ).rejects.toMatchObject({ kind: 'invalid_output' })
+  })
+
+  it('omits the adversarial contract from a non-adversarial generation prompt', async () => {
+    callMock.mockResolvedValue(GENERATED_OUTPUT)
+
+    await generateExercise({
+      language: 'rust',
+      conceptSlug: 'rust.borrowing',
+      conceptDifficulty: 3,
+    })
+
+    const call = callMock.mock.calls[0]?.[0]
+    const userMessage = call?.messages.find(
+      (message) => message.role === 'user',
+    )
+    expect(userMessage?.content).not.toContain('ADVERSARIAL EXERCISE')
+    expect(userMessage?.content).not.toContain('"defect":')
+  })
 })

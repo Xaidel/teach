@@ -49,10 +49,12 @@ export function ExerciseGenerationCard({
   const [conceptSlug, setConceptSlug] = useState(
     concepts[0]?.slug ?? 'no-concepts',
   )
+  const [isAdversarial, setIsAdversarial] = useState(false)
   const [isPending, setIsPending] = useState(false)
   const [result, setResult] = useState<GenerateExerciseOutput>()
   const [error, setError] = useState<string>()
   const conceptSelectId = `generate-concept-${language}`
+  const adversarialToggleId = `generate-adversarial-${language}`
   const selectedConcept = concepts.find(
     (concept) => concept.slug === conceptSlug,
   )
@@ -68,7 +70,11 @@ export function ExerciseGenerationCard({
     setResult(undefined)
     setIsPending(true)
     try {
-      setResult(await generateExerciseFn({ data: { language, conceptSlug } }))
+      setResult(
+        await generateExerciseFn({
+          data: { language, conceptSlug, adversarial: isAdversarial },
+        }),
+      )
       await router.invalidate()
     } catch (generationError) {
       setError(
@@ -92,7 +98,9 @@ export function ExerciseGenerationCard({
           The AI Teacher Engine generates a real exercise for a target concept;
           Pre-Flight Validation compiles the reference solution, runs the
           generated tests, and confirms the intended broken state fails before
-          the exercise is ever shown to you.
+          the exercise is ever shown to you. Adversarial exercises start from
+          broken code with one known defect to find and fix — verified by the
+          same Pre-Flight gate.
         </p>
       </CardHeader>
       <CardContent>
@@ -106,7 +114,7 @@ export function ExerciseGenerationCard({
             <div className="grid gap-2">
               <Label htmlFor={conceptSelectId}>Target concept</Label>
               <select
-                className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm text-foreground shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="h-11 w-full rounded-xl border border-border bg-background px-3 text-sm text-foreground shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 disabled={isPending}
                 id={conceptSelectId}
                 onChange={(event) => setConceptSlug(event.target.value)}
@@ -118,6 +126,25 @@ export function ExerciseGenerationCard({
                   </option>
                 ))}
               </select>
+            </div>
+            <div className="grid gap-1.5">
+              <div className="flex items-start gap-2">
+                <input
+                  checked={isAdversarial}
+                  className="mt-1 size-4 rounded border border-input bg-background accent-foreground"
+                  disabled={isPending}
+                  id={adversarialToggleId}
+                  onChange={(event) => setIsAdversarial(event.target.checked)}
+                  type="checkbox"
+                />
+                <Label
+                  className="text-sm leading-relaxed text-muted-foreground"
+                  htmlFor={adversarialToggleId}
+                >
+                  Adversarial — start from broken code containing one known
+                  defect; the task is to find and fix it (SPEC stories 51-52).
+                </Label>
+              </div>
             </div>
             {preFlightSignal ? (
               <p className="rounded-2xl border border-border bg-muted/40 px-4 py-3 text-sm leading-relaxed text-muted-foreground">
@@ -159,6 +186,9 @@ export function ExerciseGenerationCard({
                     all {String(result.preflight.checks.length)} checks
                     {result.simplified
                       ? ' after a fallback regeneration with a simplified constraint set'
+                      : ''}
+                    {result.defect
+                      ? ` — adversarial (${result.defect.kind.replaceAll('_', ' ')}) ${result.defect.description}`
                       : ''}
                     . The exercise now appears in the practice list below.
                   </p>

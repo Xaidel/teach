@@ -142,7 +142,9 @@ function generatedExerciseSlug(language: string, conceptSlug: string): string {
  * Persists one Pre-Flight-passed generation as a verified exercise, joined
  * to its target concepts, and logs the passing run — the single write path
  * shared by the retry loop and the circuit-breaker's simplified fallback
- * regeneration (issue #9).
+ * regeneration (issue #9). `mode` discriminates implement vs adversarial
+ * debug rows (ADR-0010, issue #11): an adversarial generation persists as
+ * `mode = 'debug'`.
  */
 async function persistVerifiedExercise(input: {
   language: string
@@ -151,6 +153,7 @@ async function persistVerifiedExercise(input: {
   generated: GeneratedExercise
   attemptNumber: number
   diagnostics: PreFlightDiagnostics
+  mode: 'implement' | 'debug'
 }): Promise<GenerateExerciseOutput & { kind: 'generated' }> {
   // Persist only the join rows whose concepts exist in the graph; the
   // requested concept is guaranteed among them.
@@ -183,7 +186,7 @@ async function persistVerifiedExercise(input: {
         testSource: input.generated.testSource,
         referenceSolution: input.generated.referenceSolution,
         evaluationRubric: input.generated.evaluation.rubric,
-        mode: 'implement',
+        mode: input.mode,
         difficulty: input.generated.difficulty,
         constraints: input.generated.constraints,
         status: 'verified',
@@ -224,6 +227,7 @@ async function persistVerifiedExercise(input: {
       checks: input.diagnostics.checks,
     },
     simplified: input.attemptNumber === SIMPLIFIED_FALLBACK_ATTEMPT_NUMBER,
+    ...(input.generated.defect ? { defect: input.generated.defect } : {}),
   }
 }
 
@@ -285,10 +289,20 @@ async function findVerifiedFallback(input: {
  * fails Pre-Flight, the request fails rather than looping indefinitely.
  * Only a Pre-Flight-passed exercise is persisted — with `status = verified`
  * (ADR-0010/0017/0019) — and a learner is never shown a failed exercise.
+ * `adversarial` targets a debug-mode exercise with a known, declared
+ * defect (SPEC stories 51-52, PRD §20, issue #11); it is validated by the
+ * exact same gate and the same retry/discard loop, so an adversarial
+ * exercise that fails Pre-Flight is never shipped — no invented, unverified
+ * bug reaches the learner. The adversarial flag survives the retry loop and
+ * the simplified fallback regeneration; only the verified-fallback path is
+ * mode-agnostic (SPEC story 34's contract is that a learner is never
+ * blocked by a failed generation, not that the fallback preserves the
+ * requested mode).
  */
 export async function generateExerciseForConcept(input: {
   language: string
   conceptSlug: string
+  adversarial?: boolean | undefined
 }): Promise<GenerateExerciseOutput> {
   if (!isExerciseGenerationLanguage(input.language)) {
     throw new GenerationError('EXERCISE_GENERATION_UNSUPPORTED')
@@ -318,6 +332,7 @@ export async function generateExerciseForConcept(input: {
       attemptNumber,
       previousDiagnostics,
       simplifiedConstraints: false,
+      adversarial: input.adversarial,
     })
     if (attempt.kind === 'succeeded') {
       return attempt.outcome
@@ -344,6 +359,7 @@ export async function generateExerciseForConcept(input: {
     attemptNumber: SIMPLIFIED_FALLBACK_ATTEMPT_NUMBER,
     previousDiagnostics,
     simplifiedConstraints: true,
+    adversarial: input.adversarial,
   })
   if (finalAttempt.kind === 'succeeded') {
     return finalAttempt.outcome
@@ -357,7 +373,11 @@ export async function generateExerciseForConcept(input: {
  * gate, and logs the run in `pre_flight_attempts` — passed or failed,
  * every run is recorded (SPEC story 35, ADR-0010). Returns the persisted
  * verified exercise on success, or the failure's structured diagnostics
- * for the next attempt.
+ * for the next attempt. `adversarial` targets a debug-mode exercise with a
+ * known, declared defect (SPEC stories 51-52, PRD §20, issue #11): the
+ * gate is byte-for-byte the same one a non-adversarial exercise runs, and
+ * a failing adversarial exercise is discarded and retried exactly like any
+ * other — a model may never ship an invented, unverified bug.
  */
 async function runGenerationAttempt(input: {
   language: ExerciseGenerationLanguage
@@ -367,6 +387,7 @@ async function runGenerationAttempt(input: {
   attemptNumber: number
   previousDiagnostics: PreFlightDiagnosticsInput | undefined
   simplifiedConstraints: boolean
+  adversarial: boolean | undefined
 }): Promise<
   | {
       kind: 'succeeded'
@@ -382,6 +403,7 @@ async function runGenerationAttempt(input: {
       conceptDifficulty: input.conceptDifficulty,
       previousDiagnostics: input.previousDiagnostics,
       simplifiedConstraints: input.simplifiedConstraints,
+      adversarial: input.adversarial,
     })
   } catch (error) {
     if (error instanceof TeacherEngineError) {
@@ -421,6 +443,7 @@ async function runGenerationAttempt(input: {
       generated,
       attemptNumber: input.attemptNumber,
       diagnostics: preflight.diagnostics,
+      mode: input.adversarial ? 'debug' : 'implement',
     }),
   }
 }
