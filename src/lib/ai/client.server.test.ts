@@ -255,5 +255,8 @@ describe('callTeacherEngine response_format selection from env (issue #54)', () 
     expect(fetchMock).not.toHaveBeenCalled()
 
     delete process.env.E2E_FORCE_AI_FAILURE
+    // The dynamic import above cached a force-failing client; reset modules so
+    // a later re-import in this file rebuilds it without the marker (issue #96).
+    vi.resetModules()
   })
 })

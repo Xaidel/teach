@@ -24,9 +24,8 @@ export default defineConfig({
     env: {
       HOST: '127.0.0.1',
       PORT: '3000',
-      // Forces every AI Teacher Engine call to fail deterministically so
-      // the graceful-failure assertions never depend on reachability
-      // (issue #93).
+      // e2e marker (issue #93): rationale at the choke point,
+      // lib/ai/client.server.ts.
       E2E_FORCE_AI_FAILURE: 'true',
     },
   },

@@ -84,8 +84,12 @@ export type TeacherEngineCall<T> = {
 export async function callTeacherEngine<T>(
   call: TeacherEngineCall<T>,
 ): Promise<T> {
-  // e2e marker (issue #93): forces the failure path deterministically so
-  // the graceful-failure e2e assertions never depend on engine reachability.
+  // e2e marker (issue #93): when E2E_FORCE_AI_FAILURE is set, every AI Teacher
+  // Engine call fails deterministically at this choke point, so failure-path
+  // e2e assertions never depend on the engine being reachable — the day CI
+  // gets a live API key, the tests keep their meaning. This is the canonical
+  // rationale; other sites (env.server.ts, playwright.config.ts, .env.example,
+  // e2e specs) reference it instead of restating it.
   if (env.E2E_FORCE_AI_FAILURE) {
     throw new TeacherEngineError(
       'api_error',

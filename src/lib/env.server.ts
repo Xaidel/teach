@@ -10,10 +10,9 @@ const EnvSchema = z.object({
   AI_RESPONSE_FORMAT: z
     .enum(['json_schema', 'json_object'])
     .default('json_schema'),
-  // e2e marker (issue #93): when set, every AI Teacher Engine call fails
-  // deterministically so failure-path e2e assertions never depend on the
-  // engine being unreachable — the day CI gets a live API key, the tests
-  // keep their meaning.
+  // e2e marker (issue #93): forces every AI Teacher Engine call to fail at
+  // the callTeacherEngine choke point in lib/ai/client.server.ts, where the
+  // full rationale lives.
   E2E_FORCE_AI_FAILURE: z
     .enum(['true', 'false'])
     .default('false')

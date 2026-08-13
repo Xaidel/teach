@@ -304,7 +304,10 @@ describe.skipIf(!dbUp)('draftConcepts against Postgres', () => {
     const a = review.concepts.find((c) => c.slug === 'test.graph.a')
     expect(a?.edges.map((e) => e.validation)).toEqual(['cycle', 'cycle'])
 
-    const usable = await getUsableConceptGraph('rust')
+    const usable = filterUsableTo(await getUsableConceptGraph('rust'), [
+      'test.graph.a',
+      'test.graph.b',
+    ])
     expect(usable.edges).toEqual([])
   })
 

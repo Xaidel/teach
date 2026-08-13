@@ -215,9 +215,8 @@ test('generation surfaces a graceful failure when the AI is unreachable', async 
     .selectOption('e2e.rust.borrowing')
   await page.getByRole('button', { name: 'Generate rust exercise' }).click()
 
-  // E2E_FORCE_AI_FAILURE makes every AI Teacher Engine call fail
-  // deterministically (issue #93) — the page must show the mapped error,
-  // not crash, whether or not CI has a live API key.
+  // E2E_FORCE_AI_FAILURE (issue #93) force-fails every AI call at the choke
+  // point — the page must show the mapped error, not crash.
   await expect(
     page.getByText('The exercise could not be generated. Try again.'),
   ).toBeVisible({ timeout: 60_000 })
