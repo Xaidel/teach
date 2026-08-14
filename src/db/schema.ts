@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm'
 import {
   boolean,
   check,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -26,6 +27,7 @@ import {
 } from '../lib/explanation-depth'
 import { HINT_LADDER_MAX_LEVEL } from '../lib/hint-levels'
 import { MASTERY_STATES } from '../lib/mastery-states'
+import { RETRIEVAL_STAGE_MAX } from '../lib/retrieval-schedule'
 import type { EvaluationRubric, ExerciseDefect } from '../lib/ai/schemas'
 import type { AnalyzeMisconceptionsOutput } from '../lib/ai/schemas'
 import type { SandboxResult, SandboxTest } from '../lib/sandbox/types'
@@ -364,6 +366,84 @@ export const transferTestExercises = pgTable(
   },
   (table) => [
     uniqueIndex('transfer_test_exercises_learner_concept_unique').on(
+      table.learnerId,
+      table.conceptId,
+    ),
+  ],
+)
+
+/**
+ * The materialized spaced-retrieval queue (ADR-0010, SPEC story 47, issue
+ * #18): one row per learner+concept, kept in sync by a synchronous upsert
+ * on every attempt or mastery change (ADR-0010's Option B — no background
+ * job in v1). `schedule_stage` 0-4 maps onto the fixed 24h → 3d → 7d → 21d
+ * → 60d schedule (ADR-0010, SPEC story 49); `due_at` is when the concept
+ * next becomes due; `priority_score` is the stored, inspectable priority
+ * (SPEC story 47), higher = more urgent. Dashboard reads are a flat,
+ * indexed scan on `(learner_id, due_at)` regardless of how much attempt
+ * history exists behind a learner.
+ *
+ * `concept_id` is ON DELETE CASCADE — the row is derived bookkeeping for a
+ * concept, not evidence like `attempts`, so it dies with its concept; the
+ * repo's evidence tables (attempts, learner_concept_mastery) keep the
+ * default no-action.
+ */
+export const retrievalQueue = pgTable(
+  'retrieval_queue',
+  {
+    learnerId: uuid('learner_id')
+      .notNull()
+      .references(() => learners.id),
+    conceptId: uuid('concept_id')
+      .notNull()
+      .references(() => concepts.id, { onDelete: 'cascade' }),
+    scheduleStage: integer('schedule_stage').notNull().default(0),
+    dueAt: timestamp('due_at', { withTimezone: true }).notNull(),
+    priorityScore: doublePrecision('priority_score').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.learnerId, table.conceptId] }),
+    index('retrieval_queue_learner_due_idx').on(table.learnerId, table.dueAt),
+    check(
+      'retrieval_queue_schedule_stage_check',
+      sql`${table.scheduleStage} between 0 and ${sql.raw(String(RETRIEVAL_STAGE_MAX))}`,
+    ),
+  ],
+)
+
+/**
+ * One learner's active Refresher Test instance per concept (issue #18) — a
+ * pointer, not a new entity, mirroring `transfer_test_exercises` (ADR-0010's
+ * rejection of per-mode tables): a Refresher Test is an ordinary verified
+ * `exercises` row solved through the ordinary practice submission flow.
+ * This table exists only so `recordAttemptOutcome` can recognize, at
+ * submission time, that an exercise was started as a Refresher Test and
+ * apply the review's pass/fail semantics (promote to Retained / revert to
+ * Practiced + remediation). Unique on `(learner_id, concept_id)`: each
+ * Refresher Test session overwrites the row, so an abandoned session's
+ * exercise is simply replaced by the next one.
+ */
+export const retrievalReviewExercises = pgTable(
+  'retrieval_review_exercises',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .$defaultFn(() => uuidv7()),
+    learnerId: uuid('learner_id')
+      .notNull()
+      .references(() => learners.id),
+    conceptId: uuid('concept_id')
+      .notNull()
+      .references(() => concepts.id, { onDelete: 'cascade' }),
+    exerciseId: uuid('exercise_id')
+      .notNull()
+      .references(() => exercises.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('retrieval_review_exercises_learner_concept_unique').on(
       table.learnerId,
       table.conceptId,
     ),

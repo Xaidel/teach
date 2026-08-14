@@ -24,6 +24,10 @@ import {
   hasPassedTransferTest,
   markTransferTestExercisePassed,
 } from './transfer-test.server'
+import {
+  findRetrievalReviewConceptForExercise,
+  upsertRetrievalQueue,
+} from './retrieval-queue.server'
 
 /**
  * Total order over the five mastery states (ADR-0010, SPEC story 41) —
@@ -139,6 +143,21 @@ export async function advanceMastery(
  * `stage1Passed && stage2Passed` — a full completion — additionally
  * advances them to `practiced`. Hardcoded seed exercises have no
  * `exercise_concepts` rows and this is a no-op for them.
+ *
+ * Two further responsibilities, both keyed off the same full-completion
+ * definition:
+ *
+ * - Retrieval Queue sync (ADR-0010, issue #18): every concept the exercise
+ *   targets is upserted into the materialized `retrieval_queue` — a full
+ *   completion is a successful retrieval (stage advances), anything else is
+ *   a failed one (stage resets, remediation scheduled). See
+ *   `upsertRetrievalQueue`.
+ * - Refresher Test semantics (issue #18, AC 4/5): when the submitted
+ *   exercise is the learner's registered Refresher Test for a concept
+ *   (`findRetrievalReviewConceptForExercise`), a full completion promotes
+ *   that concept to Retained; a failure reverts it to Practiced (never
+ *   below — see `revertToPracticed`) and routes it to remediation via the
+ *   queue's failure reset. Prior attempt history is never touched.
  */
 export async function recordAttemptOutcome(
   learnerId: string,
@@ -162,19 +181,49 @@ export async function recordAttemptOutcome(
   // submission surface. `stage1Passed && stage2Passed` mirrors Practiced's
   // own bar exactly — a Transfer Test that only clears Stage 1 is no
   // stronger evidence of transfer than a submission that never reached
-  // Practiced in the first place.
+  // Practiced in the first place. This internal pass path applies the
+  // gate without its own queue upsert — the single upsert loop below
+  // records the retrieval for every concept of this exercise exactly once.
   if (stage1Passed && stage2Passed) {
     const transferConceptId = await findTransferTestConceptForExercise({
       learnerId,
       exerciseId,
     })
     if (transferConceptId) {
-      await recordTransferTestOutcome({
+      await recordTransferTestPass({
         learnerId,
         conceptId: transferConceptId,
-        passed: true,
       })
     }
+  }
+
+  // Refresher Test (issue #18, AC 4/5): a full completion of a registered
+  // review exercise promotes the reviewed concept to Retained; a failure
+  // reverts it to Practiced and relies on the queue failure reset below for
+  // the remediation routing. History is preserved either way.
+  const reviewConceptId = await findRetrievalReviewConceptForExercise({
+    learnerId,
+    exerciseId,
+  })
+  if (reviewConceptId) {
+    if (stage1Passed && stage2Passed) {
+      await advanceMastery(learnerId, [reviewConceptId], 'retained')
+    } else {
+      await revertToPracticed({ learnerId, conceptId: reviewConceptId })
+    }
+  }
+
+  // Retrieval Queue sync (ADR-0010, issue #18 AC 1): one upsert per
+  // concept, after the mastery and review branches above, so a review
+  // submission's interval reflects its actual outcome and nothing advances
+  // the queue twice for the same retrieval.
+  const successful = stage1Passed && stage2Passed
+  for (const conceptId of conceptIds) {
+    await upsertRetrievalQueue({
+      learnerId,
+      conceptId,
+      outcome: successful ? 'success' : 'failure',
+    })
   }
 }
 
@@ -368,6 +417,50 @@ export async function promoteToDemonstrated(input: {
 }
 
 /**
+ * Reverts one concept's mastery to Practiced — the Learner Model's
+ * explicit downgrade path (SPEC story 50, issue #18 AC 5: a failed
+ * Refresher Test reverts the concept's status). Atomic and guarded: the
+ * update's `where` clause only fires when the current state ranks *above*
+ * Practiced (Demonstrated or Retained), so a concept at or below Practiced
+ * is never touched — a failed review never kicks a merely-practiced
+ * concept back down, and a concurrent advance can never be clobbered.
+ * Prior attempt history is deliberately preserved (AC 5) — only the
+ * current-state row changes.
+ */
+export async function revertToPracticed(input: {
+  learnerId: string
+  conceptId: string
+}): Promise<void> {
+  await db
+    .update(learnerConceptMastery)
+    .set({ state: 'practiced', updatedAt: sql`now()` })
+    .where(
+      and(
+        eq(learnerConceptMastery.learnerId, input.learnerId),
+        eq(learnerConceptMastery.conceptId, input.conceptId),
+        sql`${masteryStateRank(learnerConceptMastery.state)} > ${MASTERY_STATE_ORDER.practiced}`,
+      ),
+    )
+}
+
+/**
+ * The mastery side of a passed Transfer Test (issue #17, ADR-0027) —
+ * marks the registered instance passed and fires the ADR-0015 gate. The
+ * shared core behind both `recordTransferTestOutcome` (public entry point,
+ * which also syncs the Retrieval Queue) and `recordAttemptOutcome`'s
+ * internal pass path (which must not — its own single queue upsert covers
+ * the retrieval). A failed Transfer Test never reaches this: it is only
+ * called with `passed: true` from `recordAttemptOutcome`.
+ */
+async function recordTransferTestPass(input: {
+  learnerId: string
+  conceptId: string
+}): Promise<void> {
+  await markTransferTestExercisePassed(input)
+  await promoteToDemonstrated(input)
+}
+
+/**
  * Records one Explanation Assessment outcome against the Learner Model
  * (issue #16) — the single intent-level entry point the explanation-
  * assessment feature reports into (see `arch_docs/dependency-rules.md`'s
@@ -378,12 +471,23 @@ export async function promoteToDemonstrated(input: {
  * attempt leaves the concept at Practiced with a retry available — the
  * attempt itself is the evidence, and mastery never regresses on a failure
  * (ADR-0015).
+ *
+ * Either way, the Retrieval Queue is kept in sync (ADR-0010, issue #18): a
+ * passed assessment is a successful retrieval (stage advances), a failed
+ * one resets the interval and schedules remediation — the assessment is
+ * itself a retrieval, so its outcome feeds the schedule like any other.
  */
 export async function recordExplanationAssessmentOutcome(input: {
   learnerId: string
   conceptId: string
   passed: boolean
 }): Promise<void> {
+  await upsertRetrievalQueue({
+    learnerId: input.learnerId,
+    conceptId: input.conceptId,
+    outcome: input.passed ? 'success' : 'failure',
+  })
+
   if (!input.passed) return
 
   await promoteToDemonstrated({
@@ -397,33 +501,34 @@ export async function recordExplanationAssessmentOutcome(input: {
  * ADR-0027) — the single intent-level entry point the transfer-test
  * feature reports into (see `arch_docs/dependency-rules.md`'s Feature
  * Dependencies exception; the import is one-way and `learners` never
- * imports back). Also called internally by `recordAttemptOutcome` when a
- * passing generic-path submission (Stage 1 *and* Stage 2, matching
- * Practiced's own bar) targets a learner's registered Transfer Test
- * exercise. Durably marks the registered instance passed
- * (`markTransferTestExercisePassed`) before checking the gate: a passed
- * Transfer Test feeds ADR-0015's gate, promoting the concept Practiced →
- * Demonstrated only when a passed Explanation Assessment is also recorded
- * (`promoteToDemonstrated`). A failed initial-gate attempt leaves the
- * concept at Practiced with a retry available — every attempt is recorded
- * as evidence, and mastery never regresses on a failure (ADR-0015).
+ * imports back). A passed Transfer Test durably marks the registered
+ * instance passed and feeds ADR-0015's gate, promoting the concept
+ * Practiced → Demonstrated only when a passed Explanation Assessment is
+ * also recorded (`promoteToDemonstrated`). A failed initial-gate attempt
+ * leaves the concept at Practiced with a retry available — every attempt
+ * is recorded as evidence, and mastery never regresses on a failure
+ * (ADR-0015).
+ *
+ * Either way, the Retrieval Queue is kept in sync (ADR-0010, issue #18):
+ * a passed test is a successful retrieval (stage advances), a failed one
+ * resets the interval and schedules remediation. When called from
+ * `recordAttemptOutcome`'s internal pass path, the queue is instead
+ * synced once by that function itself (`recordTransferTestPass`).
  */
 export async function recordTransferTestOutcome(input: {
   learnerId: string
   conceptId: string
   passed: boolean
 }): Promise<void> {
+  await upsertRetrievalQueue({
+    learnerId: input.learnerId,
+    conceptId: input.conceptId,
+    outcome: input.passed ? 'success' : 'failure',
+  })
+
   if (!input.passed) return
 
-  await markTransferTestExercisePassed({
-    learnerId: input.learnerId,
-    conceptId: input.conceptId,
-  })
-
-  await promoteToDemonstrated({
-    learnerId: input.learnerId,
-    conceptId: input.conceptId,
-  })
+  await recordTransferTestPass(input)
 }
 
 /**

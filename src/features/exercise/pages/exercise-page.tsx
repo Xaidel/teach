@@ -2,6 +2,11 @@ import { getRouteApi, Link } from '@tanstack/react-router'
 import { useEffect, useRef } from 'react'
 
 import type { ExplanationPreferences } from '#/features/learners/learners.schema'
+// Narrow, documented cross-feature UI dependency (issue #18): the practice
+// home composes the Retrieval Queue's compact dashboard section, and the
+// `retrieval` feature stays one-way downstream of `exercise`.
+import { RetrievalQueueCard } from '#/features/retrieval/components/retrieval-queue-card'
+import type { RetrievalQueueView } from '#/features/retrieval/retrieval.schema'
 import { cn } from '#/lib/cn'
 import { Badge } from '#/shared/components/ui/badge'
 import { Card, CardContent, CardHeader } from '#/shared/components/ui/card'
@@ -21,6 +26,7 @@ export type ExercisePageData = {
   exercises: Exercise[]
   generation: { language: 'rust'; concepts: GenerationConcept[] }
   explanationPreferences: ExplanationPreferences
+  retrievalQueue: RetrievalQueueView
 }
 
 /**
@@ -101,6 +107,12 @@ export function ExercisePage(): React.JSX.Element {
             Ready to prove it transfers? Take a Transfer Test on a Practiced
             concept →
           </Link>
+          <Link
+            className="w-fit text-sm font-semibold text-primary underline"
+            to="/retrieval"
+          >
+            Keep it retained — take the Daily Review →
+          </Link>
         </div>
       </header>
 
@@ -110,6 +122,7 @@ export function ExercisePage(): React.JSX.Element {
           concepts={data.generation.concepts}
           language={data.generation.language}
         />
+        <RetrievalQueueCard compact view={data.retrievalQueue} />
       </div>
 
       <div className="grid gap-10">
