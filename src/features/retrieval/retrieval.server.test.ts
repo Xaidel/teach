@@ -210,8 +210,7 @@ describe.skipIf(!dbUp)('retrieval.server', () => {
 
       const row = await queueRow()
       expect(row.scheduleStage).toBe(0)
-      const expectedMs =
-        (RETRIEVAL_SCHEDULE_DAYS[0] ?? 1) * 24 * 60 * 60 * 1000
+      const expectedMs = (RETRIEVAL_SCHEDULE_DAYS[0] ?? 1) * 24 * 60 * 60 * 1000
       expect(row.dueAt.getTime() - Date.now()).toBeGreaterThan(
         expectedMs - 5_000,
       )
