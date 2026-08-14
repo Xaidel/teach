@@ -35,3 +35,17 @@ export const MASTERY_STATE_ORDER: Record<MasteryState, number> = {
   demonstrated: 3,
   retained: 4,
 }
+
+/**
+ * Human-readable label per mastery state (display mirror of the five
+ * states). Owned here beside the order so every surface that shows a
+ * mastery badge — the tactical-sprint card, the retrieval-queue card —
+ * renders the same vocabulary instead of drifting copies.
+ */
+export const MASTERY_LABELS: Record<MasteryState, string> = {
+  unknown: 'Unknown',
+  introduced: 'Introduced',
+  practiced: 'Practiced',
+  demonstrated: 'Demonstrated',
+  retained: 'Retained',
+}

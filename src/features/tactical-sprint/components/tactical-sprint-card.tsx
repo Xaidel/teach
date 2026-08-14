@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
 
 import type { ExerciseGenerationLanguage } from '#/features/exercise/exercise-generation.schema'
-import type { MasteryState } from '#/lib/mastery-states'
+import { MASTERY_LABELS } from '#/lib/mastery-states'
 import { Alert } from '#/shared/components/ui/alert'
 import { Badge } from '#/shared/components/ui/badge'
 import { Button } from '#/shared/components/ui/button'
@@ -13,21 +13,6 @@ import { Textarea } from '#/shared/components/ui/textarea'
 import { errorMessage } from '../client-utils'
 import { startTacticalSprintFn } from '../tactical-sprint.functions'
 import type { TacticalSprintResult } from '../tactical-sprint.schema'
-
-/**
- * Human-readable label for a mastery state (mirrors ADR-0010's five
- * states). Keyed directly off `MasteryState` — the single source of truth
- * in `src/lib/mastery-states.ts` — so adding or removing a state fails this
- * `Record`'s exhaustiveness check at compile time instead of silently
- * drifting.
- */
-const MASTERY_LABELS: Record<MasteryState, string> = {
-  unknown: 'Unknown',
-  introduced: 'Introduced',
-  practiced: 'Practiced',
-  demonstrated: 'Demonstrated',
-  retained: 'Retained',
-}
 
 /**
  * The Tactical Sprint (Class B) entry surface (SPEC stories 4-7, ticket

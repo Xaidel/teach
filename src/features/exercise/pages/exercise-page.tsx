@@ -27,8 +27,16 @@ export type ExercisePageData = {
  * Renders the practice home: the hardcoded Go/Python v1 seeds plus every
  * Pre-Flight-verified generated exercise, and the exercise generation
  * surface for languages whose generation is enabled (issue #8: rust).
+ *
+ * The Retrieval Queue's compact dashboard section is composed here by the
+ * route (issue #18) — `retrievalQueueSection` is a slot, keeping the
+ * `exercise` feature free of any import back into `retrieval`.
  */
-export function ExercisePage(): React.JSX.Element {
+export function ExercisePage({
+  retrievalQueueSection,
+}: {
+  retrievalQueueSection?: React.ReactNode
+}): React.JSX.Element {
   const data: ExercisePageData = exerciseRoute.useLoaderData()
   const { exerciseId: targetExerciseId }: { exerciseId?: string } =
     exerciseRoute.useSearch()
@@ -101,6 +109,12 @@ export function ExercisePage(): React.JSX.Element {
             Ready to prove it transfers? Take a Transfer Test on a Practiced
             concept →
           </Link>
+          <Link
+            className="w-fit text-sm font-semibold text-primary underline"
+            to="/retrieval"
+          >
+            Keep it retained — take the Daily Review →
+          </Link>
         </div>
       </header>
 
@@ -110,6 +124,7 @@ export function ExercisePage(): React.JSX.Element {
           concepts={data.generation.concepts}
           language={data.generation.language}
         />
+        {retrievalQueueSection}
       </div>
 
       <div className="grid gap-10">
