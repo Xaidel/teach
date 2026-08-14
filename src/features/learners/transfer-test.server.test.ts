@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm'
+import { eq, inArray, sql } from 'drizzle-orm'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 import { db } from '#/db/client.server'
@@ -111,9 +111,17 @@ describe.skipIf(!dbUp)('learners/transfer-test.server', () => {
   })
 
   afterEach(async () => {
+    // Scoped to this fixture's own concepts — every registration these tests
+    // make targets conceptId/otherConceptId. `learnerId` is the single
+    // shared seeded row (ADR-0014), so an unscoped delete-by-learnerId here
+    // would wipe any other concurrently-running test file's
+    // transferTestExercises rows too (a cross-file flake surfaced by #17's
+    // Round 2 review of the sibling transfer-test feature suite).
     await db
       .delete(transferTestExercises)
-      .where(eq(transferTestExercises.learnerId, learnerId))
+      .where(
+        inArray(transferTestExercises.conceptId, [conceptId, otherConceptId]),
+      )
   })
 
   describe('registerTransferTestExercise / getTransferTestExerciseId', () => {

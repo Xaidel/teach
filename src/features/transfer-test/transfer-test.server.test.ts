@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import {
   afterAll,
   afterEach,
@@ -26,6 +26,7 @@ vi.mock('#/lib/ai/functions.server', () => ({
 
 import { db } from '#/db/client.server'
 import {
+  attemptHints,
   attempts,
   concepts,
   exerciseConcepts,
@@ -150,7 +151,17 @@ describe.skipIf(!dbUp)('transfer-test.server', () => {
       .where(eq(exerciseConcepts.conceptId, conceptId))
     const exerciseIds = rows.map((row) => row.id)
     if (exerciseIds.length > 0) {
-      await db.delete(attempts).where(eq(attempts.learnerId, learnerId))
+      const attemptRows = await db
+        .select({ id: attempts.id })
+        .from(attempts)
+        .where(inArray(attempts.exerciseId, exerciseIds))
+      const attemptIds = attemptRows.map((row) => row.id)
+      if (attemptIds.length > 0) {
+        await db
+          .delete(attemptHints)
+          .where(inArray(attemptHints.attemptId, attemptIds))
+      }
+      await db.delete(attempts).where(inArray(attempts.exerciseId, exerciseIds))
       await db
         .delete(transferTestExercises)
         .where(eq(transferTestExercises.conceptId, conceptId))
