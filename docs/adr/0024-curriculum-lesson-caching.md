@@ -116,7 +116,7 @@ Rows expire after a fixed window regardless of settings.
   reference-frame change takes the `eq(referenceFrame, …)` lookup branch; and the failed
   call test asserts both the stable `LESSON_GENERATION_FAILED` error and that no cache row
   was written — a failed call never persists a lesson.
-- Migration `drizzle/0014_*.sql` creates `curriculum_lessons` with the coalesced unique
+- Migration `drizzle/0015_*.sql` creates `curriculum_lessons` with the coalesced unique
   key, reviewed as part of the PR.
 
 ## Relationships and References
@@ -127,4 +127,4 @@ Rows expire after a fixed window regardless of settings.
 - Supporting evidence: issue [#135](https://github.com/Xaidel/teach/issues/135) (follow-up
   from PR #124's Round 1 review note on lesson non-persistence).
 - Owning implementation package: `src/features/curriculum` (`curriculum.server.ts`,
-  `src/db/schema.ts`, `drizzle/0014_nebulous_proteus.sql`).
+  `src/db/schema.ts`, `drizzle/0015_nebulous_proteus.sql`).

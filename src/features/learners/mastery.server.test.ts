@@ -379,65 +379,75 @@ describe.skipIf(!dbUp)('mastery.server', () => {
         .returning()
       if (!secondConcept) throw new Error('expected a persisted concept')
 
-      const [multiExercise] = await db
-        .insert(exercises)
-        .values({
-          slug: 'test-mastery-server-recurring-multi',
-          language: 'rust',
-          title: 'Recurring-mistake multi-concept fixture',
-          prompt: 'p',
-          starterCode: 's',
-          difficulty: 1,
-          status: 'verified',
-        })
-        .returning()
-      if (!multiExercise) throw new Error('expected a persisted exercise')
+      let multiExerciseId: string | undefined
+      try {
+        const [multiExercise] = await db
+          .insert(exercises)
+          .values({
+            slug: 'test-mastery-server-recurring-multi',
+            language: 'rust',
+            title: 'Recurring-mistake multi-concept fixture',
+            prompt: 'p',
+            starterCode: 's',
+            difficulty: 1,
+            status: 'verified',
+          })
+          .returning()
+        if (!multiExercise) throw new Error('expected a persisted exercise')
+        multiExerciseId = multiExercise.id
 
-      await db.insert(exerciseConcepts).values([
-        { exerciseId: multiExercise.id, conceptId },
-        { exerciseId: multiExercise.id, conceptId: secondConcept.id },
-      ])
+        await db.insert(exerciseConcepts).values([
+          { exerciseId: multiExerciseId, conceptId },
+          { exerciseId: multiExerciseId, conceptId: secondConcept.id },
+        ])
 
-      await db.insert(attempts).values([
-        {
-          learnerId,
-          exerciseId: multiExercise.id,
-          code: 'multi-1',
-          outcome: 'fail',
-          timeToSolution: 20,
-        },
-        {
-          learnerId,
-          exerciseId: multiExercise.id,
-          code: 'multi-2',
-          outcome: 'fail',
-          timeToSolution: 15,
-        },
-      ])
+        await db.insert(attempts).values([
+          {
+            learnerId,
+            exerciseId: multiExerciseId,
+            code: 'multi-1',
+            outcome: 'fail',
+            timeToSolution: 20,
+          },
+          {
+            learnerId,
+            exerciseId: multiExerciseId,
+            code: 'multi-2',
+            outcome: 'fail',
+            timeToSolution: 15,
+          },
+        ])
 
-      const evidence = await getRecurringMistakeEvidence(learnerId)
-      // The join counts each failed attempt once per concept row, so the
-      // two attempts land on both concepts — documented in ADR-0025.
-      expect(evidence).toHaveLength(2)
-      expect(evidence).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            conceptId,
-            failedAttemptCount: 2,
-          }),
-          expect.objectContaining({
-            conceptId: secondConcept.id,
-            failedAttemptCount: 2,
-          }),
-        ]),
-      )
-
-      await db.delete(attempts).where(eq(attempts.exerciseId, multiExercise.id))
-      await db
-        .delete(exerciseConcepts)
-        .where(eq(exerciseConcepts.exerciseId, multiExercise.id))
-      await db.delete(exercises).where(eq(exercises.id, multiExercise.id))
-      await db.delete(concepts).where(eq(concepts.id, secondConcept.id))
+        const evidence = await getRecurringMistakeEvidence(learnerId)
+        // The join counts each failed attempt once per concept row, so the
+        // two attempts land on both concepts — documented in ADR-0025.
+        expect(evidence).toHaveLength(2)
+        expect(evidence).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              conceptId,
+              failedAttemptCount: 2,
+            }),
+            expect.objectContaining({
+              conceptId: secondConcept.id,
+              failedAttemptCount: 2,
+            }),
+          ]),
+        )
+      } finally {
+        // Scoped to this fixture's own rows so a mid-test failure never
+        // orphans the second concept and its rows (issue #115).
+        if (multiExerciseId) {
+          await db
+            .delete(attempts)
+            .where(eq(attempts.exerciseId, multiExerciseId))
+          await db
+            .delete(exerciseConcepts)
+            .where(eq(exerciseConcepts.exerciseId, multiExerciseId))
+          await db.delete(exercises).where(eq(exercises.id, multiExerciseId))
+        }
+        await db.delete(concepts).where(eq(concepts.id, secondConcept.id))
+      }
     })
   })
 
