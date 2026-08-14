@@ -36,6 +36,7 @@ import {
   exercises,
   learnerConceptMastery,
   preFlightAttempts,
+  transferTestExercises,
 } from '#/db/schema'
 import { TeacherEngineError } from '#/lib/ai/client.server'
 import {
@@ -47,6 +48,12 @@ import {
 import type { GeneratedExercise } from '#/lib/ai/schemas'
 import { submitExercise } from '#/features/exercise/exercise.server'
 import { getCurrentLearnerId } from '#/features/learners/learners.server'
+import {
+  advanceMastery,
+  getMasteryStates,
+  recordExplanationAssessmentOutcome,
+  recordTransferTestOutcome,
+} from '#/features/learners/mastery.server'
 import { runSandboxSubmission } from '#/lib/sandbox/runner.server'
 import type { SandboxResult } from '#/lib/sandbox/types'
 
@@ -630,6 +637,232 @@ describe.skipIf(!dbUp)(
           sql`${concepts.slug} = ${KNOWN_UNKNOWN_SLUG} and ${learnerConceptMastery.learnerId} = ${learnerId}`,
         )
       expect(mastery?.state).toBe('practiced')
+    })
+
+    it('a passed Class B sprint grants at least Practiced toward the matching Class A concept (AC 1)', async () => {
+      const [conceptRow] = await db
+        .insert(concepts)
+        .values({ language: 'rust', slug: KNOWN_UNKNOWN_SLUG, difficulty: 2 })
+        .returning()
+      if (!conceptRow) throw new Error('expected the fixture concept row')
+
+      identifySnippetConceptsMock.mockResolvedValue({
+        concepts: [
+          { slug: KNOWN_UNKNOWN_SLUG, description: 'Never attempted.' },
+        ],
+      })
+      generateExerciseMock.mockResolvedValue(generatedFor(KNOWN_UNKNOWN_SLUG))
+      runSandboxSubmissionMock
+        .mockResolvedValueOnce(REFERENCE_PASSES)
+        .mockResolvedValueOnce(BROKEN_FAILS_ON_CONCEPT)
+        .mockResolvedValueOnce(REFERENCE_PASSES)
+
+      const result = await runTacticalSprint({
+        learnerId,
+        language: 'rust',
+        snippet: 'pub fn f() -> u32 { 0 }',
+      })
+      expect(result.exercise.kind).toBe('generated')
+      if (result.exercise.kind !== 'generated') return
+
+      reviewSubmissionMock.mockResolvedValue({
+        required: [],
+        prohibited: [],
+        advisory: [],
+      })
+      const submission = await submitExercise({
+        exerciseId: result.exercise.exercise.id,
+        code: 'pub fn f() -> u32 { 1 }',
+        learnerId,
+      })
+      expect(submission.result.passed).toBe(true)
+
+      await expect(
+        getMasteryStates(learnerId, [conceptRow.id]),
+      ).resolves.toEqual({ [conceptRow.id]: 'practiced' })
+    })
+
+    it('a Class B completion alone never advances a concept beyond Practiced (AC 2)', async () => {
+      const [conceptRow] = await db
+        .insert(concepts)
+        .values({ language: 'rust', slug: KNOWN_UNKNOWN_SLUG, difficulty: 2 })
+        .returning()
+      if (!conceptRow) throw new Error('expected the fixture concept row')
+      // The concept is already Practiced from Class A — a passed Class B
+      // sprint after that must not demote it, and must never push it past
+      // Practiced toward Demonstrated/Retained (SPEC story 9).
+      await advanceMastery(learnerId, [conceptRow.id], 'practiced')
+
+      identifySnippetConceptsMock.mockResolvedValue({
+        concepts: [
+          { slug: KNOWN_UNKNOWN_SLUG, description: 'Never attempted.' },
+        ],
+      })
+      generateExerciseMock.mockResolvedValue(generatedFor(KNOWN_UNKNOWN_SLUG))
+      runSandboxSubmissionMock
+        .mockResolvedValueOnce(REFERENCE_PASSES)
+        .mockResolvedValueOnce(BROKEN_FAILS_ON_CONCEPT)
+        .mockResolvedValueOnce(REFERENCE_PASSES)
+
+      const result = await runTacticalSprint({
+        learnerId,
+        language: 'rust',
+        snippet: 'pub fn f() -> u32 { 0 }',
+      })
+      expect(result.exercise.kind).toBe('generated')
+      if (result.exercise.kind !== 'generated') return
+
+      reviewSubmissionMock.mockResolvedValue({
+        required: [],
+        prohibited: [],
+        advisory: [],
+      })
+      const submission = await submitExercise({
+        exerciseId: result.exercise.exercise.id,
+        code: 'pub fn f() -> u32 { 1 }',
+        learnerId,
+      })
+      expect(submission.result.passed).toBe(true)
+
+      // Never beyond Practiced, and never regressed from it.
+      await expect(
+        getMasteryStates(learnerId, [conceptRow.id]),
+      ).resolves.toEqual({ [conceptRow.id]: 'practiced' })
+    })
+
+    it('Class A’s own progression still applies on top of a Class-B-granted Practiced state (AC 3)', async () => {
+      const [conceptRow] = await db
+        .insert(concepts)
+        .values({ language: 'rust', slug: KNOWN_UNKNOWN_SLUG, difficulty: 2 })
+        .returning()
+      if (!conceptRow) throw new Error('expected the fixture concept row')
+
+      // First, a passed Class B sprint grants Practiced toward the concept.
+      identifySnippetConceptsMock.mockResolvedValue({
+        concepts: [
+          { slug: KNOWN_UNKNOWN_SLUG, description: 'Never attempted.' },
+        ],
+      })
+      generateExerciseMock.mockResolvedValue(generatedFor(KNOWN_UNKNOWN_SLUG))
+      runSandboxSubmissionMock
+        .mockResolvedValueOnce(REFERENCE_PASSES)
+        .mockResolvedValueOnce(BROKEN_FAILS_ON_CONCEPT)
+        .mockResolvedValueOnce(REFERENCE_PASSES)
+
+      const result = await runTacticalSprint({
+        learnerId,
+        language: 'rust',
+        snippet: 'pub fn f() -> u32 { 0 }',
+      })
+      expect(result.exercise.kind).toBe('generated')
+      if (result.exercise.kind !== 'generated') return
+
+      reviewSubmissionMock.mockResolvedValue({
+        required: [],
+        prohibited: [],
+        advisory: [],
+      })
+      const submission = await submitExercise({
+        exerciseId: result.exercise.exercise.id,
+        code: 'pub fn f() -> u32 { 1 }',
+        learnerId,
+      })
+      expect(submission.result.passed).toBe(true)
+      await expect(
+        getMasteryStates(learnerId, [conceptRow.id]),
+      ).resolves.toEqual({ [conceptRow.id]: 'practiced' })
+
+      // Then Class A's own evidence (passed Explanation Assessment + passed
+      // Transfer Test) must still promote the concept off the sync-granted
+      // Practiced state — the sync never owns the concept's state beyond
+      // Practiced.
+      const [explainExercise] = await db
+        .insert(exercises)
+        .values({
+          slug: `test-tactical-class-sync-explain-${String(Date.now())}`,
+          language: 'rust',
+          title: 'Class sync explain fixture',
+          prompt: 'Explain the concept in your own words.',
+          starterCode: '',
+          mode: 'explain',
+          difficulty: 1,
+          status: 'verified',
+        })
+        .returning()
+      if (!explainExercise) throw new Error('expected the explain fixture')
+      await db
+        .insert(exerciseConcepts)
+        .values({ exerciseId: explainExercise.id, conceptId: conceptRow.id })
+      await db.insert(attempts).values({
+        learnerId,
+        exerciseId: explainExercise.id,
+        code: 'fixture explanation',
+        timeToSolution: 0,
+        explanationAssessment: {
+          accuracyScore: 0.8,
+          analysis: { missing: [], incorrect: [], conflated: [] },
+        },
+      })
+
+      const [transferExercise] = await db
+        .insert(exercises)
+        .values({
+          slug: `test-tactical-class-sync-transfer-${String(Date.now())}`,
+          language: 'rust',
+          title: 'Class sync transfer fixture',
+          prompt: 'p',
+          starterCode: 's',
+          mode: 'debug',
+          difficulty: 1,
+          status: 'verified',
+        })
+        .returning()
+      if (!transferExercise) throw new Error('expected the transfer fixture')
+      await db
+        .insert(exerciseConcepts)
+        .values({ exerciseId: transferExercise.id, conceptId: conceptRow.id })
+      await db.insert(transferTestExercises).values({
+        learnerId,
+        conceptId: conceptRow.id,
+        exerciseId: transferExercise.id,
+      })
+
+      try {
+        await recordExplanationAssessmentOutcome({
+          learnerId,
+          conceptId: conceptRow.id,
+          passed: true,
+        })
+        await recordTransferTestOutcome({
+          learnerId,
+          conceptId: conceptRow.id,
+          passed: true,
+        })
+
+        await expect(
+          getMasteryStates(learnerId, [conceptRow.id]),
+        ).resolves.toEqual({ [conceptRow.id]: 'demonstrated' })
+      } finally {
+        await db
+          .delete(attempts)
+          .where(eq(attempts.exerciseId, explainExercise.id))
+        await db
+          .delete(attempts)
+          .where(eq(attempts.exerciseId, transferExercise.id))
+        await db
+          .delete(transferTestExercises)
+          .where(eq(transferTestExercises.exerciseId, transferExercise.id))
+        await db
+          .delete(exerciseConcepts)
+          .where(
+            inArray(exerciseConcepts.exerciseId, [
+              explainExercise.id,
+              transferExercise.id,
+            ]),
+          )
+        await db.delete(exercises).where(eq(exercises.id, explainExercise.id))
+        await db.delete(exercises).where(eq(exercises.id, transferExercise.id))
+      }
     })
   },
 )

@@ -109,6 +109,7 @@ Start new ADRs from [`template.md`](./template.md).
 | [ADR-0025](./0025-recurring-mistakes-evidence-query.md) | "Recurring mistakes" evidence: read-time aggregation over `attempts`, no dedicated storage | Accepted | Related to ADR-0010, ADR-0014, ADR-0021 |
 | [ADR-0026](./0026-explain-mode-attempts-null-outcome.md) | Explain-mode attempts write NULL `outcome` | Accepted | Amends ADR-0021; related to ADR-0010, ADR-0015 |
 | [ADR-0027](./0027-transfer-test-exercises-passed-column.md) | `transfer_test_exercises.passed` — durable Transfer Test pass flag | Accepted | Refines ADR-0010; related to ADR-0015, ADR-0021, ADR-0017, ADR-0019, ADR-0022, ADR-0023 |
+| [ADR-0028](./0028-class-synchronization-sprint-grants-practiced.md) | Class Synchronization: a passed Class B sprint grants at most Practiced via the shared Learner Model write path | Accepted | Related to ADR-0002, ADR-0010, ADR-0015, ADR-0021, ADR-0027 |
 
 Keep this table in the same change as any status or relationship update. Every ADR file
 appears here exactly once.
