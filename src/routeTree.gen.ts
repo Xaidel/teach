@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as ConceptsRouteImport } from './routes/concepts'
 import { Route as ExplanationAssessmentRouteImport } from './routes/explanation-assessment'
 import { Route as TacticalSprintRouteImport } from './routes/tactical-sprint'
+import { Route as TransferTestRouteImport } from './routes/transfer-test'
 import { Route as ApiHealthRouteImport } from './routes/api.health'
 import { Route as CurriculumIndexRouteImport } from './routes/curriculum/index'
 import { Route as CurriculumConceptSlugRouteImport } from './routes/curriculum/$conceptSlug'
@@ -37,6 +38,11 @@ const TacticalSprintRoute = TacticalSprintRouteImport.update({
   path: '/tactical-sprint',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TransferTestRoute = TransferTestRouteImport.update({
+  id: '/transfer-test',
+  path: '/transfer-test',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiHealthRoute = ApiHealthRouteImport.update({
   id: '/api/health',
   path: '/api/health',
@@ -58,6 +64,7 @@ export interface FileRoutesByFullPath {
   '/concepts': typeof ConceptsRoute
   '/explanation-assessment': typeof ExplanationAssessmentRoute
   '/tactical-sprint': typeof TacticalSprintRoute
+  '/transfer-test': typeof TransferTestRoute
   '/api/health': typeof ApiHealthRoute
   '/curriculum/$conceptSlug': typeof CurriculumConceptSlugRoute
   '/curriculum/': typeof CurriculumIndexRoute
@@ -67,6 +74,7 @@ export interface FileRoutesByTo {
   '/concepts': typeof ConceptsRoute
   '/explanation-assessment': typeof ExplanationAssessmentRoute
   '/tactical-sprint': typeof TacticalSprintRoute
+  '/transfer-test': typeof TransferTestRoute
   '/api/health': typeof ApiHealthRoute
   '/curriculum/$conceptSlug': typeof CurriculumConceptSlugRoute
   '/curriculum': typeof CurriculumIndexRoute
@@ -77,6 +85,7 @@ export interface FileRoutesById {
   '/concepts': typeof ConceptsRoute
   '/explanation-assessment': typeof ExplanationAssessmentRoute
   '/tactical-sprint': typeof TacticalSprintRoute
+  '/transfer-test': typeof TransferTestRoute
   '/api/health': typeof ApiHealthRoute
   '/curriculum/$conceptSlug': typeof CurriculumConceptSlugRoute
   '/curriculum/': typeof CurriculumIndexRoute
@@ -88,6 +97,7 @@ export interface FileRouteTypes {
     | '/concepts'
     | '/explanation-assessment'
     | '/tactical-sprint'
+    | '/transfer-test'
     | '/api/health'
     | '/curriculum/$conceptSlug'
     | '/curriculum/'
@@ -97,6 +107,7 @@ export interface FileRouteTypes {
     | '/concepts'
     | '/explanation-assessment'
     | '/tactical-sprint'
+    | '/transfer-test'
     | '/api/health'
     | '/curriculum/$conceptSlug'
     | '/curriculum'
@@ -106,6 +117,7 @@ export interface FileRouteTypes {
     | '/concepts'
     | '/explanation-assessment'
     | '/tactical-sprint'
+    | '/transfer-test'
     | '/api/health'
     | '/curriculum/$conceptSlug'
     | '/curriculum/'
@@ -116,6 +128,7 @@ export interface RootRouteChildren {
   ConceptsRoute: typeof ConceptsRoute
   ExplanationAssessmentRoute: typeof ExplanationAssessmentRoute
   TacticalSprintRoute: typeof TacticalSprintRoute
+  TransferTestRoute: typeof TransferTestRoute
   ApiHealthRoute: typeof ApiHealthRoute
   CurriculumConceptSlugRoute: typeof CurriculumConceptSlugRoute
   CurriculumIndexRoute: typeof CurriculumIndexRoute
@@ -151,6 +164,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TacticalSprintRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/transfer-test': {
+      id: '/transfer-test'
+      path: '/transfer-test'
+      fullPath: '/transfer-test'
+      preLoaderRoute: typeof TransferTestRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/health': {
       id: '/api/health'
       path: '/api/health'
@@ -180,6 +200,7 @@ const rootRouteChildren: RootRouteChildren = {
   ConceptsRoute: ConceptsRoute,
   ExplanationAssessmentRoute: ExplanationAssessmentRoute,
   TacticalSprintRoute: TacticalSprintRoute,
+  TransferTestRoute: TransferTestRoute,
   ApiHealthRoute: ApiHealthRoute,
   CurriculumConceptSlugRoute: CurriculumConceptSlugRoute,
   CurriculumIndexRoute: CurriculumIndexRoute,

@@ -322,6 +322,55 @@ export const learnerConceptMastery = pgTable(
 )
 
 /**
+ * The Transfer Test exercise instance assigned to one learner for one
+ * concept (ADR-0015, ADR-0010, issue #17) — a pointer, not a new entity
+ * duplicating `exercises`/`attempts`. ADR-0010 explicitly rejected separate
+ * `explanation_assessments`/`transfer_tests` tables: a Transfer Test is "a
+ * structurally different exercise (`debug`) on an already-passed concept",
+ * an ordinary `exercises`/`attempts` row like any other. This table exists
+ * only to resolve back to the *same* generated instance across retries
+ * (mirrors Explanation Assessment's `ensureExplainExercise` reuse), because
+ * unlike EA's shared, learner-agnostic placeholder row, a Transfer Test
+ * exercise is a genuine per-instance AI generation — nothing else identifies
+ * "the" Transfer Test among a learner's many debug-mode attempts on a
+ * concept. Unique on `(learner_id, concept_id)`: a learner gets exactly one
+ * assigned Transfer Test exercise per concept. `passed` (ADR-0027) records
+ * the ADR-0015 pass bar once it's met — see its own column comment.
+ */
+export const transferTestExercises = pgTable(
+  'transfer_test_exercises',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .$defaultFn(() => uuidv7()),
+    learnerId: uuid('learner_id')
+      .notNull()
+      .references(() => learners.id),
+    conceptId: uuid('concept_id')
+      .notNull()
+      .references(() => concepts.id),
+    exerciseId: uuid('exercise_id')
+      .notNull()
+      .references(() => exercises.id),
+    // ADR-0027: the ADR-0015 pass bar (Stage 1 + Stage 2, mirroring
+    // Practiced's own bar), written exactly once by `recordAttemptOutcome`.
+    // A durable flag, not a re-derived read, because Stage 2's rubric result
+    // is never persisted on `attempts` (only Stage 1's `outcome` is) — there
+    // is nothing on `attempts` a retrospective query could consult.
+    passed: boolean('passed').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('transfer_test_exercises_learner_concept_unique').on(
+      table.learnerId,
+      table.conceptId,
+    ),
+  ],
+)
+
+/**
  * One Concept Graph node (ADR-0010, ADR-0016): a language-scoped concept
  * with the dotted natural slug (e.g. `rust.async.send`), a 1-5 difficulty,
  * and a review-only `status` that never gates usage.

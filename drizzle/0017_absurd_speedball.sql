@@ -1,0 +1,1 @@
+ALTER TABLE "transfer_test_exercises" ADD COLUMN "passed" boolean DEFAULT false NOT NULL;

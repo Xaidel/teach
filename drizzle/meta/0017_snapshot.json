@@ -1,6 +1,6 @@
 {
-  "id": "4697e375-4689-424f-82a8-d83a6e1f46d0",
-  "prevId": "7ce1e54b-afe2-4986-aa88-21aa1d0eb14f",
+  "id": "4053f58c-c183-4cde-b0c0-512c564ab54a",
+  "prevId": "9166095a-d778-4780-9c71-7c89d615f1cc",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -920,6 +920,119 @@
           "value": "\"pre_flight_attempts\".\"attempt_number\" between 1 and 4"
         }
       },
+      "isRLSEnabled": false
+    },
+    "public.transfer_test_exercises": {
+      "name": "transfer_test_exercises",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "learner_id": {
+          "name": "learner_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "concept_id": {
+          "name": "concept_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "exercise_id": {
+          "name": "exercise_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "passed": {
+          "name": "passed",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "transfer_test_exercises_learner_concept_unique": {
+          "name": "transfer_test_exercises_learner_concept_unique",
+          "columns": [
+            {
+              "expression": "learner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "concept_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "transfer_test_exercises_learner_id_learners_id_fk": {
+          "name": "transfer_test_exercises_learner_id_learners_id_fk",
+          "tableFrom": "transfer_test_exercises",
+          "tableTo": "learners",
+          "columnsFrom": [
+            "learner_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "transfer_test_exercises_concept_id_concepts_id_fk": {
+          "name": "transfer_test_exercises_concept_id_concepts_id_fk",
+          "tableFrom": "transfer_test_exercises",
+          "tableTo": "concepts",
+          "columnsFrom": [
+            "concept_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "transfer_test_exercises_exercise_id_exercises_id_fk": {
+          "name": "transfer_test_exercises_exercise_id_exercises_id_fk",
+          "tableFrom": "transfer_test_exercises",
+          "tableTo": "exercises",
+          "columnsFrom": [
+            "exercise_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
       "isRLSEnabled": false
     }
   },
