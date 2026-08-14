@@ -123,7 +123,12 @@ function pickWeakest(candidates: RankedConcept[]): RankedConcept {
  * persisted `exercises` row joined to the target concept — solving it runs
  * through the exact same Stage 1 -> Stage 2 -> Learner Model pipeline as
  * any other exercise (AC 5), nothing sprint-specific downstream of
- * generation.
+ * generation. That shared path is also issue #15's Class Synchronization
+ * (ADR-0028): `recordAttemptOutcome`'s rank-guarded upsert grants the
+ * matched concept at most Practiced toward Class A — never
+ * Demonstrated/Retained, which only Class A's own EA + Transfer Test gate
+ * (`promoteToDemonstrated`) can produce, applied on top of a sprint-granted
+ * Practiced state like any other.
  *
  * The weakest concept picked here may have Class A curriculum
  * prerequisites the learner hasn't Practiced yet — that's expected, not an
