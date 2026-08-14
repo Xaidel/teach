@@ -81,6 +81,7 @@ describe('ExplanationAssessmentCard', () => {
         conflated: [],
       },
       masteryState: 'practiced',
+      remediationConcepts: [],
     })
 
     render(<ExplanationAssessmentCard concepts={CONCEPTS} />)
@@ -127,6 +128,7 @@ describe('ExplanationAssessmentCard', () => {
         ],
       },
       masteryState: 'practiced',
+      remediationConcepts: [],
     })
 
     render(<ExplanationAssessmentCard concepts={CONCEPTS} />)
@@ -146,6 +148,62 @@ describe('ExplanationAssessmentCard', () => {
     expect(
       screen.getByText(/you can retry whenever you like/i),
     ).toBeInTheDocument()
+    expect(screen.queryByText('Concepts to review')).not.toBeInTheDocument()
+  })
+
+  it('renders the Concepts to review section with new-tab links on a failed attempt', async () => {
+    const user = userEvent.setup()
+    submitMock.mockResolvedValue({
+      accuracyScore: 0,
+      passed: false,
+      analysis: {
+        missing: [
+          { concept: 'rust.ownership', detail: 'Never says who owns.' },
+        ],
+        incorrect: [],
+        conflated: [],
+      },
+      masteryState: 'practiced',
+      remediationConcepts: ['rust.borrowing', 'rust.ownership'],
+    })
+
+    render(<ExplanationAssessmentCard concepts={CONCEPTS} />)
+
+    const textarea = screen.getByLabelText(/explain.*in your own words/i)
+    await user.type(textarea, 'A shaky explanation.')
+    await user.click(
+      screen.getByRole('button', { name: /assess my explanation/i }),
+    )
+
+    expect(await screen.findByText('Concepts to review')).toBeInTheDocument()
+    const borrowingLink = screen.getByRole('link', { name: 'rust.borrowing' })
+    expect(borrowingLink).toHaveAttribute('target', '_blank')
+    expect(borrowingLink).toHaveAttribute('href', '/curriculum/rust.borrowing')
+    const ownershipLink = screen.getByRole('link', { name: 'rust.ownership' })
+    expect(ownershipLink).toHaveAttribute('target', '_blank')
+    expect(ownershipLink).toHaveAttribute('href', '/curriculum/rust.ownership')
+  })
+
+  it('omits the Concepts to review section on a pass, even with remediationConcepts populated', async () => {
+    const user = userEvent.setup()
+    submitMock.mockResolvedValue({
+      accuracyScore: 1,
+      passed: true,
+      analysis: { missing: [], incorrect: [], conflated: [] },
+      masteryState: 'practiced',
+      remediationConcepts: ['rust.borrowing'],
+    })
+
+    render(<ExplanationAssessmentCard concepts={CONCEPTS} />)
+
+    const textarea = screen.getByLabelText(/explain.*in your own words/i)
+    await user.type(textarea, 'A flawless explanation.')
+    await user.click(
+      screen.getByRole('button', { name: /assess my explanation/i }),
+    )
+
+    expect(await screen.findByText('100%')).toBeInTheDocument()
+    expect(screen.queryByText('Concepts to review')).not.toBeInTheDocument()
   })
 
   it('surfaces an error from the server function', async () => {

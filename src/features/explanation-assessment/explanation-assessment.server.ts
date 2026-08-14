@@ -81,6 +81,71 @@ function getConceptGraphDefinition(
 }
 
 /**
+ * Normalized (trim + lowercase) lookup from the concept-graph definition's
+ * slug vocabulary — the assessed concept plus its prerequisites and related
+ * concepts — back to the real slug. Lets a free-form finding string resolve
+ * to a real concept without a prompt or schema change to
+ * `analyzeMisconceptions` (issue #132, ADR-0015 addendum).
+ */
+function normalizedSlugLookup(
+  definition: ConceptGraphDefinition,
+): Map<string, string> {
+  const lookup = new Map<string, string>()
+  for (const slug of [
+    definition.conceptSlug,
+    ...definition.prerequisiteSlugs,
+    ...definition.relatedSlugs,
+  ]) {
+    lookup.set(slug.trim().toLowerCase(), slug)
+  }
+  return lookup
+}
+
+/**
+ * The "Concepts to review" remediation list for a failed initial-gate
+ * Explanation Assessment (issue #132, ADR-0015 addendum): resolved via
+ * wayfinder ticket #157 as optional, non-blocking remediation on top of the
+ * existing unlimited-retry floor (issue #16) — a pointer back to curriculum
+ * content, never a gate.
+ *
+ * The assessed concept's own slug is always included on a failed attempt —
+ * the baseline that covers `incorrect` findings, which name no other
+ * concept. Each `missing`/`conflated` finding additionally contributes its
+ * concept when the finding's freeform string normalizes to a slug already
+ * in the graph vocabulary loaded for the `analyzeMisconceptions` call (the
+ * assessed concept, its prerequisites, or its related concepts) —
+ * `relatedSlugs` are included even though a related concept's own
+ * curriculum page can still be locked for the learner; the locked page
+ * itself renders informatively rather than erroring. Unresolved strings are
+ * dropped silently here — they still render as plain text in the raw
+ * `analysis` regardless of whether they resolve. Deduplicated; empty on a
+ * passed attempt, since there is nothing to remediate.
+ */
+function computeRemediationConcepts(
+  definition: ConceptGraphDefinition,
+  analysis: AnalyzeMisconceptionsOutput,
+  passed: boolean,
+): string[] {
+  if (passed) return []
+
+  const lookup = normalizedSlugLookup(definition)
+  const resolved = new Set<string>([definition.conceptSlug])
+
+  for (const finding of analysis.missing) {
+    const slug = lookup.get(finding.concept.trim().toLowerCase())
+    if (slug !== undefined) resolved.add(slug)
+  }
+  for (const finding of analysis.conflated) {
+    for (const name of finding.concepts) {
+      const slug = lookup.get(name.trim().toLowerCase())
+      if (slug !== undefined) resolved.add(slug)
+    }
+  }
+
+  return [...resolved]
+}
+
+/**
  * The concepts a learner can currently be assessed on (ADR-0015, issue #16):
  * every usable Concept Graph concept at `practiced` — eligible as soon as
  * the concept reaches Practiced, no exercise-count threshold — annotated
@@ -191,7 +256,10 @@ async function getExplainExerciseId(slug: string): Promise<string | null> {
  * Learner Model — which promotes the concept to Demonstrated only once a
  * passed Transfer Test is also recorded (ADR-0015, ticket #17's seam). A
  * failed attempt leaves the concept at Practiced with a retry available;
- * each attempt, pass or fail, is recorded as evidence (SPEC story 42).
+ * each attempt, pass or fail, is recorded as evidence (SPEC story 42). A
+ * failed attempt also derives a `remediationConcepts` list pointing back to
+ * curriculum content — optional, non-blocking, no new persistence (issue
+ * #132, ADR-0015 addendum).
  */
 export async function submitExplanationAssessment(input: {
   learnerId: string
@@ -284,5 +352,10 @@ export async function submitExplanationAssessment(input: {
     passed,
     analysis,
     masteryState,
+    remediationConcepts: computeRemediationConcepts(
+      definition,
+      analysis,
+      passed,
+    ),
   }
 }

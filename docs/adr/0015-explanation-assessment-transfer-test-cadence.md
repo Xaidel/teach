@@ -156,7 +156,10 @@ Described in full under Decision above.
   state (has this concept ever drawn an EA or TT shape?) that a purely deterministic design
   would not have required.
 - The exact retry/remediation flow for a failed initial-gate attempt is left undecided here —
-  build tickets #16 and #17 must still resolve it before implementation is complete.
+  build tickets #16 and #17 must still resolve it before implementation is complete. Resolved
+  for Explanation Assessment by the [Addendum](#addendum-2026-08-14-explanation-assessment-initial-gate-remediation-path)
+  below; Transfer Test's initial-gate failures needed no parallel resolution (see the addendum's
+  Scope note).
 
 ### Neutral / Risks
 
@@ -180,6 +183,80 @@ mapping), (c) a concept's final scheduled review forces an EA or TT shape if nei
 for it yet, and (d) a failed recurring EA/TT review triggers the same history-preserved,
 mastery-lowered, remediation-routed behavior as any other failed retrieval review (story 50).
 
+## Addendum (2026-08-14): Explanation Assessment initial-gate remediation path
+
+**Status**: Accepted. Resolves the gap the Negative consequence above left open, for
+Explanation Assessment's half of it.
+
+### Context
+
+Ticket [#16](../../issues/16) shipped (PR #130) with the simplest possible floor for a failed
+initial-gate Explanation Assessment attempt: the concept stays at Practiced, retry is
+immediately available with no limit, and every attempt is recorded as evidence. Whether that
+floor is itself "the remediation path" this ADR deferred, or whether something more active needed
+to be built, was left open — filed as follow-up [#132](../../issues/132) and resolved via
+wayfinder ticket [#157](../../issues/157) using `/grilling`.
+
+### Decision
+
+#132 ships remediation infrastructure on top of the existing floor — the floor alone was judged
+insufficient; something active is added, but it stays optional and non-blocking:
+
+- **Trigger**: every failed attempt, no streak or threshold. **Visibility**: only on a failed
+  attempt — a pass never shows it, even with minor findings.
+- **Gating**: optional, non-blocking. Retry stays immediately available; remediation is a
+  pointer, not a gate — nothing about it forces the learner to act before retrying.
+- **Content**: no new AI call, no new generation pipeline, no new persisted state. The
+  destination is the existing curriculum step page (`generateCurriculumLesson`, cached per
+  ADR-0025's sibling ticket #135).
+  - **Baseline** (unconditional on any failure): the assessed concept's own curriculum page —
+    this is what covers `incorrect` findings, which name no other concept.
+  - **Per-finding resolution**: each `missing`/`conflated` finding additionally contributes the
+    concept(s) it names, when the finding's freeform string normalizes (trim + lowercase) to a
+    slug already in `{assessed concept, prerequisiteSlugs, relatedSlugs}` — the same graph
+    vocabulary already loaded for the `analyzeMisconceptions` call, so no prompt or schema
+    change to that AI contract (issue #23's boundary stays intact). `relatedSlugs` are included
+    even though a related (non-prerequisite) concept's own curriculum page can still be locked
+    for the learner — the locked page itself renders informatively (which prerequisite is
+    blocking it) rather than erroring. Findings that don't resolve to a known slug still render
+    as plain text (unchanged behavior) — resolution only ever adds a pointer, never removes
+    information.
+- **Presentation**: one deduplicated "Concepts to review" section below the findings list (not
+  inline per-finding), links opening in a new tab so an in-progress retry draft isn't lost.
+- **Architecture**: resolution lives server-side in `submitExplanationAssessment`, reusing the
+  `ConceptGraphDefinition` it already builds for the AI call — no extra graph load. Returned as
+  a new `remediationConcepts: string[]` field on `ExplanationAssessmentResult`, derived at
+  request time from data already captured on the attempt row (mirrors the "recurring mistakes"
+  read-time-aggregation pattern, ADR-0025) — no new DB column or table.
+- **Scope**: Explanation Assessment only. Transfer Test's initial-gate failures are ordinary
+  failed exercise attempts and already get the existing hint-ladder remediation through the
+  normal exercise flow (issue #17) — no parallel gap there, so no companion ticket was needed.
+- **Explicitly rejected** (considered during grilling, ticket #157): any streak/threshold gating
+  on when remediation appears, forced (blocking) remediation that would delay a retry, and
+  persisted remediation-engagement tracking. All three would have added state or friction this
+  ADR's own initial-gate framing (unlimited immediate retry, non-blocking) does not call for.
+
+### Consequences
+
+- The Negative consequence's gap above is closed for Explanation Assessment: #132 defines and
+  ships the "something more" a failed initial-gate attempt gets beyond bare retry.
+- No new AI contract surface, no new persistence, and no change to the accuracy formula
+  (ticket #16) or the `analyzeMisconceptions` schema (issue #23) — the remediation list is a
+  pure read-time derivation from data those already produce.
+- Transfer Test's initial-gate remediation gap (ticket #17's half of the original deferral) is
+  confirmed closed by inspection rather than by a parallel build — normal exercise attempts
+  already have hint-ladder remediation, so nothing else was owed there.
+
+### Confirmation
+
+Code/test review confirming: `submitExplanationAssessment` returns a non-empty
+`remediationConcepts` containing the assessed concept's slug on every failed attempt and an
+empty array on every passed attempt; a `missing`/`conflated` finding whose string resolves
+(normalized) against the assessed concept's prerequisites or related concepts contributes its
+real slug; a non-resolving finding contributes nothing and still renders as plain text; results
+are deduplicated; `ExplanationAssessmentCard` renders "Concepts to review" only when
+`!result.passed && result.remediationConcepts.length > 0`, with links opening in a new tab.
+
 ## Relationships and References
 
 - Related to: [ADR-0010](./0010-core-v1-persistence-schema.md) — the `retrieval_queue` table's
@@ -187,8 +264,14 @@ mastery-lowered, remediation-routed behavior as any other failed retrieval revie
   shape selection assigns at generation time.
 - Related to: [ADR-0014](./0014-single-learner-session-model.md) — no direct dependency, but
   both are wayfinder resolutions on the same map narrowing `docs/SPEC.md`'s remaining gaps.
+- Related to: [ADR-0025](./0025-recurring-mistakes-evidence-query.md) — the addendum's
+  `remediationConcepts` derivation reuses its read-time-aggregation pattern (no new storage).
 - Supporting evidence: [docs/SPEC.md](../SPEC.md) user stories 41, 42, 44, 45, 46, 49, 50;
   wayfinder ticket [#28](../../issues/28) on map [#21](../../issues/21) (resolution session
   this ADR records); build tickets [#16](../../issues/16) and [#17](../../issues/17) (gated by
-  this decision).
-- Owning implementation package: none yet — no code implements this as of this writing.
+  this decision). Addendum: wayfinder ticket [#157](../../issues/157) and build ticket
+  [#132](../../issues/132).
+- Owning implementation package: none yet for the core cadence decision — no code implements
+  that as of this writing. The addendum's remediation path is owned by
+  `src/features/explanation-assessment/explanation-assessment.server.ts` and
+  `src/features/explanation-assessment/components/explanation-assessment-card.tsx` (issue #132).

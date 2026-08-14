@@ -58,13 +58,16 @@ export type ExplanationAssessmentOverview = {
  * deterministic accuracy score and whether it passed the threshold, the
  * evaluator's raw findings, and the concept's mastery state after the
  * attempt — so the UI can explain that Demonstrated additionally requires
- * a passed Transfer Test (ADR-0015, ticket #17).
+ * a passed Transfer Test (ADR-0015, ticket #17). `remediationConcepts` is
+ * the deduplicated "Concepts to review" pointer for a failed attempt —
+ * empty on a pass (issue #132, ADR-0015 addendum).
  */
 export type ExplanationAssessmentResult = {
   accuracyScore: number
   passed: boolean
   analysis: AnalyzeMisconceptionsOutput
   masteryState: MasteryState
+  remediationConcepts: string[]
 }
 
 /** Stable public explanation-assessment error codes. */
