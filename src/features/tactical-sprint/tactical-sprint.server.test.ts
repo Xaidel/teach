@@ -89,7 +89,9 @@ const TEST_SLUGS = [
 // Issue-#15 class-sync fixtures (AC 2/AC 3's Demonstrated-gate evidence):
 // fixed slugs under the `rust-test-tactical-%` cleanup prefix, so
 // `cleanupFixtures` resolves them by slug — the file's own convention —
-// rather than transitively through the concept join.
+// which is what catches a crashed run's residue even when no concept row
+// points at these exercises anymore (the concept-join path would only find
+// them transitively).
 const CLASS_SYNC_EXPLAIN_SLUG = 'rust-test-tactical-class-sync-explain'
 const CLASS_SYNC_TRANSFER_SLUG = 'rust-test-tactical-class-sync-transfer'
 
@@ -209,9 +211,8 @@ async function cleanupFixtures(): Promise<void> {
  * Runs a full passed Tactical Sprint against the fixture concept and
  * submits its exercise through the real Stage 1 -> Stage 2 pipeline —
  * the sprint-pass shape the issue-#15 AC tests (1-3) share with AC 5.
- * Returns the sprint exercise's id.
  */
-async function runPassedSprint(): Promise<string> {
+async function runPassedSprint(): Promise<void> {
   identifySnippetConceptsMock.mockResolvedValue({
     concepts: [{ slug: KNOWN_UNKNOWN_SLUG, description: 'Never attempted.' }],
   })
@@ -242,7 +243,6 @@ async function runPassedSprint(): Promise<string> {
     learnerId,
   })
   expect(submission.result.passed).toBe(true)
-  return result.exercise.exercise.id
 }
 
 /**
@@ -304,6 +304,10 @@ async function seedClassADemonstratedEvidence(
     learnerId,
     conceptId,
     exerciseId: transferExercise.id,
+    // ADR-0027: `hasPassedTransferTest` reads the durable `passed` flag
+    // (default false) — seed it true so the AC 2 discriminator can fail a
+    // bare `promoteToDemonstrated` creep on the sprint path.
+    passed: true,
   })
 }
 
@@ -772,11 +776,11 @@ describe.skipIf(!dbUp)(
       if (!conceptRow) throw new Error('expected the fixture concept row')
       // The concept is already Practiced from Class A *with its full
       // Demonstrated-gate evidence in place* — a passed Explanation
-      // Assessment attempt and a registered Transfer Test. If the sprint
-      // path ever wrongly promoted, the evidence would be there to promote
-      // off of, so the "never beyond Practiced" assertion below is
-      // discriminating (issue #15 AC 2): a promotion-creep implementation
-      // becomes Demonstrated and fails.
+      // Assessment attempt and a Transfer Test row whose durable `passed`
+      // flag is seeded true. If the sprint path ever wrongly promoted, the
+      // evidence would be there to promote off of, so the "never beyond
+      // Practiced" assertion below is discriminating (issue #15 AC 2): a
+      // promotion-creep implementation becomes Demonstrated and fails.
       await advanceMastery(learnerId, [conceptRow.id], 'practiced')
       await seedClassADemonstratedEvidence(conceptRow.id)
 
