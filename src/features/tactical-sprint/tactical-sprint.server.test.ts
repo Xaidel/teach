@@ -86,6 +86,12 @@ const TEST_SLUGS = [
   UNMATCHED_SLUG,
   UNMATCHED_LOSING_SLUG,
 ]
+// Issue-#15 class-sync fixtures (AC 2/AC 3's Demonstrated-gate evidence):
+// fixed slugs under the `rust-test-tactical-%` cleanup prefix, so
+// `cleanupFixtures` resolves them by slug — the file's own convention —
+// rather than transitively through the concept join.
+const CLASS_SYNC_EXPLAIN_SLUG = 'rust-test-tactical-class-sync-explain'
+const CLASS_SYNC_TRANSFER_SLUG = 'rust-test-tactical-class-sync-transfer'
 
 const REFERENCE_PASSES: SandboxResult = {
   passed: true,
@@ -154,6 +160,9 @@ async function deleteExerciseCascade(exerciseId: string): Promise<void> {
   }
   await db.delete(attempts).where(eq(attempts.exerciseId, exerciseId))
   await db
+    .delete(transferTestExercises)
+    .where(eq(transferTestExercises.exerciseId, exerciseId))
+  await db
     .delete(exerciseConcepts)
     .where(eq(exerciseConcepts.exerciseId, exerciseId))
   await db.delete(exercises).where(eq(exercises.id, exerciseId))
@@ -194,6 +203,108 @@ async function cleanupFixtures(): Promise<void> {
     await deleteExerciseCascade(row.id)
   }
   await db.delete(concepts).where(inArray(concepts.id, conceptIds))
+}
+
+/**
+ * Runs a full passed Tactical Sprint against the fixture concept and
+ * submits its exercise through the real Stage 1 -> Stage 2 pipeline —
+ * the sprint-pass shape the issue-#15 AC tests (1-3) share with AC 5.
+ * Returns the sprint exercise's id.
+ */
+async function runPassedSprint(): Promise<string> {
+  identifySnippetConceptsMock.mockResolvedValue({
+    concepts: [{ slug: KNOWN_UNKNOWN_SLUG, description: 'Never attempted.' }],
+  })
+  generateExerciseMock.mockResolvedValue(generatedFor(KNOWN_UNKNOWN_SLUG))
+  runSandboxSubmissionMock
+    .mockResolvedValueOnce(REFERENCE_PASSES)
+    .mockResolvedValueOnce(BROKEN_FAILS_ON_CONCEPT)
+    .mockResolvedValueOnce(REFERENCE_PASSES)
+
+  const result = await runTacticalSprint({
+    learnerId,
+    language: 'rust',
+    snippet: 'pub fn f() -> u32 { 0 }',
+  })
+  expect(result.exercise.kind).toBe('generated')
+  if (result.exercise.kind !== 'generated') {
+    throw new Error('expected a generated sprint exercise')
+  }
+
+  reviewSubmissionMock.mockResolvedValue({
+    required: [],
+    prohibited: [],
+    advisory: [],
+  })
+  const submission = await submitExercise({
+    exerciseId: result.exercise.exercise.id,
+    code: 'pub fn f() -> u32 { 1 }',
+    learnerId,
+  })
+  expect(submission.result.passed).toBe(true)
+  return result.exercise.exercise.id
+}
+
+/**
+ * Seeds a concept with Class A's full Demonstrated-gate evidence
+ * (ADR-0015): a passed Explanation Assessment attempt and a registered
+ * Transfer Test exercise, using fixed `rust-test-tactical-class-sync-*`
+ * slugs so `cleanupFixtures` removes them after the test (via
+ * `deleteExerciseCascade`, which also drops `transfer_test_exercises`).
+ */
+async function seedClassADemonstratedEvidence(
+  conceptId: string,
+): Promise<void> {
+  const [explainExercise] = await db
+    .insert(exercises)
+    .values({
+      slug: CLASS_SYNC_EXPLAIN_SLUG,
+      language: 'rust',
+      title: 'Class sync explain fixture',
+      prompt: 'Explain the concept in your own words.',
+      starterCode: '',
+      mode: 'explain',
+      difficulty: 1,
+      status: 'verified',
+    })
+    .returning()
+  if (!explainExercise) throw new Error('expected the explain fixture')
+  await db
+    .insert(exerciseConcepts)
+    .values({ exerciseId: explainExercise.id, conceptId })
+  await db.insert(attempts).values({
+    learnerId,
+    exerciseId: explainExercise.id,
+    code: 'fixture explanation',
+    timeToSolution: 0,
+    explanationAssessment: {
+      accuracyScore: 0.8,
+      analysis: { missing: [], incorrect: [], conflated: [] },
+    },
+  })
+
+  const [transferExercise] = await db
+    .insert(exercises)
+    .values({
+      slug: CLASS_SYNC_TRANSFER_SLUG,
+      language: 'rust',
+      title: 'Class sync transfer fixture',
+      prompt: 'p',
+      starterCode: 's',
+      mode: 'debug',
+      difficulty: 1,
+      status: 'verified',
+    })
+    .returning()
+  if (!transferExercise) throw new Error('expected the transfer fixture')
+  await db
+    .insert(exerciseConcepts)
+    .values({ exerciseId: transferExercise.id, conceptId })
+  await db.insert(transferTestExercises).values({
+    learnerId,
+    conceptId,
+    exerciseId: transferExercise.id,
+  })
 }
 
 afterEach(async () => {
@@ -646,36 +757,7 @@ describe.skipIf(!dbUp)(
         .returning()
       if (!conceptRow) throw new Error('expected the fixture concept row')
 
-      identifySnippetConceptsMock.mockResolvedValue({
-        concepts: [
-          { slug: KNOWN_UNKNOWN_SLUG, description: 'Never attempted.' },
-        ],
-      })
-      generateExerciseMock.mockResolvedValue(generatedFor(KNOWN_UNKNOWN_SLUG))
-      runSandboxSubmissionMock
-        .mockResolvedValueOnce(REFERENCE_PASSES)
-        .mockResolvedValueOnce(BROKEN_FAILS_ON_CONCEPT)
-        .mockResolvedValueOnce(REFERENCE_PASSES)
-
-      const result = await runTacticalSprint({
-        learnerId,
-        language: 'rust',
-        snippet: 'pub fn f() -> u32 { 0 }',
-      })
-      expect(result.exercise.kind).toBe('generated')
-      if (result.exercise.kind !== 'generated') return
-
-      reviewSubmissionMock.mockResolvedValue({
-        required: [],
-        prohibited: [],
-        advisory: [],
-      })
-      const submission = await submitExercise({
-        exerciseId: result.exercise.exercise.id,
-        code: 'pub fn f() -> u32 { 1 }',
-        learnerId,
-      })
-      expect(submission.result.passed).toBe(true)
+      await runPassedSprint()
 
       await expect(
         getMasteryStates(learnerId, [conceptRow.id]),
@@ -688,41 +770,17 @@ describe.skipIf(!dbUp)(
         .values({ language: 'rust', slug: KNOWN_UNKNOWN_SLUG, difficulty: 2 })
         .returning()
       if (!conceptRow) throw new Error('expected the fixture concept row')
-      // The concept is already Practiced from Class A — a passed Class B
-      // sprint after that must not demote it, and must never push it past
-      // Practiced toward Demonstrated/Retained (SPEC story 9).
+      // The concept is already Practiced from Class A *with its full
+      // Demonstrated-gate evidence in place* — a passed Explanation
+      // Assessment attempt and a registered Transfer Test. If the sprint
+      // path ever wrongly promoted, the evidence would be there to promote
+      // off of, so the "never beyond Practiced" assertion below is
+      // discriminating (issue #15 AC 2): a promotion-creep implementation
+      // becomes Demonstrated and fails.
       await advanceMastery(learnerId, [conceptRow.id], 'practiced')
+      await seedClassADemonstratedEvidence(conceptRow.id)
 
-      identifySnippetConceptsMock.mockResolvedValue({
-        concepts: [
-          { slug: KNOWN_UNKNOWN_SLUG, description: 'Never attempted.' },
-        ],
-      })
-      generateExerciseMock.mockResolvedValue(generatedFor(KNOWN_UNKNOWN_SLUG))
-      runSandboxSubmissionMock
-        .mockResolvedValueOnce(REFERENCE_PASSES)
-        .mockResolvedValueOnce(BROKEN_FAILS_ON_CONCEPT)
-        .mockResolvedValueOnce(REFERENCE_PASSES)
-
-      const result = await runTacticalSprint({
-        learnerId,
-        language: 'rust',
-        snippet: 'pub fn f() -> u32 { 0 }',
-      })
-      expect(result.exercise.kind).toBe('generated')
-      if (result.exercise.kind !== 'generated') return
-
-      reviewSubmissionMock.mockResolvedValue({
-        required: [],
-        prohibited: [],
-        advisory: [],
-      })
-      const submission = await submitExercise({
-        exerciseId: result.exercise.exercise.id,
-        code: 'pub fn f() -> u32 { 1 }',
-        learnerId,
-      })
-      expect(submission.result.passed).toBe(true)
+      await runPassedSprint()
 
       // Never beyond Practiced, and never regressed from it.
       await expect(
@@ -738,36 +796,7 @@ describe.skipIf(!dbUp)(
       if (!conceptRow) throw new Error('expected the fixture concept row')
 
       // First, a passed Class B sprint grants Practiced toward the concept.
-      identifySnippetConceptsMock.mockResolvedValue({
-        concepts: [
-          { slug: KNOWN_UNKNOWN_SLUG, description: 'Never attempted.' },
-        ],
-      })
-      generateExerciseMock.mockResolvedValue(generatedFor(KNOWN_UNKNOWN_SLUG))
-      runSandboxSubmissionMock
-        .mockResolvedValueOnce(REFERENCE_PASSES)
-        .mockResolvedValueOnce(BROKEN_FAILS_ON_CONCEPT)
-        .mockResolvedValueOnce(REFERENCE_PASSES)
-
-      const result = await runTacticalSprint({
-        learnerId,
-        language: 'rust',
-        snippet: 'pub fn f() -> u32 { 0 }',
-      })
-      expect(result.exercise.kind).toBe('generated')
-      if (result.exercise.kind !== 'generated') return
-
-      reviewSubmissionMock.mockResolvedValue({
-        required: [],
-        prohibited: [],
-        advisory: [],
-      })
-      const submission = await submitExercise({
-        exerciseId: result.exercise.exercise.id,
-        code: 'pub fn f() -> u32 { 1 }',
-        learnerId,
-      })
-      expect(submission.result.passed).toBe(true)
+      await runPassedSprint()
       await expect(
         getMasteryStates(learnerId, [conceptRow.id]),
       ).resolves.toEqual({ [conceptRow.id]: 'practiced' })
@@ -775,94 +804,22 @@ describe.skipIf(!dbUp)(
       // Then Class A's own evidence (passed Explanation Assessment + passed
       // Transfer Test) must still promote the concept off the sync-granted
       // Practiced state — the sync never owns the concept's state beyond
-      // Practiced.
-      const [explainExercise] = await db
-        .insert(exercises)
-        .values({
-          slug: `test-tactical-class-sync-explain-${String(Date.now())}`,
-          language: 'rust',
-          title: 'Class sync explain fixture',
-          prompt: 'Explain the concept in your own words.',
-          starterCode: '',
-          mode: 'explain',
-          difficulty: 1,
-          status: 'verified',
-        })
-        .returning()
-      if (!explainExercise) throw new Error('expected the explain fixture')
-      await db
-        .insert(exerciseConcepts)
-        .values({ exerciseId: explainExercise.id, conceptId: conceptRow.id })
-      await db.insert(attempts).values({
-        learnerId,
-        exerciseId: explainExercise.id,
-        code: 'fixture explanation',
-        timeToSolution: 0,
-        explanationAssessment: {
-          accuracyScore: 0.8,
-          analysis: { missing: [], incorrect: [], conflated: [] },
-        },
-      })
-
-      const [transferExercise] = await db
-        .insert(exercises)
-        .values({
-          slug: `test-tactical-class-sync-transfer-${String(Date.now())}`,
-          language: 'rust',
-          title: 'Class sync transfer fixture',
-          prompt: 'p',
-          starterCode: 's',
-          mode: 'debug',
-          difficulty: 1,
-          status: 'verified',
-        })
-        .returning()
-      if (!transferExercise) throw new Error('expected the transfer fixture')
-      await db
-        .insert(exerciseConcepts)
-        .values({ exerciseId: transferExercise.id, conceptId: conceptRow.id })
-      await db.insert(transferTestExercises).values({
+      // Practiced. `cleanupFixtures` removes the evidence rows afterwards.
+      await seedClassADemonstratedEvidence(conceptRow.id)
+      await recordExplanationAssessmentOutcome({
         learnerId,
         conceptId: conceptRow.id,
-        exerciseId: transferExercise.id,
+        passed: true,
+      })
+      await recordTransferTestOutcome({
+        learnerId,
+        conceptId: conceptRow.id,
+        passed: true,
       })
 
-      try {
-        await recordExplanationAssessmentOutcome({
-          learnerId,
-          conceptId: conceptRow.id,
-          passed: true,
-        })
-        await recordTransferTestOutcome({
-          learnerId,
-          conceptId: conceptRow.id,
-          passed: true,
-        })
-
-        await expect(
-          getMasteryStates(learnerId, [conceptRow.id]),
-        ).resolves.toEqual({ [conceptRow.id]: 'demonstrated' })
-      } finally {
-        await db
-          .delete(attempts)
-          .where(eq(attempts.exerciseId, explainExercise.id))
-        await db
-          .delete(attempts)
-          .where(eq(attempts.exerciseId, transferExercise.id))
-        await db
-          .delete(transferTestExercises)
-          .where(eq(transferTestExercises.exerciseId, transferExercise.id))
-        await db
-          .delete(exerciseConcepts)
-          .where(
-            inArray(exerciseConcepts.exerciseId, [
-              explainExercise.id,
-              transferExercise.id,
-            ]),
-          )
-        await db.delete(exercises).where(eq(exercises.id, explainExercise.id))
-        await db.delete(exercises).where(eq(exercises.id, transferExercise.id))
-      }
+      await expect(
+        getMasteryStates(learnerId, [conceptRow.id]),
+      ).resolves.toEqual({ [conceptRow.id]: 'demonstrated' })
     })
   },
 )
