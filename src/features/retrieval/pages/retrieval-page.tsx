@@ -1,12 +1,9 @@
-import { useState } from 'react'
-
 import { Alert } from '#/shared/components/ui/alert'
 import { Button } from '#/shared/components/ui/button'
 
-import { errorMessage } from '../client-utils'
 import { RetrievalQueueCard } from '../components/retrieval-queue-card'
-import { startRetrievalReviewFn } from '../retrieval.functions'
-import type { RetrievalQueueView, RetrievalTestView } from '../retrieval.schema'
+import { useStartRetrievalReview } from '../use-start-retrieval-review'
+import type { RetrievalQueueView } from '../retrieval.schema'
 
 /**
  * The Daily Review session (SPEC story 48, issue #18 AC 3): the ambient,
@@ -20,33 +17,15 @@ export function RetrievalPage({
 }: {
   view: RetrievalQueueView
 }): React.JSX.Element {
-  const [isStarting, setIsStarting] = useState(false)
-  const [result, setResult] = useState<RetrievalTestView>()
-  const [error, setError] = useState<string>()
+  const { isStarting, result, error, start } = useStartRetrievalReview(
+    'The Daily Review could not be started. Try again.',
+  )
 
   const topEntry = view.highPriority[0] ?? view.due[0]
 
   async function handleStartDailyReview(): Promise<void> {
     if (!topEntry) return
-    setError(undefined)
-    setResult(undefined)
-    setIsStarting(true)
-    try {
-      setResult(
-        await startRetrievalReviewFn({
-          data: { conceptId: topEntry.conceptId },
-        }),
-      )
-    } catch (startError) {
-      setError(
-        errorMessage(
-          startError,
-          'The Daily Review could not be started. Try again.',
-        ),
-      )
-    } finally {
-      setIsStarting(false)
-    }
+    await start(topEntry.conceptId)
   }
 
   return (

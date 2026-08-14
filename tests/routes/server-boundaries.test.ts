@@ -57,5 +57,14 @@ describe('client and server source boundaries', () => {
     expect(conceptsRoute).toContain('ConceptReviewPage')
     expect(conceptsRoute).toContain('getConceptReviewFn')
     expect(conceptsRoute).not.toContain('<main')
+
+    const retrievalRoute = await readFile(
+      new URL('src/routes/retrieval.tsx', workspaceRoot),
+      'utf8',
+    )
+
+    expect(retrievalRoute).toContain('RetrievalPage')
+    expect(retrievalRoute).toContain('getRetrievalQueueFn')
+    expect(retrievalRoute).not.toContain('<main')
   })
 })

@@ -29,5 +29,5 @@ export const startRetrievalReviewFn = createServerFn({
   .validator(StartRetrievalReviewInputSchema)
   .handler(async ({ data }) => {
     const learnerId = await getCurrentLearnerId()
-    return startRetrievalReview({ ...data, learnerId })
+    return startRetrievalReview({ conceptId: data.conceptId, learnerId })
   })

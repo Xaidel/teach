@@ -114,3 +114,15 @@ export function computeRetrievalPriorityScore(input: {
 export function isRetrievalRemediationScore(priorityScore: number): boolean {
   return priorityScore >= RETRIEVAL_REMEDIATION_PRIORITY_BOOST
 }
+
+/**
+ * The human label for a schedule stage's interval (e.g. stage 1 → "3
+ * days"). Display copy mirror of `RETRIEVAL_SCHEDULE_DAYS`, owned next to
+ * the schedule it labels — the retrieval feature's queue view renders it
+ * on every entry.
+ */
+export function retrievalIntervalLabel(stage: number): string {
+  const days = RETRIEVAL_SCHEDULE_DAYS[stage]
+  if (days === undefined) return '—'
+  return `${String(days)} day${days === 1 ? '' : 's'}`
+}

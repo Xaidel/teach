@@ -1,7 +1,6 @@
 import { z } from 'zod'
 
 import type { MasteryState } from '#/lib/mastery-states'
-import { RETRIEVAL_SCHEDULE_DAYS } from '#/lib/retrieval-schedule'
 
 /**
  * One Retrieval Queue entry as the learner sees it (SPEC story 47, PRD
@@ -66,6 +65,16 @@ export type StartRetrievalReviewInput = z.infer<
   typeof StartRetrievalReviewInputSchema
 >
 
+/**
+ * The full server-side input to start a Refresher Test: the validated
+ * client input plus the session-resolved learner (issue #18 AC 3). A named
+ * type keeps the server boundary honest instead of an anonymous
+ * spread-and-merge.
+ */
+export type StartRetrievalReviewCommand = StartRetrievalReviewInput & {
+  learnerId: string
+}
+
 /** The failure codes the retrieval feature's server surface can raise. */
 export type RetrievalErrorCode =
   'CONCEPT_NOT_FOUND' | 'CONCEPT_NOT_DUE' | 'REFRESHER_GENERATION_FAILED'
@@ -86,11 +95,4 @@ export class RetrievalError extends Error {
     this.name = 'RetrievalError'
     this.code = code
   }
-}
-
-/** The human label for a schedule stage's interval (e.g. stage 1 → "3 days"). */
-export function retrievalIntervalLabel(stage: number): string {
-  const days = RETRIEVAL_SCHEDULE_DAYS[stage]
-  if (days === undefined) return '—'
-  return `${String(days)} day${days === 1 ? '' : 's'}`
 }

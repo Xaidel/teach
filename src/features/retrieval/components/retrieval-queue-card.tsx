@@ -1,28 +1,17 @@
 import { Link } from '@tanstack/react-router'
-import { useState } from 'react'
 
-import type { MasteryState } from '#/lib/mastery-states'
+import { MASTERY_LABELS } from '#/lib/mastery-states'
 import { Alert } from '#/shared/components/ui/alert'
 import { Badge } from '#/shared/components/ui/badge'
 import { Button } from '#/shared/components/ui/button'
 import { Card, CardContent, CardHeader } from '#/shared/components/ui/card'
 
-import { errorMessage } from '../client-utils'
-import { startRetrievalReviewFn } from '../retrieval.functions'
+import { useStartRetrievalReview } from '../use-start-retrieval-review'
 import type {
   RetrievalQueueEntry,
   RetrievalQueueView,
   RetrievalTestView,
 } from '../retrieval.schema'
-
-/** Human labels for the five mastery states (display mirror). */
-const MASTERY_LABELS: Record<MasteryState, string> = {
-  unknown: 'Unknown',
-  introduced: 'Introduced',
-  practiced: 'Practiced',
-  demonstrated: 'Demonstrated',
-  retained: 'Retained',
-}
 
 /**
  * The Retrieval Queue surface (SPEC story 47, PRD §23.1, issue #18): the
@@ -39,29 +28,9 @@ export function RetrievalQueueCard({
   view: RetrievalQueueView
   compact?: boolean
 }): React.JSX.Element {
-  const [startingId, setStartingId] = useState<string | undefined>()
-  const [result, setResult] = useState<RetrievalTestView>()
-  const [error, setError] = useState<string>()
-
-  async function handleStart(entry: RetrievalQueueEntry): Promise<void> {
-    setError(undefined)
-    setResult(undefined)
-    setStartingId(entry.conceptId)
-    try {
-      setResult(
-        await startRetrievalReviewFn({ data: { conceptId: entry.conceptId } }),
-      )
-    } catch (startError) {
-      setError(
-        errorMessage(
-          startError,
-          'The Refresher Test could not be started. Try again.',
-        ),
-      )
-    } finally {
-      setStartingId(undefined)
-    }
-  }
+  const { startingId, result, error, start } = useStartRetrievalReview(
+    'The Refresher Test could not be started. Try again.',
+  )
 
   const reviewable = [...view.highPriority, ...view.due]
   const upcoming = view.upcoming
@@ -100,7 +69,7 @@ export function RetrievalQueueCard({
             {reviewableEntries.length > 0 ? (
               <QueueSection
                 entries={reviewableEntries}
-                onStart={handleStart}
+                onStart={(entry) => start(entry.conceptId)}
                 startingId={startingId}
               />
             ) : null}
@@ -122,7 +91,7 @@ export function RetrievalQueueCard({
             {!compact && upcoming.length > 0 ? (
               <QueueSection
                 entries={upcoming}
-                onStart={handleStart}
+                onStart={(entry) => start(entry.conceptId)}
                 startingId={startingId}
                 title="Upcoming"
               />

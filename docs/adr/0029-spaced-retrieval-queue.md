@@ -41,7 +41,7 @@ priority_score = max(0, hoursOverdue) * 2 + difficulty * 10
 
 - *recency* — hours the row is already overdue (0 until due), SPEC story 47;
 - *importance* — the concept's difficulty as the only v1 proxy (SPEC story 47's "concept importance");
-- *performance* — the remediation boost, sized so the recency term would need decades of overdue time to overtake it; a row whose last retrieval failed always sorts above any merely-overdue row, and the view derives its High Priority bucket ("Failed previous review", PRD §23.1) purely from `priority_score >= boost` — no extra read.
+- *performance* — the remediation boost, sized so the recency term would need decades of overdue time to overtake it; a row whose last retrieval failed always sorts above any merely-overdue row, and the view derives its High Priority bucket ("Failed previous review", PRD §23.1) from the stored columns alone — a row is High Priority when its score carries the boost **and** the row is already due (`due_at <= now`); a not-yet-due row with the boost is not surfaced ahead of schedule. No extra read.
 
 Hint dependency is deliberately absent: no scheduling consumer exists yet (ADR-0025 defers it to the same follow-up lane as the recurring-mistakes evidence).
 

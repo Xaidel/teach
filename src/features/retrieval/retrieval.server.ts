@@ -17,14 +17,17 @@ import { getMasteryStates } from '#/features/learners/mastery.server'
 // other exercise (issue #8) — one-way, `exercise` never imports back from
 // `retrieval`.
 import { generateExerciseForConcept } from '#/features/exercise/exercise-generation.server'
-import { isRetrievalRemediationScore } from '#/lib/retrieval-schedule'
+import {
+  isRetrievalRemediationScore,
+  retrievalIntervalLabel,
+} from '#/lib/retrieval-schedule'
 
 import { RetrievalError } from './retrieval.schema'
-import {
-  retrievalIntervalLabel,
-  type RetrievalQueueEntry,
-  type RetrievalQueueView,
-  type RetrievalTestView,
+import type {
+  RetrievalQueueEntry,
+  RetrievalQueueView,
+  RetrievalTestView,
+  StartRetrievalReviewCommand,
 } from './retrieval.schema'
 
 /**
@@ -145,10 +148,9 @@ async function findVerifiedReviewExercise(
  * through the ordinary practice flow; the review is not a separate
  * submission surface (ADR-0010).
  */
-export async function startRetrievalReview(input: {
-  learnerId: string
-  conceptId: string
-}): Promise<RetrievalTestView> {
+export async function startRetrievalReview(
+  input: StartRetrievalReviewCommand,
+): Promise<RetrievalTestView> {
   const concept = await db.query.concepts.findFirst({
     where: eq(concepts.id, input.conceptId),
   })
