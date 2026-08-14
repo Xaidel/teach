@@ -179,7 +179,13 @@ export function ExplanationAssessmentCard({
   )
 }
 
-/** Renders one assessment's score, verdict, and raw findings. */
+/**
+ * Renders one assessment's score, verdict, and raw findings, plus — on a
+ * failed attempt with at least one resolved concept — a "Concepts to
+ * review" section linking back to curriculum content (issue #132,
+ * ADR-0015 addendum): optional, non-blocking remediation, never a gate;
+ * links open in a new tab so an in-progress retry draft isn't lost.
+ */
 function AssessmentResult({
   result,
 }: {
@@ -265,6 +271,32 @@ function AssessmentResult({
           />
         </div>
       )}
+
+      {!result.passed && result.remediationConcepts.length > 0 ? (
+        <div className="grid gap-1.5">
+          <h4 className="text-sm font-semibold text-foreground">
+            Concepts to review
+          </h4>
+          <ul className="flex flex-wrap gap-2">
+            {result.remediationConcepts.map((conceptSlug) => (
+              <li key={conceptSlug}>
+                {/* Plain anchor, not the router's `Link`: this always opens
+                    a fresh tab (no client-side navigation to hand off), and
+                    it keeps this card renderable in unit tests without a
+                    RouterProvider. */}
+                <a
+                  className="inline-flex items-center rounded-full border border-border bg-muted px-3 py-1.5 font-mono text-sm text-foreground hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  href={`/curriculum/${encodeURIComponent(conceptSlug)}`}
+                  rel="noopener noreferrer"
+                  target="_blank"
+                >
+                  {conceptSlug}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </div>
   )
 }
