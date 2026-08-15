@@ -1,5 +1,7 @@
 import { useState } from 'react'
 
+import { useToast } from '#/shared/components/ui/toast'
+
 import { requestHintFn, submitExerciseFn } from './exercise.functions'
 import type {
   Exercise,
@@ -36,6 +38,7 @@ export function useExerciseAttempt(exercise: Exercise): ExerciseAttempt {
   const [isPending, setIsPending] = useState(false)
   const [isHintPending, setIsHintPending] = useState(false)
   const hintsDisabled = exercise.guidance === 'independent'
+  const { showToast } = useToast()
 
   async function submit(): Promise<void> {
     setError(undefined)
@@ -43,8 +46,18 @@ export function useExerciseAttempt(exercise: Exercise): ExerciseAttempt {
     setIsHintPending(false)
     setIsPending(true)
     try {
-      setOutcome(
-        await submitExerciseFn({ data: { exerciseId: exercise.id, code } }),
+      const result = await submitExerciseFn({
+        data: { exerciseId: exercise.id, code },
+      })
+      setOutcome(result)
+      const failedCount = result.result.tests.filter(
+        (test) => test.status === 'failed' || test.status === 'errored',
+      ).length
+      showToast(
+        result.result.passed ? 'success' : 'error',
+        result.result.passed
+          ? 'Correct — all tests passed.'
+          : `Incorrect — ${String(failedCount)} of ${String(result.result.tests.length)} test${result.result.tests.length === 1 ? '' : 's'} failed.`,
       )
     } catch {
       setError('The submission could not be evaluated. Try again.')
