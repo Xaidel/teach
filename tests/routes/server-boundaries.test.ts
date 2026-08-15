@@ -19,6 +19,15 @@ async function collectSourceFiles(directory: string): Promise<string[]> {
   return paths.flat().filter((path) => ['.ts', '.tsx'].includes(extname(path)))
 }
 
+function isENOENT(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 'ENOENT'
+  )
+}
+
 async function collectFeatureSourceFiles(feature: string): Promise<string[]> {
   const paths = await Promise.all(
     ['components', 'pages'].map(async (subdirectory) => {
@@ -28,8 +37,9 @@ async function collectFeatureSourceFiles(feature: string): Promise<string[]> {
       )
       try {
         await stat(absoluteDirectory)
-      } catch {
-        return []
+      } catch (error) {
+        if (isENOENT(error)) return []
+        throw error
       }
       return collectSourceFiles(`src/features/${feature}/${subdirectory}/`)
     }),
