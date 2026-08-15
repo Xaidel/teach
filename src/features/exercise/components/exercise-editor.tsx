@@ -1,16 +1,10 @@
-import { useState } from 'react'
-
 import { Alert } from '#/shared/components/ui/alert'
 import { Button } from '#/shared/components/ui/button'
 import { Label } from '#/shared/components/ui/label'
-import { Textarea } from '#/shared/components/ui/textarea'
 
-import { requestHintFn, submitExerciseFn } from '../exercise.functions'
-import type {
-  Exercise,
-  HintRequestAction,
-  SubmitExerciseOutput,
-} from '../exercise.schema'
+import type { Exercise, HintRequestAction } from '../exercise.schema'
+import { useExerciseAttempt } from '../use-exercise-attempt'
+import { CodeField } from './code-field'
 import { ResultPanel } from './result-panel'
 
 /** Renders the code editor and submit flow for one exercise. */
@@ -19,83 +13,42 @@ export function ExerciseEditor({
 }: {
   exercise: Exercise
 }): React.JSX.Element {
-  const [code, setCode] = useState(exercise.starterCode)
-  const [outcome, setOutcome] = useState<SubmitExerciseOutput>()
-  const [error, setError] = useState<string>()
-  const [isPending, setIsPending] = useState(false)
-  const [isHintPending, setIsHintPending] = useState(false)
+  const attempt = useExerciseAttempt(exercise)
   const codeInputId = `exercise-code-${exercise.slug}`
   const codeErrorId = `exercise-code-error-${exercise.slug}`
-  // An independent exercise (issue #14's curriculum step) is solved without
-  // Socratic scaffolding: the hint affordance is not rendered, and the
-  // server rejects hint requests for it regardless of the UI.
-  const hintsDisabled = exercise.guidance === 'independent'
 
   async function handleSubmit(
     event: React.SyntheticEvent<HTMLFormElement>,
   ): Promise<void> {
     event.preventDefault()
-    setError(undefined)
-    setOutcome(undefined)
-    setIsHintPending(false)
-    setIsPending(true)
-    try {
-      setOutcome(
-        await submitExerciseFn({ data: { exerciseId: exercise.id, code } }),
-      )
-    } catch {
-      setError('The submission could not be evaluated. Try again.')
-    } finally {
-      setIsPending(false)
-    }
-  }
-
-  async function handleHintRequest(action: HintRequestAction): Promise<void> {
-    if (!outcome) return
-
-    setError(undefined)
-    setIsHintPending(true)
-    try {
-      const response = await requestHintFn({
-        data: { attemptId: outcome.attemptId, action },
-      })
-      setOutcome((current) =>
-        current ? { ...current, hint: response.hint } : current,
-      )
-    } catch {
-      setError('The requested hint could not be generated. Try again.')
-    } finally {
-      setIsHintPending(false)
-    }
+    await attempt.submit()
   }
 
   return (
     <form
-      aria-busy={isPending || isHintPending}
+      aria-busy={attempt.isPending || attempt.isHintPending}
       className="grid gap-5"
       data-slot="exercise-editor"
       onSubmit={handleSubmit}
     >
       <div className="grid gap-2">
         <Label htmlFor={codeInputId}>Your solution</Label>
-        <Textarea
-          aria-describedby={error ? codeErrorId : undefined}
-          className="min-h-64 font-mono text-xs leading-relaxed"
-          disabled={isPending || isHintPending}
+        <CodeField
+          describedBy={attempt.error ? codeErrorId : undefined}
+          disabled={attempt.isPending || attempt.isHintPending}
           id={codeInputId}
-          name="code"
-          onChange={(event) => setCode(event.target.value)}
-          spellCheck={false}
-          value={code}
+          language={exercise.language}
+          onChange={attempt.setCode}
+          value={attempt.code}
         />
       </div>
-      {error ? <Alert id={codeErrorId}>{error}</Alert> : null}
-      {isPending ? (
+      {attempt.error ? <Alert id={codeErrorId}>{attempt.error}</Alert> : null}
+      {attempt.isPending ? (
         <p className="sr-only" role="status">
           Evaluating submission in the sandbox.
         </p>
       ) : null}
-      {isHintPending ? (
+      {attempt.isHintPending ? (
         <p className="sr-only" role="status">
           Generating the requested hint.
         </p>
@@ -105,25 +58,28 @@ export function ExerciseEditor({
           Runs {exercise.language}&apos;s real test toolchain in an isolated,
           network-disabled container with a 10-second limit.
         </p>
-        <Button disabled={isPending || isHintPending} type="submit">
-          {isPending ? 'Evaluating...' : 'Submit for evaluation'}
+        <Button
+          disabled={attempt.isPending || attempt.isHintPending}
+          type="submit"
+        >
+          {attempt.isPending ? 'Evaluating...' : 'Submit for evaluation'}
         </Button>
       </div>
-      {outcome ? (
+      {attempt.outcome ? (
         <ResultPanel
-          hint={outcome.hint}
-          isHintPending={isHintPending}
-          {...(hintsDisabled
+          hint={attempt.outcome.hint}
+          isHintPending={attempt.isHintPending}
+          {...(attempt.hintsDisabled
             ? {}
             : {
                 onRequestHint: (action: HintRequestAction) =>
-                  void handleHintRequest(action),
+                  void attempt.requestHint(action),
               })}
-          result={outcome.result}
-          stage2Review={outcome.stage2Review}
+          result={attempt.outcome.result}
+          stage2Review={attempt.outcome.stage2Review}
         />
       ) : null}
-      {hintsDisabled ? (
+      {attempt.hintsDisabled ? (
         <p className="text-xs text-muted-foreground">
           Independent exercise — hints are disabled for this step.
         </p>

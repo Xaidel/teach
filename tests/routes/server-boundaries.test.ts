@@ -84,7 +84,7 @@ describe('client and server source boundaries', () => {
 
   it('keeps route declarations thin and feature-owned', async () => {
     const exerciseRoute = await readFile(
-      new URL('src/routes/index.tsx', workspaceRoot),
+      new URL('src/routes/practice.tsx', workspaceRoot),
       'utf8',
     )
 
@@ -109,5 +109,14 @@ describe('client and server source boundaries', () => {
     expect(retrievalRoute).toContain('RetrievalPage')
     expect(retrievalRoute).toContain('getRetrievalQueueFn')
     expect(retrievalRoute).not.toContain('<main')
+
+    const dashboardRoute = await readFile(
+      new URL('src/routes/index.tsx', workspaceRoot),
+      'utf8',
+    )
+
+    expect(dashboardRoute).toContain('DashboardPage')
+    expect(dashboardRoute).toContain('getCurriculumFn')
+    expect(dashboardRoute).not.toContain('<main')
   })
 })

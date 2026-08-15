@@ -331,6 +331,34 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
     expect(attempt?.diagnostics.checks).toHaveLength(3)
   })
 
+  it('persists the declared sample tests through to the client-facing exercise', async () => {
+    const sampleTests = [{ input: 'first(&vec![1, 2])', expected: '1' }]
+    generateExerciseMock.mockResolvedValue({ ...GENERATED, sampleTests })
+    runSandboxSubmissionMock
+      .mockResolvedValueOnce(REFERENCE_PASSES)
+      .mockResolvedValueOnce(BROKEN_FAILS_ON_CONCEPT)
+
+    const outcome = await generateExerciseForConcept({
+      language: 'rust',
+      conceptSlug: FIXTURE_CONCEPT_SLUG,
+      learnerId,
+    })
+
+    expect(outcome.kind).toBe('generated')
+    if (outcome.kind !== 'generated') {
+      return
+    }
+    // Reaches the client through the same shared mapper both `/practice`
+    // and the Class A step page use.
+    expect(outcome.exercise.sampleTests).toEqual(sampleTests)
+
+    const [row] = await db
+      .select()
+      .from(exercises)
+      .where(eq(exercises.id, outcome.exercise.id))
+    expect(row?.sampleTests).toEqual(sampleTests)
+  })
+
   it('persists an independent exercise with guidance=independent (issue #14)', async () => {
     generateExerciseMock.mockResolvedValue(GENERATED)
     runSandboxSubmissionMock

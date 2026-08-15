@@ -11,6 +11,7 @@ Rules:
 - Use ONLY the language's standard library. No external crates, packages, or modules — the sandbox has no dependencies beyond the standard library. Do not suggest adding any.
 - The submitted code is the crate's single source file (Rust: src/lib.rs). Define the exercise's public functions there. The tests are an integration test file that references them through the crate name (Rust: "exercise").
 - testSource is ONE test file. Give it exactly one test function per name in evaluation.tests, with those exact names. Every test must be deterministic, self-contained, and never rely on randomness, timing, or environment.
+- sampleTests: 1-3 cases ALREADY covered by testSource, described as short plain input/expected text for the learner to see before they submit (e.g. input "add(2, 3)", expected "5"). Describe real cases from testSource — never invent a case testSource doesn't actually assert.
 - referenceSolution: the correct, idiomatic implementation. It must pass every test in testSource.
 - starterCode: a plausible learner attempt that compiles but fails at least one of the named tests.
 - evaluation.tests: short snake_case names, one per test function (e.g. "borrow_returns_reference").
@@ -108,6 +109,7 @@ ${simplifiedBlock}${adversarialBlock}${sprintScopedBlock}${diagnosticsBlock}Gene
   "starterCode": "<compiling but wrong implementation${input.adversarial ? ', with the known defect' : ''}>",
   "referenceSolution": "<correct implementation${input.adversarial ? ', fixing the defect' : ''}>",
   "testSource": "<one test file, one #[test] per evaluation.tests name>",
+  "sampleTests": [{"input": "<short input from a real testSource case>", "expected": "<its expected output>"}],
   "targetConcepts": ["<dotted slugs>"],
   "prerequisites": ["<dotted slugs>"],
   "difficulty": <1-5>,

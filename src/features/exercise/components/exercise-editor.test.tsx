@@ -24,6 +24,7 @@ const EXERCISE: Exercise = {
   prompt: 'Implement is_even.',
   starterCode: 'pub fn is_even(n: u32) -> bool {\n    false\n}\n',
   guidance: 'guided',
+  sampleTests: null,
 }
 
 describe('ExerciseEditor', () => {

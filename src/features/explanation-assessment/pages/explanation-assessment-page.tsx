@@ -41,7 +41,10 @@ export function ExplanationAssessmentPage({
           A passed assessment is one of two required signals for promoting a
           concept to Demonstrated — the other is a passed Transfer Test.
         </span>
-        <Link className="font-semibold text-foreground underline" to="/">
+        <Link
+          className="font-semibold text-foreground underline"
+          to="/practice"
+        >
           Go to the practice list
         </Link>
       </footer>

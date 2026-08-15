@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import type { Hint } from '#/lib/ai/schemas'
+import { SampleTestCaseSchema } from '#/lib/ai/schemas'
 import { SANDBOX_LANGUAGES } from '#/lib/sandbox/types'
 import { SandboxResultSchema, type SandboxResult } from '#/lib/sandbox/types'
 
@@ -49,6 +50,10 @@ export const ExerciseSchema = z.object({
    * Socratic hint ladder; `independent` exercises are solved without hints.
    */
   guidance: ExerciseGuidanceSchema,
+  /** 1-3 illustrative input/expected cases, shown before submission
+   * (NodeDetail.dc.html's Tests panel). Null for exercises generated
+   * before this existed, or generations that omitted it. */
+  sampleTests: z.array(SampleTestCaseSchema).nullable(),
 })
 
 export type Exercise = z.infer<typeof ExerciseSchema>

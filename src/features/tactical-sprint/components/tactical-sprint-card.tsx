@@ -136,7 +136,7 @@ export function TacticalSprintCard({
                 <Link
                   className="inline-flex w-fit rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   search={{ exerciseId: result.exercise.exercise.id }}
-                  to="/"
+                  to="/practice"
                 >
                   Go solve it
                 </Link>

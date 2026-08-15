@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 
@@ -57,34 +57,40 @@ test.afterAll(async () => {
   await cleanupFixture()
 })
 
-/** The step card on the sequence page, scoped by its slug heading. */
-function stepCard(page: Page, slug: string): Locator {
-  return page.locator('[data-slot="card"]', {
-    has: page.getByRole('heading', { name: slug, exact: true }),
-  })
-}
-
-test('renders the curriculum sequence in prerequisite order with lock states', async ({
+test('renders the concept graph with lock states, and clicking an unlocked node opens that concept’s page', async ({
   page,
 }) => {
   await page.goto('/curriculum')
 
   await expect(
-    page.getByRole('heading', { name: 'The rust curriculum.' }),
+    page.getByRole('heading', { name: 'Concept Graph — Rust' }),
   ).toBeVisible()
 
-  // The chain's root has no prerequisites: it is available and links into
-  // the step page; the child is locked behind its un-Practiced prerequisite.
-  const rootCard = stepCard(page, 'e2e.curriculum.root')
-  await expect(rootCard).toContainText('Available')
-  await expect(rootCard).toContainText('No prerequisites')
-  await expect(rootCard.getByRole('link', { name: 'Start' })).toBeVisible()
+  // The chain's root has no prerequisites: it is available and renders as a
+  // real link into its own step page; the child is locked behind its
+  // un-Practiced prerequisite and renders as a button that explains the
+  // gate instead of navigating (ConceptFlowNode).
+  const rootLink = page.getByRole('link', {
+    name: 'e2e.curriculum.root, available, difficulty 1. Open this concept.',
+  })
+  await expect(rootLink).toBeVisible()
 
-  const basicCard = stepCard(page, 'e2e.curriculum.basic')
-  await expect(basicCard).toContainText('Locked')
-  await expect(basicCard).toContainText(
-    'Requires Practiced mastery of: e2e.curriculum.root.',
+  const basicButton = page.getByRole('button', {
+    name: 'e2e.curriculum.basic, locked. Complete e2e.curriculum.root first.',
+  })
+  await expect(basicButton).toBeVisible()
+
+  await basicButton.click()
+  await expect(page.getByRole('status')).toContainText(
+    'Locked — complete e2e.curriculum.root first.',
   )
+  await expect(page).toHaveURL('/curriculum')
+
+  await rootLink.click()
+  await expect(page).toHaveURL('/curriculum/e2e.curriculum.root')
+  await expect(
+    page.getByRole('heading', { name: 'Step 1 — e2e.curriculum.root' }),
+  ).toBeVisible()
 })
 
 test('shows the locked panel instead of step artifacts for a gated step', async ({
@@ -96,28 +102,32 @@ test('shows the locked panel instead of step artifacts for a gated step', async 
   await expect(page.getByText(/cannot be started yet/)).toBeVisible()
   await expect(page.getByText('e2e.curriculum.root')).toBeVisible()
 
-  // No lesson or exercise slots render behind the gate.
-  await expect(page.getByRole('heading', { name: 'Lesson' })).toHaveCount(0)
+  // No concept/exercise panels render behind the gate.
   await expect(
     page.getByRole('heading', { name: 'Guided exercise' }),
   ).toHaveCount(0)
 })
 
-test('renders lesson, guided, and independent slots for an unlocked step', async ({
+test('renders the concept panel and the guided exercise slot for an unlocked step (NodeDetail.dc.html layout)', async ({
   page,
 }) => {
   await page.goto('/curriculum/e2e.curriculum.root')
 
   await expect(
+    page.getByRole('link', { name: '← Concept Graph' }),
+  ).toBeVisible()
+  await expect(
     page.getByRole('heading', { name: 'Step 1 — e2e.curriculum.root' }),
   ).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Lesson' })).toBeVisible()
+  // The guided exercise slot is the one shown first — the independent slot
+  // only appears after the guided attempt passes (ConceptExercisePanel's
+  // onPassed), so it isn't on the page yet.
   await expect(
     page.getByRole('heading', { name: 'Guided exercise' }),
   ).toBeVisible()
   await expect(
     page.getByRole('heading', { name: 'Independent exercise' }),
-  ).toBeVisible()
+  ).toHaveCount(0)
 })
 
 test('lesson generation surfaces a graceful failure when the AI is unreachable', async ({
@@ -125,13 +135,16 @@ test('lesson generation surfaces a graceful failure when the AI is unreachable',
 }) => {
   await page.goto('/curriculum/e2e.curriculum.root')
 
-  await page.getByRole('button', { name: 'Generate lesson' }).click()
-
-  // E2E_FORCE_AI_FAILURE (issue #93) force-fails every AI call at the choke
-  // point — the lesson card must show the mapped error, not crash.
+  // The lesson now generates automatically on arrival (no button to click)
+  // — E2E_FORCE_AI_FAILURE (issue #93) force-fails every AI call at the
+  // choke point, so the concept panel must show the mapped error, not
+  // crash, and offer a way to retry.
   await expect(
     page.getByText('The lesson could not be generated. Try again.'),
   ).toBeVisible({ timeout: 60_000 })
+  await expect(
+    page.getByRole('button', { name: 'Try again' }).first(),
+  ).toBeVisible()
 })
 
 test('step exercise generation surfaces a graceful failure when the AI is unreachable', async ({
@@ -139,9 +152,11 @@ test('step exercise generation surfaces a graceful failure when the AI is unreac
 }) => {
   await page.goto('/curriculum/e2e.curriculum.root')
 
-  await page.getByRole('button', { name: 'Generate guided exercise' }).click()
-
+  // The guided exercise also generates automatically on arrival now.
   await expect(
     page.getByText('The exercise could not be generated. Try again.'),
   ).toBeVisible({ timeout: 60_000 })
+  await expect(
+    page.getByRole('button', { name: 'Try again' }).last(),
+  ).toBeVisible()
 })

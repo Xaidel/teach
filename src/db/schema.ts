@@ -28,7 +28,11 @@ import {
 import { HINT_LADDER_MAX_LEVEL } from '../lib/hint-levels'
 import { MASTERY_STATES } from '../lib/mastery-states'
 import { RETRIEVAL_STAGE_MAX } from '../lib/retrieval-schedule'
-import type { EvaluationRubric, ExerciseDefect } from '../lib/ai/schemas'
+import type {
+  EvaluationRubric,
+  ExerciseDefect,
+  SampleTestCase,
+} from '../lib/ai/schemas'
 import type { AnalyzeMisconceptionsOutput } from '../lib/ai/schemas'
 import type { SandboxResult, SandboxTest } from '../lib/sandbox/types'
 
@@ -168,6 +172,10 @@ export const exercises = pgTable(
     referenceSolution: text('reference_solution'),
     evaluationRubric: jsonb('evaluation_rubric').$type<EvaluationRubric>(),
     defect: jsonb('defect').$type<ExerciseDefect>(),
+    // Illustrative input/expected cases shown before a learner submits
+    // (NodeDetail.dc.html's Tests panel) — nullable, so pre-existing rows
+    // and the two hardcoded v1 seeds just have none.
+    sampleTests: jsonb('sample_tests').$type<SampleTestCase[]>(),
     mode: exerciseMode('mode').notNull().default('implement'),
     guidance: exerciseGuidance('guidance').notNull().default('guided'),
     // Set exclusively by Tactical Sprint (Class B, ticket #13, issue #14

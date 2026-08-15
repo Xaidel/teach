@@ -124,8 +124,8 @@ fn returns_an_owned_copy() {
     page,
   }) => {
     // Simulates the hand-off `tactical-sprint-card.tsx` performs after a
-    // real sprint run: `to="/" search={{ exerciseId }}`.
-    await page.goto(`/?exerciseId=${fixtureExerciseId}`)
+    // real sprint run: `to="/practice" search={{ exerciseId }}`.
+    await page.goto(`/practice?exerciseId=${fixtureExerciseId}`)
 
     const article = page.getByRole('article', {
       name: 'Sprint: return ownership of the string',
@@ -190,7 +190,7 @@ test('paste a snippet through the Tactical Sprint UI and surface a graceful fail
 test('links from the practice page to the Tactical Sprint route', async ({
   page,
 }) => {
-  await page.goto('/')
+  await page.goto('/practice')
 
   await page
     .getByRole('link', {

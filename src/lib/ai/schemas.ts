@@ -311,6 +311,17 @@ export type GenerateExerciseInput = z.infer<typeof GenerateExerciseInputSchema>
  * adversarial. Parsed strictly: model output is
  * untrusted input.
  */
+/** One illustrative case from the exercise's own `testSource`, described in
+ * plain input/expected text for display before a learner submits — never a
+ * new case, never mechanically verified against `testSource` (see
+ * `GeneratedExerciseSchema`'s doc comment). */
+export const SampleTestCaseSchema = z.object({
+  input: z.string().trim().min(1),
+  expected: z.string().trim().min(1),
+})
+
+export type SampleTestCase = z.infer<typeof SampleTestCaseSchema>
+
 export const GeneratedExerciseSchema = z
   .object({
     title: z.string().trim().min(1),
@@ -318,6 +329,18 @@ export const GeneratedExerciseSchema = z
     starterCode: z.string().trim().min(1),
     referenceSolution: z.string().trim().min(1),
     testSource: z.string().trim().min(1),
+    /**
+     * 1-3 cases already exercised by `testSource`, described in plain
+     * input/expected text for the learner to see before submitting.
+     * Optional — an older prompt version or a generation that omits it
+     * still validates, so no existing `GeneratedExercise` fixture needs a
+     * mechanical rewrite. Self-declared by the model like
+     * `evaluation.rubric`'s criteria are: never mechanically cross-checked
+     * against `testSource`'s actual assertions (that would need a
+     * per-language assertion parser, out of scope) — the prompt instructs
+     * the model to describe real cases, not invent new behavior.
+     */
+    sampleTests: z.array(SampleTestCaseSchema).max(3).optional(),
     targetConcepts: z
       .array(
         z
