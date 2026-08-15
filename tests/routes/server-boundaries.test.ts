@@ -27,6 +27,8 @@ describe('client and server source boundaries', () => {
       ...(await collectSourceFiles('src/features/exercise/pages/')),
       ...(await collectSourceFiles('src/features/concepts/components/')),
       ...(await collectSourceFiles('src/features/concepts/pages/')),
+      ...(await collectSourceFiles('src/features/retrieval/components/')),
+      ...(await collectSourceFiles('src/features/retrieval/pages/')),
     ].filter((path) => !path.endsWith('.test.tsx'))
 
     const sources = await Promise.all(
