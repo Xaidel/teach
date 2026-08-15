@@ -45,3 +45,5 @@ npm-debug.log*
 .LSOverride
 Thumbs.db
 *~
+
+.graphify-out
