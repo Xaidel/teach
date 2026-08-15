@@ -50,6 +50,81 @@ describe('ConceptPanel', () => {
     })
   })
 
+  it('renders fenced code from the explanation as a code block, not inline text', async () => {
+    generateLessonMock.mockResolvedValue({
+      concept: 'rust.introduction',
+      explanation:
+        'A borrow lets you read a value without taking ownership.\n\n```rust\nlet borrowed = &value;\n```\n\nThe original binding stays valid.',
+    })
+
+    render(<ConceptPanel {...PANEL_PROPS} />)
+
+    expect(
+      await screen.findByText(
+        'A borrow lets you read a value without taking ownership.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('The original binding stays valid.'),
+    ).toBeInTheDocument()
+
+    const code = screen.getByText('let borrowed = &value;')
+    expect(code.tagName).toBe('CODE')
+    expect(code.closest('pre')).toBeInTheDocument()
+  })
+
+  it('renders inline single-backtick spans as code, not literal backticks', async () => {
+    generateLessonMock.mockResolvedValue({
+      concept: 'rust.introduction',
+      explanation:
+        'It defines a `main` function, the entry point. Call `println!` to print.',
+    })
+
+    render(<ConceptPanel {...PANEL_PROPS} />)
+
+    const code = await screen.findByText('main')
+    expect(code.tagName).toBe('CODE')
+    expect(screen.getByText('println!').tagName).toBe('CODE')
+    expect(screen.queryByText(/`main`/)).not.toBeInTheDocument()
+  })
+
+  it('renders headings and list items with their semantic hierarchy', async () => {
+    generateLessonMock.mockResolvedValue({
+      concept: 'rust.introduction',
+      explanation:
+        '## Ownership\n\nRust tracks who owns each value.\n\n### Rules\n\n- Each value has one owner\n- The owner can move or borrow it\n\nThat keeps memory safe without a garbage collector.',
+    })
+
+    render(<ConceptPanel {...PANEL_PROPS} />)
+
+    expect(
+      await screen.findByRole('heading', { name: 'Ownership', level: 2 }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: 'Rules', level: 3 }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Each value has one owner')).toBeInTheDocument()
+    expect(
+      screen.getByText('The owner can move or borrow it'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('That keeps memory safe without a garbage collector.'),
+    ).toBeInTheDocument()
+  })
+
+  it('renders **bold** spans as emphasized text, not literal asterisks', async () => {
+    generateLessonMock.mockResolvedValue({
+      concept: 'rust.introduction',
+      explanation: 'A **borrow** lets you read a value without taking it.',
+    })
+
+    render(<ConceptPanel {...PANEL_PROPS} />)
+
+    const bold = await screen.findByText('borrow')
+    expect(bold.tagName).toBe('STRONG')
+    expect(screen.queryByText(/\*\*borrow\*\*/)).not.toBeInTheDocument()
+  })
+
   it('renders the concept identity and status badges', () => {
     generateLessonMock.mockResolvedValue({
       concept: 'rust.introduction',
@@ -114,6 +189,68 @@ describe('ConceptPanel', () => {
 
     await screen.findByText('boom')
     expect(onReady).toHaveBeenCalledOnce()
+  })
+
+  it('hides the current explanation and shows loading text while regenerating from the popover', async () => {
+    const user = userEvent.setup()
+    generateLessonMock.mockResolvedValueOnce({
+      concept: 'rust.introduction',
+      explanation: 'First explanation.',
+    })
+    let resolveSecond: (lesson: {
+      concept: string
+      explanation: string
+    }) => void = () => {
+      throw new Error('resolveSecond called before the promise was set up')
+    }
+    generateLessonMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveSecond = resolve
+      }),
+    )
+
+    render(<ConceptPanel {...PANEL_PROPS} />)
+    await screen.findByText('First explanation.')
+
+    await user.click(screen.getByLabelText('Adjust explanation level'))
+    await user.click(screen.getByLabelText('Explain like...'))
+    await user.type(screen.getByLabelText('Explain like...'), 'a pirate')
+    await user.click(screen.getByRole('button', { name: 'Go' }))
+
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Generating the lesson…',
+    )
+    expect(screen.queryByText('First explanation.')).not.toBeInTheDocument()
+
+    resolveSecond({
+      concept: 'rust.introduction',
+      explanation: 'Second explanation.',
+    })
+    expect(await screen.findByText('Second explanation.')).toBeInTheDocument()
+  })
+
+  it('restores the previous explanation and reports it as not possible when regeneration fails', async () => {
+    const user = userEvent.setup()
+    generateLessonMock.mockResolvedValueOnce({
+      concept: 'rust.introduction',
+      explanation: 'First explanation.',
+    })
+    generateLessonMock.mockRejectedValueOnce(new Error('boom'))
+
+    render(<ConceptPanel {...PANEL_PROPS} />)
+    await screen.findByText('First explanation.')
+
+    await user.click(screen.getByLabelText('Adjust explanation level'))
+    await user.click(screen.getByLabelText('Explain like...'))
+    await user.type(screen.getByLabelText('Explain like...'), 'a pirate')
+    await user.click(screen.getByRole('button', { name: 'Go' }))
+
+    expect(
+      await screen.findByText(
+        "That's not possible right now — showing the previous explanation.",
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByText('First explanation.')).toBeInTheDocument()
   })
 
   it('does not call onReady again for a regeneration after the first has settled', async () => {

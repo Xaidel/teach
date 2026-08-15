@@ -111,3 +111,21 @@
     background: color-mix(in oklch, var(--primary) 35%, transparent);
   }
 }
+
+@layer utilities {
+  /*
+   * Hides a scrollable element's native scrollbar chrome while leaving it
+   * fully scrollable (wheel, trackpad, keyboard, touch all still work) —
+   * for containers like the concept panel where a drag-to-resize handle
+   * already signals there's more content, so scrollbar chrome on top of
+   * that would be redundant.
+   */
+  .scrollbar-hidden {
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* legacy Edge */
+  }
+
+  .scrollbar-hidden::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, current Edge */
+  }
+}

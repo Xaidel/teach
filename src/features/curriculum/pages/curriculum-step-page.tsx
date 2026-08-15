@@ -3,6 +3,7 @@ import { Book, Moon, Sun } from 'lucide-react'
 import { useState } from 'react'
 
 import type { ExplanationPreferences } from '#/features/learners/learners.schema'
+import { cn } from '#/lib/cn'
 import { Card, CardContent, CardHeader } from '#/shared/components/ui/card'
 import { useTheme } from '#/shared/hooks/use-theme'
 
@@ -11,6 +12,11 @@ import { ConceptExercisePanel } from '../components/concept-exercise-panel'
 import { ConceptPanel } from '../components/concept-panel'
 import { StepLoadingScreen } from '../components/step-loading-screen'
 import type { CurriculumStepDetail } from '../curriculum.schema'
+import {
+  MAX_RESIZABLE_COLUMN_WIDTH,
+  MIN_RESIZABLE_COLUMN_WIDTH,
+  useResizableColumn,
+} from '../use-resizable-column'
 
 const curriculumStepRoute = getRouteApi('/curriculum/$conceptSlug')
 
@@ -85,6 +91,11 @@ export function CurriculumStepPage(): React.JSX.Element {
   const [isExerciseReady, setIsExerciseReady] = useState(
     data.guidedExercise !== null,
   )
+  const {
+    width: panelWidth,
+    isDragging: isResizingPanel,
+    separatorProps,
+  } = useResizableColumn(320, 'teach-concept-panel-width')
 
   if (data.status === 'locked') {
     return <LockedPanel step={data} />
@@ -117,34 +128,57 @@ export function CurriculumStepPage(): React.JSX.Element {
         </button>
       </nav>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[320px_1fr] gap-4 p-4">
-        <ConceptPanel
-          conceptSlug={data.concept.slug}
-          difficulty={data.concept.difficulty}
-          explanationPreferences={data.explanationPreferences}
-          language={data.language}
-          mastery={data.mastery}
-          onReady={() => setIsLessonReady(true)}
-          position={data.position}
-          status={data.status}
+      <div className="flex min-h-0 flex-1 gap-3 p-4">
+        <div className="min-h-0 shrink-0" style={{ width: panelWidth }}>
+          <ConceptPanel
+            conceptSlug={data.concept.slug}
+            difficulty={data.concept.difficulty}
+            explanationPreferences={data.explanationPreferences}
+            language={data.language}
+            mastery={data.mastery}
+            onReady={() => setIsLessonReady(true)}
+            position={data.position}
+            status={data.status}
+          />
+        </div>
+        {/* Drag sideways (or focus + arrow keys) to resize the concept
+         * panel against the exercise panel — `use-resizable-column.ts`.
+         * Transparent at rest so no permanent divider bar sits between the
+         * panels; the hit area is still there (cursor + a11y semantics),
+         * it just only paints on hover, focus, or while actively dragging. */}
+        <div
+          aria-label="Resize the concept panel"
+          aria-orientation="vertical"
+          aria-valuemax={MAX_RESIZABLE_COLUMN_WIDTH}
+          aria-valuemin={MIN_RESIZABLE_COLUMN_WIDTH}
+          aria-valuenow={panelWidth}
+          className={cn(
+            'w-2 shrink-0 touch-none cursor-col-resize self-stretch rounded-full bg-transparent transition-colors hover:bg-border focus-visible:bg-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            isResizingPanel && 'bg-border',
+          )}
+          role="separator"
+          tabIndex={0}
+          {...separatorProps}
         />
-        <ConceptExercisePanel
-          conceptSlug={data.concept.slug}
-          exercise={
-            activeGuidance === 'guided'
-              ? data.guidedExercise
-              : data.independentExercise
-          }
-          guidance={activeGuidance}
-          key={activeGuidance}
-          language={data.language}
-          onPassed={() => {
-            setActiveGuidance((current) =>
-              current === 'guided' ? 'independent' : current,
-            )
-          }}
-          onReady={() => setIsExerciseReady(true)}
-        />
+        <div className="min-h-0 min-w-0 flex-1">
+          <ConceptExercisePanel
+            conceptSlug={data.concept.slug}
+            exercise={
+              activeGuidance === 'guided'
+                ? data.guidedExercise
+                : data.independentExercise
+            }
+            guidance={activeGuidance}
+            key={activeGuidance}
+            language={data.language}
+            onPassed={() => {
+              setActiveGuidance((current) =>
+                current === 'guided' ? 'independent' : current,
+              )
+            }}
+            onReady={() => setIsExerciseReady(true)}
+          />
+        </div>
       </div>
     </div>
   )
