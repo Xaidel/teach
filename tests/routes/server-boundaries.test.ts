@@ -28,6 +28,23 @@ function isENOENT(error: unknown): boolean {
   )
 }
 
+describe('isENOENT', () => {
+  it('accepts an error carrying code ENOENT', () => {
+    expect(isENOENT({ code: 'ENOENT' })).toBe(true)
+  })
+
+  it('rejects errors carrying other codes', () => {
+    expect(isENOENT({ code: 'EACCES' })).toBe(false)
+    expect(isENOENT({ code: 'ENOTDIR' })).toBe(false)
+  })
+
+  it('rejects non-error values', () => {
+    expect(isENOENT(null)).toBe(false)
+    expect(isENOENT('ENOENT')).toBe(false)
+    expect(isENOENT({})).toBe(false)
+  })
+})
+
 async function collectFeatureSourceFiles(feature: string): Promise<string[]> {
   const paths = await Promise.all(
     ['components', 'pages'].map(async (subdirectory) => {
