@@ -91,6 +91,7 @@ export function rowToExercise(row: ExerciseRow): Exercise {
     prompt: row.prompt,
     starterCode: row.starterCode,
     guidance: row.guidance,
+    sampleTests: row.sampleTests,
   }
 }
 

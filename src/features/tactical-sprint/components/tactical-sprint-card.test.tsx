@@ -49,6 +49,7 @@ const RESULT: TacticalSprintResult = {
       prompt: 'Fill in the body.',
       starterCode: 'pub fn f() -> u32 { 0 }',
       guidance: 'guided',
+      sampleTests: null,
     },
     conceptSlug: 'rust.lifetimes',
     targetConcepts: ['rust.lifetimes'],

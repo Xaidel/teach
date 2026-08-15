@@ -34,7 +34,10 @@ export function TacticalSprintPage(): React.JSX.Element {
           Generated exercises join the same Pre-Flight-verified practice list as
           any other exercise.
         </span>
-        <Link className="font-semibold text-foreground underline" to="/">
+        <Link
+          className="font-semibold text-foreground underline"
+          to="/practice"
+        >
           Go to the practice list
         </Link>
       </footer>

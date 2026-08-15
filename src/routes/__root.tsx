@@ -27,8 +27,21 @@ function RootDocument({
   children,
 }: Readonly<{ children: ReactNode }>): React.JSX.Element {
   return (
-    <html lang="en">
+    // The bootstrap script below sets `data-theme` on this element before
+    // React hydrates, outside React's own render output — expected to
+    // differ from the server-rendered markup, so hydration must not warn
+    // about it.
+    <html lang="en" suppressHydrationWarning>
       <head>
+        {/* Sets `data-theme` before first paint so the Dashboard's theme
+            toggle (`useTheme`, src/shared/hooks/use-theme.ts) never flashes
+            the wrong theme on load — the hook re-derives and owns the same
+            state once React mounts. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var s=localStorage.getItem('teach-theme');var t=(s==='light'||s==='dark')?s:(window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t);}catch(e){}})();`,
+          }}
+        />
         <HeadContent />
       </head>
       <body>

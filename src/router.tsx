@@ -25,7 +25,7 @@ export function getRouter(): ReturnType<typeof createRouter> {
           </h1>
           <Link
             className="mt-6 inline-flex rounded-full bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            to="/"
+            to="/practice"
           >
             Go to the exercise
           </Link>
@@ -60,7 +60,7 @@ function DefaultErrorComponent({
           </button>
           <Link
             className="inline-flex rounded-full bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            to="/"
+            to="/practice"
           >
             Go to the exercise
           </Link>

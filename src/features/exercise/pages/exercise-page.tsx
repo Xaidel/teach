@@ -14,7 +14,7 @@ import {
 import { ExplanationPreferencesPanel } from '../components/explanation-preferences-panel'
 import type { Exercise } from '../exercise.schema'
 
-const exerciseRoute = getRouteApi('/')
+const exerciseRoute = getRouteApi('/practice')
 
 /** Loader data for the practice home route (issue #8, issue #12). */
 export type ExercisePageData = {

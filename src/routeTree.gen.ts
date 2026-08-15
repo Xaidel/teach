@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ConceptsRouteImport } from './routes/concepts'
 import { Route as ExplanationAssessmentRouteImport } from './routes/explanation-assessment'
+import { Route as PracticeRouteImport } from './routes/practice'
 import { Route as RetrievalRouteImport } from './routes/retrieval'
 import { Route as TacticalSprintRouteImport } from './routes/tactical-sprint'
 import { Route as TransferTestRouteImport } from './routes/transfer-test'
@@ -32,6 +33,11 @@ const ConceptsRoute = ConceptsRouteImport.update({
 const ExplanationAssessmentRoute = ExplanationAssessmentRouteImport.update({
   id: '/explanation-assessment',
   path: '/explanation-assessment',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PracticeRoute = PracticeRouteImport.update({
+  id: '/practice',
+  path: '/practice',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RetrievalRoute = RetrievalRouteImport.update({
@@ -69,6 +75,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/concepts': typeof ConceptsRoute
   '/explanation-assessment': typeof ExplanationAssessmentRoute
+  '/practice': typeof PracticeRoute
   '/retrieval': typeof RetrievalRoute
   '/tactical-sprint': typeof TacticalSprintRoute
   '/transfer-test': typeof TransferTestRoute
@@ -80,6 +87,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/concepts': typeof ConceptsRoute
   '/explanation-assessment': typeof ExplanationAssessmentRoute
+  '/practice': typeof PracticeRoute
   '/retrieval': typeof RetrievalRoute
   '/tactical-sprint': typeof TacticalSprintRoute
   '/transfer-test': typeof TransferTestRoute
@@ -92,6 +100,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/concepts': typeof ConceptsRoute
   '/explanation-assessment': typeof ExplanationAssessmentRoute
+  '/practice': typeof PracticeRoute
   '/retrieval': typeof RetrievalRoute
   '/tactical-sprint': typeof TacticalSprintRoute
   '/transfer-test': typeof TransferTestRoute
@@ -105,6 +114,7 @@ export interface FileRouteTypes {
     | '/'
     | '/concepts'
     | '/explanation-assessment'
+    | '/practice'
     | '/retrieval'
     | '/tactical-sprint'
     | '/transfer-test'
@@ -116,6 +126,7 @@ export interface FileRouteTypes {
     | '/'
     | '/concepts'
     | '/explanation-assessment'
+    | '/practice'
     | '/retrieval'
     | '/tactical-sprint'
     | '/transfer-test'
@@ -127,6 +138,7 @@ export interface FileRouteTypes {
     | '/'
     | '/concepts'
     | '/explanation-assessment'
+    | '/practice'
     | '/retrieval'
     | '/tactical-sprint'
     | '/transfer-test'
@@ -139,6 +151,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ConceptsRoute: typeof ConceptsRoute
   ExplanationAssessmentRoute: typeof ExplanationAssessmentRoute
+  PracticeRoute: typeof PracticeRoute
   RetrievalRoute: typeof RetrievalRoute
   TacticalSprintRoute: typeof TacticalSprintRoute
   TransferTestRoute: typeof TransferTestRoute
@@ -168,6 +181,13 @@ declare module '@tanstack/react-router' {
       path: '/explanation-assessment'
       fullPath: '/explanation-assessment'
       preLoaderRoute: typeof ExplanationAssessmentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/practice': {
+      id: '/practice'
+      path: '/practice'
+      fullPath: '/practice'
+      preLoaderRoute: typeof PracticeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/retrieval': {
@@ -219,6 +239,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ConceptsRoute: ConceptsRoute,
   ExplanationAssessmentRoute: ExplanationAssessmentRoute,
+  PracticeRoute: PracticeRoute,
   RetrievalRoute: RetrievalRoute,
   TacticalSprintRoute: TacticalSprintRoute,
   TransferTestRoute: TransferTestRoute,

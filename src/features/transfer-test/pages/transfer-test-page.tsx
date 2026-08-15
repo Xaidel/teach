@@ -41,7 +41,10 @@ export function TransferTestPage({
           concept to Demonstrated — the other is a passed Explanation
           Assessment.
         </span>
-        <Link className="font-semibold text-foreground underline" to="/">
+        <Link
+          className="font-semibold text-foreground underline"
+          to="/practice"
+        >
           Go to the practice list
         </Link>
       </footer>

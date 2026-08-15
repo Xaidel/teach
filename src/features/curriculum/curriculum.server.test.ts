@@ -348,6 +348,7 @@ describe.skipIf(!dbUp)('curriculum.server', () => {
         prompt: 'Implement it.',
         starterCode: 'pub fn x() {}',
         guidance: 'independent',
+        sampleTests: null,
       },
       conceptSlug: CONCEPT_ADVANCED.slug,
       targetConcepts: [CONCEPT_ADVANCED.slug],

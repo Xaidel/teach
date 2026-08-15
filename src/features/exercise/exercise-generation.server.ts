@@ -208,6 +208,9 @@ async function persistVerifiedExercise(input: {
         // it — a stored adversarial row served via fallback must render the
         // adversarial label consistently (issue #120).
         ...(input.generated.defect ? { defect: input.generated.defect } : {}),
+        ...(input.generated.sampleTests
+          ? { sampleTests: input.generated.sampleTests }
+          : {}),
       })
       .returning()
     if (!row) {

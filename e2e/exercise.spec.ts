@@ -150,7 +150,7 @@ test.afterAll(async () => {
 test('submits code and receives a pass/fail result end to end for each hardcoded language', async ({
   page,
 }) => {
-  await page.goto('/')
+  await page.goto('/practice')
 
   await expect(
     page.getByRole('heading', {
@@ -182,7 +182,7 @@ test('submits code and receives a pass/fail result end to end for each hardcoded
 test('submits a generated-style Rust exercise end to end (issue #8)', async ({
   page,
 }) => {
-  await page.goto('/')
+  await page.goto('/practice')
 
   const article = page.getByRole('article', {
     name: 'Generated: borrow the vector',
@@ -211,7 +211,7 @@ test('submits a generated-style Rust exercise end to end (issue #8)', async ({
 test('generation surfaces a graceful failure when the AI is unreachable', async ({
   page,
 }) => {
-  await page.goto('/')
+  await page.goto('/practice')
 
   await page
     .getByRole('combobox', { name: 'Target concept' })
@@ -228,7 +228,7 @@ test('generation surfaces a graceful failure when the AI is unreachable', async 
 test('sets and persists the explanation depth and reference frame (issue #12)', async ({
   page,
 }) => {
-  await page.goto('/')
+  await page.goto('/practice')
 
   const panel = page.getByRole('region', { name: 'Explanation preferences' })
   await expect(panel).toBeVisible()
@@ -271,7 +271,7 @@ test('sets and persists the explanation depth and reference frame (issue #12)', 
 test('escalates the manual Socratic hint ladder one level at a time', async ({
   page,
 }) => {
-  await page.goto('/')
+  await page.goto('/practice')
 
   const article = page.getByRole('article', {
     name: 'Is it even? (Go)',

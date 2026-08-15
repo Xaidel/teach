@@ -154,7 +154,7 @@ function TransferTestResult({
       <Link
         className="w-fit font-semibold text-primary underline"
         search={{ exerciseId: result.exerciseId }}
-        to="/"
+        to="/practice"
       >
         Go solve it →
       </Link>
