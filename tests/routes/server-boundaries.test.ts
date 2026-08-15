@@ -19,16 +19,30 @@ async function collectSourceFiles(directory: string): Promise<string[]> {
   return paths.flat().filter((path) => ['.ts', '.tsx'].includes(extname(path)))
 }
 
+async function collectFeatureSourceFiles(feature: string): Promise<string[]> {
+  const paths = await Promise.all(
+    ['components', 'pages'].map(async (subdirectory) => {
+      const absoluteDirectory = new URL(
+        `src/features/${feature}/${subdirectory}/`,
+        workspaceRoot,
+      )
+      try {
+        await stat(absoluteDirectory)
+      } catch {
+        return []
+      }
+      return collectSourceFiles(`src/features/${feature}/${subdirectory}/`)
+    }),
+  )
+  return paths.flat()
+}
+
 describe('client and server source boundaries', () => {
   it('keeps server-only modules out of routes and rendered feature UI', async () => {
+    const features = await readdir(new URL('src/features/', workspaceRoot))
     const sourcePaths = [
       ...(await collectSourceFiles('src/routes/')),
-      ...(await collectSourceFiles('src/features/exercise/components/')),
-      ...(await collectSourceFiles('src/features/exercise/pages/')),
-      ...(await collectSourceFiles('src/features/concepts/components/')),
-      ...(await collectSourceFiles('src/features/concepts/pages/')),
-      ...(await collectSourceFiles('src/features/retrieval/components/')),
-      ...(await collectSourceFiles('src/features/retrieval/pages/')),
+      ...(await Promise.all(features.map(collectFeatureSourceFiles))).flat(),
     ].filter((path) => !path.endsWith('.test.tsx'))
 
     const sources = await Promise.all(
