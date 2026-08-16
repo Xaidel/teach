@@ -42,6 +42,16 @@ func IsEven(n uint32) bool {
  */
 const FIXTURE_CONCEPT_SLUG = 'e2e.rust.borrowing'
 const FIXTURE_EXERCISE_SLUG = 'e2e-generated-rust-borrowing'
+/**
+ * A second, deliberately bare concept: no verified exercise ever joined to
+ * it. The "AI unreachable" test below needs this — `generateExerciseForConcept`'s
+ * circuit breaker (SPEC story 34) serves any existing verified exercise for
+ * the target concept once every generation attempt fails, so a total outage
+ * only surfaces the error UI when nothing already exists to fall back to.
+ * `FIXTURE_CONCEPT_SLUG` above always has one (`FIXTURE_EXERCISE_SLUG`,
+ * seeded right below), which would silently rescue that request instead.
+ */
+const NO_FALLBACK_CONCEPT_SLUG = 'e2e.rust.generation_unreachable'
 
 /** Removes any rows this spec owns so reruns start from a clean state. */
 async function cleanupFixture(): Promise<void> {
@@ -76,6 +86,7 @@ async function cleanupFixture(): Promise<void> {
     await db.delete(exercises).where(eq(exercises.id, fixtureExercise.id))
   }
   await db.delete(concepts).where(eq(concepts.slug, FIXTURE_CONCEPT_SLUG))
+  await db.delete(concepts).where(eq(concepts.slug, NO_FALLBACK_CONCEPT_SLUG))
 }
 
 test.beforeAll(async () => {
@@ -140,6 +151,11 @@ fn first_of_empty_is_zero() {
   await db.insert(exerciseConcepts).values({
     exerciseId: fixtureExerciseId,
     conceptId: fixtureConceptId,
+  })
+  await db.insert(concepts).values({
+    language: 'rust',
+    slug: NO_FALLBACK_CONCEPT_SLUG,
+    difficulty: 2,
   })
 })
 
@@ -215,11 +231,14 @@ test('generation surfaces a graceful failure when the AI is unreachable', async 
 
   await page
     .getByRole('combobox', { name: 'Target concept' })
-    .selectOption('e2e.rust.borrowing')
+    .selectOption(NO_FALLBACK_CONCEPT_SLUG)
   await page.getByRole('button', { name: 'Generate rust exercise' }).click()
 
   // E2E_FORCE_AI_FAILURE (issue #93) force-fails every AI call at the choke
-  // point — the page must show the mapped error, not crash.
+  // point — the page must show the mapped error, not crash. Targets
+  // NO_FALLBACK_CONCEPT_SLUG specifically: FIXTURE_CONCEPT_SLUG already has
+  // a verified exercise, which the circuit breaker would serve instead of
+  // failing once every generation attempt is exhausted.
   await expect(
     page.getByText('The exercise could not be generated. Try again.'),
   ).toBeVisible({ timeout: 60_000 })
