@@ -103,6 +103,39 @@ describe('CodeField', () => {
     expect(screen.getByDisplayValue('package main')).toBeDisabled()
   })
 
+  it('omits the language dropdown when no languagePicker is given (the exercise field)', () => {
+    highlightMock.mockReturnValue(undefined)
+
+    render(<CodeField id="code" language="rust" onChange={vi.fn()} value="" />)
+
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+  })
+
+  it('shows the predicted language under a "Detected Language" label and re-highlights when the learner picks another one', async () => {
+    highlightMock.mockReturnValue(undefined)
+    const user = userEvent.setup()
+    const onLanguageChange = vi.fn()
+
+    render(
+      <CodeField
+        id="code"
+        language="go"
+        languagePicker={{ onLanguageChange }}
+        onChange={vi.fn()}
+        value="package main"
+      />,
+    )
+
+    expect(screen.getByLabelText('Detected Language')).toHaveValue('go')
+
+    await user.selectOptions(
+      screen.getByLabelText('Detected Language'),
+      'python',
+    )
+
+    expect(onLanguageChange).toHaveBeenCalledWith('python')
+  })
+
   describe('vim mode', () => {
     /** `CodeField` mutates the textarea's DOM value directly, then reports
      * it via `onChange` — exactly how a real caller's own state update

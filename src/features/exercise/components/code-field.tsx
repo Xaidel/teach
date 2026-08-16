@@ -1,13 +1,23 @@
 import { useRef } from 'react'
 
 import { cn } from '#/lib/cn'
-import type { SandboxLanguage } from '#/lib/sandbox/types'
+import { SANDBOX_LANGUAGES, type SandboxLanguage } from '#/lib/sandbox/types'
 import { Label } from '#/shared/components/ui/label'
 import { Switch } from '#/shared/components/ui/switch'
 import { useTheme } from '#/shared/hooks/use-theme'
 
 import { useCodeHighlight } from '../use-code-highlight'
 import { useVimMode } from '../use-vim-mode'
+
+const LANGUAGE_LABELS: Record<SandboxLanguage, string> = {
+  rust: 'Rust',
+  go: 'Go',
+  python: 'Python',
+}
+
+type LanguagePicker = {
+  onLanguageChange: (language: SandboxLanguage) => void
+}
 
 type CodeFieldProps = {
   id: string
@@ -16,6 +26,15 @@ type CodeFieldProps = {
   onChange: (value: string) => void
   disabled?: boolean
   describedBy?: string | undefined
+  placeholder?: string | undefined
+  /**
+   * Renders an editable language dropdown in the header instead of a fixed
+   * label, for callers that don't know the snippet's language ahead of
+   * time (the Tactical Sprint paste box) — as opposed to the exercise
+   * field, where `language` always comes from the exercise itself and this
+   * is omitted.
+   */
+  languagePicker?: LanguagePicker | undefined
 }
 
 /**
@@ -39,12 +58,15 @@ export function CodeField({
   onChange,
   disabled = false,
   describedBy,
+  placeholder,
+  languagePicker,
 }: CodeFieldProps): React.JSX.Element {
   const { theme } = useTheme()
   const html = useCodeHighlight(value, language, theme)
   const overlayRef = useRef<HTMLDivElement>(null)
   const vim = useVimMode(onChange)
   const vimSwitchId = `${id}-vim-mode`
+  const languageSelectId = `${id}-language`
 
   function syncOverlayScroll(event: React.UIEvent<HTMLTextAreaElement>): void {
     const overlay = overlayRef.current
@@ -58,19 +80,50 @@ export function CodeField({
       className="relative overflow-hidden rounded-xl border border-input shadow-xs has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring"
       data-slot="code-field"
     >
-      <div className="flex items-center justify-end gap-2 border-b border-input bg-muted/40 px-3 py-1.5">
-        <Label
-          className="text-xs font-semibold text-muted-foreground"
-          htmlFor={vimSwitchId}
-        >
-          Vim mode
-        </Label>
-        <Switch
-          checked={vim.enabled}
-          disabled={disabled}
-          id={vimSwitchId}
-          onCheckedChange={vim.toggleEnabled}
-        />
+      <div className="flex items-center justify-between gap-2 border-b border-input bg-muted/40 px-3 py-1.5">
+        {languagePicker ? (
+          <div className="flex items-center gap-2">
+            <Label
+              className="text-xs font-semibold text-muted-foreground"
+              htmlFor={languageSelectId}
+            >
+              Detected Language
+            </Label>
+            <select
+              className="h-6 rounded-md border border-input bg-background px-1.5 text-xs font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              disabled={disabled}
+              id={languageSelectId}
+              onChange={(event) => {
+                languagePicker.onLanguageChange(
+                  event.target.value as SandboxLanguage,
+                )
+              }}
+              value={language}
+            >
+              {SANDBOX_LANGUAGES.map((option) => (
+                <option key={option} value={option}>
+                  {LANGUAGE_LABELS[option]}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : (
+          <span />
+        )}
+        <div className="flex items-center gap-2">
+          <Label
+            className="text-xs font-semibold text-muted-foreground"
+            htmlFor={vimSwitchId}
+          >
+            Vim mode
+          </Label>
+          <Switch
+            checked={vim.enabled}
+            disabled={disabled}
+            id={vimSwitchId}
+            onCheckedChange={vim.toggleEnabled}
+          />
+        </div>
       </div>
       <div className="relative">
         <div
@@ -105,6 +158,7 @@ export function CodeField({
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={vim.handleKeyDown}
           onScroll={syncOverlayScroll}
+          placeholder={placeholder}
           spellCheck={false}
           value={value}
         />
