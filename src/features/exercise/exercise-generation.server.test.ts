@@ -732,7 +732,7 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
     expect(row).toMatchObject({ mode: 'debug', status: 'verified' })
   })
 
-  it('retries an AI Teacher Engine failure like a Pre-Flight failure, through the circuit breaker, until it gives up', async () => {
+  it('retries an AI Teacher Engine failure like a Pre-Flight failure, through the circuit breaker, and reports the true cause once it gives up', async () => {
     generateExerciseMock.mockRejectedValue(
       new TeacherEngineError('api_error', 'engine unreachable'),
     )
@@ -743,7 +743,11 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
         conceptSlug: FIXTURE_CONCEPT_SLUG,
         learnerId,
       }),
-    ).rejects.toMatchObject({ code: 'PREFLIGHT_FAILED' })
+      // Every attempt failed before a draft ever reached Pre-Flight, so the
+      // terminal error stays EXERCISE_GENERATION_FAILED rather than the
+      // misleading PREFLIGHT_FAILED ("try a different concept") — no
+      // Pre-Flight run ever ran.
+    ).rejects.toMatchObject({ code: 'EXERCISE_GENERATION_FAILED' })
 
     // Every attempt within the cap plus the final simplified fallback
     // attempt (SIMPLIFIED_FALLBACK_ATTEMPT_NUMBER) retries the AI call

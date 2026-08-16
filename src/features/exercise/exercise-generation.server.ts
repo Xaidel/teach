@@ -398,6 +398,13 @@ export async function generateExerciseForConcept(input: {
 
   const guidance = input.guidance ?? 'guided'
   let previousDiagnostics: PreFlightDiagnosticsInput | undefined
+  // Whether any attempt ever actually reached a Pre-Flight run (i.e. the AI
+  // call itself succeeded at least once). An engine-level failure
+  // (`runGenerationAttempt`'s TeacherEngineError case) never sets
+  // `failureDiagnostics`, so this stays false when every attempt failed
+  // before generation ever produced a draft — the terminal error below uses
+  // it to report the true cause instead of always blaming Pre-Flight.
+  let everRanPreFlight = false
   for (
     let attemptNumber = 1;
     attemptNumber <= MAX_PREFLIGHT_ATTEMPTS;
@@ -419,6 +426,7 @@ export async function generateExerciseForConcept(input: {
       return attempt.outcome
     }
     previousDiagnostics = attempt.failureDiagnostics
+    everRanPreFlight ||= attempt.failureDiagnostics !== undefined
   }
 
   // Circuit breaker (SPEC story 33): every attempt within the cap failed.
@@ -449,7 +457,15 @@ export async function generateExerciseForConcept(input: {
   if (finalAttempt.kind === 'succeeded') {
     return finalAttempt.outcome
   }
-  throw new GenerationError('PREFLIGHT_FAILED')
+  everRanPreFlight ||= finalAttempt.failureDiagnostics !== undefined
+
+  // A Pre-Flight-flavored message ("try a different concept") is only
+  // accurate once a draft actually reached the gate; if every attempt,
+  // including this final one, failed before generation ever produced a
+  // draft, the true cause is the engine call itself.
+  throw new GenerationError(
+    everRanPreFlight ? 'PREFLIGHT_FAILED' : 'EXERCISE_GENERATION_FAILED',
+  )
 }
 
 /**
