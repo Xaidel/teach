@@ -17,6 +17,18 @@ vi.mock('../tactical-sprint.functions', () => ({
   startTacticalSprintFn: vi.fn(),
 }))
 
+// CodeField's real shiki highlighting is exercised by code-field.test.tsx —
+// stub it out here so this suite stays about the tactical-sprint flow, not
+// wasm-backed grammar loading. Spying on the language it's called with lets
+// language-prediction tests below assert the highlight actually follows the
+// detected/overridden language without asserting on rendered HTML.
+const useCodeHighlightMock =
+  vi.fn<(code: string, language: string, theme: string) => string | undefined>()
+vi.mock('#/features/exercise/use-code-highlight', () => ({
+  useCodeHighlight: (code: string, language: string, theme: string) =>
+    useCodeHighlightMock(code, language, theme),
+}))
+
 import { startTacticalSprintFn } from '../tactical-sprint.functions'
 import type { TacticalSprintResult } from '../tactical-sprint.schema'
 import { TacticalSprintCard } from './tactical-sprint-card'
@@ -74,6 +86,8 @@ describe('TacticalSprintCard', () => {
 
   beforeEach(() => {
     startTacticalSprintFnMock.mockReset()
+    useCodeHighlightMock.mockReset()
+    useCodeHighlightMock.mockReturnValue(undefined)
   })
 
   it('disables analysis until a snippet is entered', () => {
@@ -126,5 +140,60 @@ describe('TacticalSprintCard', () => {
     expect(
       screen.getByText('The snippet could not be analyzed. Try again.'),
     ).toBeInTheDocument()
+  })
+
+  it('shows no language indicator until there is a snippet to detect from', () => {
+    render(<TacticalSprintCard language="rust" />)
+
+    expect(screen.queryByLabelText('Detected Language')).not.toBeInTheDocument()
+  })
+
+  it("predicts the pasted snippet's language and highlights it accordingly", () => {
+    render(<TacticalSprintCard language="rust" />)
+
+    const goSnippet =
+      'package main\n\nfunc main() {\n\tx := 1\n\tfmt.Println(x)\n}'
+    fireEvent.change(screen.getByLabelText('rust snippet'), {
+      target: { value: goSnippet },
+    })
+
+    expect(screen.getByLabelText('Detected Language')).toHaveValue('go')
+    expect(useCodeHighlightMock).toHaveBeenLastCalledWith(
+      goSnippet,
+      'go',
+      expect.any(String),
+    )
+  })
+
+  it('lets the learner correct a wrong prediction, and the override sticks through further edits', async () => {
+    const user = userEvent.setup()
+    render(<TacticalSprintCard language="rust" />)
+
+    // Nothing in this snippet scores for any language, so detection falls
+    // back to "rust" — wrong for what's actually Python.
+    fireEvent.change(screen.getByLabelText('rust snippet'), {
+      target: { value: 'x = 5' },
+    })
+    expect(screen.getByLabelText('Detected Language')).toHaveValue('rust')
+
+    await user.selectOptions(
+      screen.getByLabelText('Detected Language'),
+      'python',
+    )
+
+    expect(screen.getByLabelText('Detected Language')).toHaveValue('python')
+    expect(useCodeHighlightMock).toHaveBeenLastCalledWith(
+      'x = 5',
+      'python',
+      expect.any(String),
+    )
+
+    // A further edit that would otherwise read as Rust doesn't clobber the
+    // learner's explicit choice.
+    fireEvent.change(screen.getByLabelText('rust snippet'), {
+      target: { value: 'fn main() { println!("hi"); }' },
+    })
+
+    expect(screen.getByLabelText('Detected Language')).toHaveValue('python')
   })
 })

@@ -1,14 +1,16 @@
 import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
 
+import { CodeField } from '#/features/exercise/components/code-field'
+import { detectLanguage } from '#/features/exercise/detect-language'
 import type { ExerciseGenerationLanguage } from '#/features/exercise/exercise-generation.schema'
 import { MASTERY_LABELS } from '#/lib/mastery-states'
+import type { SandboxLanguage } from '#/lib/sandbox/types'
 import { Alert } from '#/shared/components/ui/alert'
 import { Badge } from '#/shared/components/ui/badge'
 import { Button } from '#/shared/components/ui/button'
 import { Card, CardContent, CardHeader } from '#/shared/components/ui/card'
 import { Label } from '#/shared/components/ui/label'
-import { Textarea } from '#/shared/components/ui/textarea'
 
 import { errorMessage } from '../client-utils'
 import { startTacticalSprintFn } from '../tactical-sprint.functions'
@@ -33,6 +35,28 @@ export function TacticalSprintCard({
   const [result, setResult] = useState<TacticalSprintResult>()
   const [error, setError] = useState<string>()
   const snippetInputId = `tactical-sprint-snippet-${language}`
+
+  // The editor's own guess at the pasted snippet's language, used only to
+  // pick a shiki grammar for the highlight overlay — independent of
+  // `language` above, which is what actually gets analyzed. Re-guessed on
+  // every change until the learner overrides it directly, at which point
+  // their choice sticks.
+  const [highlightLanguage, setHighlightLanguage] =
+    useState<SandboxLanguage>('rust')
+  const [highlightLanguageIsManual, setHighlightLanguageIsManual] =
+    useState(false)
+
+  function handleSnippetChange(value: string): void {
+    setSnippet(value)
+    if (!highlightLanguageIsManual) {
+      setHighlightLanguage(detectLanguage(value))
+    }
+  }
+
+  function handleHighlightLanguageChange(next: SandboxLanguage): void {
+    setHighlightLanguage(next)
+    setHighlightLanguageIsManual(true)
+  }
 
   async function handleAnalyze(): Promise<void> {
     setError(undefined)
@@ -69,13 +93,20 @@ export function TacticalSprintCard({
         <div className="grid gap-4">
           <div className="grid gap-2">
             <Label htmlFor={snippetInputId}>{language} snippet</Label>
-            <Textarea
-              className="min-h-40 font-mono text-xs leading-relaxed"
+            <CodeField
               disabled={isPending}
               id={snippetInputId}
-              onChange={(event) => setSnippet(event.target.value)}
+              language={highlightLanguage}
+              languagePicker={
+                // Nothing to detect from an empty box — showing a "detected"
+                // language before the learner has pasted anything would be
+                // a guess wearing a claim it hasn't earned.
+                snippet.trim().length > 0
+                  ? { onLanguageChange: handleHighlightLanguageChange }
+                  : undefined
+              }
+              onChange={handleSnippetChange}
               placeholder={`Paste the ${language} snippet you don't understand...`}
-              spellCheck={false}
               value={snippet}
             />
           </div>
