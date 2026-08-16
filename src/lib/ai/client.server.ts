@@ -27,8 +27,16 @@ export class TeacherEngineError extends Error {
   }
 }
 
-/** Hard ceiling on one AI Teacher Engine call. */
-const TEACHER_ENGINE_TIMEOUT_MS = 30_000
+/**
+ * Hard ceiling on one AI Teacher Engine call. 30s was too tight for a
+ * `reasoning_effort: 'high'` call against the configured model: a 10-run
+ * benchmark of `generateExercise` (2026-08-17) measured 22.6-112.0s across
+ * successful calls (median 35.9s), with 6/8 successes already past 30s. 90s
+ * covers the large majority of that range without leaving a caller hanging
+ * indefinitely; genuine stalls/errors beyond it are retried by the caller
+ * (`runGenerationAttempt`'s Pre-Flight retry loop), not absorbed here.
+ */
+const TEACHER_ENGINE_TIMEOUT_MS = 90_000
 
 /** Structured-output mode for the OpenAI-compatible API (issue #54). */
 export type ResponseFormatKind = 'json_schema' | 'json_object'

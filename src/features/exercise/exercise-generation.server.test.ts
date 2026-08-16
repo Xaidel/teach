@@ -39,6 +39,7 @@ import type { GeneratedExercise } from '#/lib/ai/schemas'
 import { runSandboxSubmission } from '#/lib/sandbox/runner.server'
 import type { SandboxResult } from '#/lib/sandbox/types'
 
+import { SIMPLIFIED_FALLBACK_ATTEMPT_NUMBER } from './exercise-generation.schema'
 import { generateExerciseForConcept } from './exercise-generation.server'
 import { getAvailableExercises } from './exercise.server'
 import { getCurrentLearnerId } from '../learners/learners.server'
@@ -731,7 +732,7 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
     expect(row).toMatchObject({ mode: 'debug', status: 'verified' })
   })
 
-  it('maps an AI Teacher Engine failure to a stable generation error without retrying', async () => {
+  it('retries an AI Teacher Engine failure like a Pre-Flight failure, through the circuit breaker, until it gives up', async () => {
     generateExerciseMock.mockRejectedValue(
       new TeacherEngineError('api_error', 'engine unreachable'),
     )
@@ -742,10 +743,18 @@ describe.skipIf(!dbUp)('exercise generation against Postgres', () => {
         conceptSlug: FIXTURE_CONCEPT_SLUG,
         learnerId,
       }),
-    ).rejects.toMatchObject({ code: 'EXERCISE_GENERATION_FAILED' })
+    ).rejects.toMatchObject({ code: 'PREFLIGHT_FAILED' })
 
-    expect(generateExerciseMock).toHaveBeenCalledTimes(1)
+    // Every attempt within the cap plus the final simplified fallback
+    // attempt (SIMPLIFIED_FALLBACK_ATTEMPT_NUMBER) retries the AI call
+    // itself — an engine failure no longer aborts the loop on the first
+    // try (a 10-run benchmark measured a 20% raw failure rate on this call,
+    // independent of Pre-Flight).
+    expect(generateExerciseMock).toHaveBeenCalledTimes(
+      SIMPLIFIED_FALLBACK_ATTEMPT_NUMBER,
+    )
     expect(runSandboxSubmissionMock).not.toHaveBeenCalled()
+    // No Pre-Flight run ever happened — nothing to log per attempt.
     const attempts = await db
       .select()
       .from(preFlightAttempts)

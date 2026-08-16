@@ -480,7 +480,7 @@ async function runGenerationAttempt(input: {
       kind: 'succeeded'
       outcome: GenerateExerciseOutput & { kind: 'generated' }
     }
-  | { kind: 'failed'; failureDiagnostics: PreFlightDiagnostics }
+  | { kind: 'failed'; failureDiagnostics: PreFlightDiagnostics | undefined }
 > {
   let generated: GeneratedExercise
   try {
@@ -495,7 +495,16 @@ async function runGenerationAttempt(input: {
     })
   } catch (error) {
     if (error instanceof TeacherEngineError) {
-      throw new GenerationError('EXERCISE_GENERATION_FAILED')
+      // A 10-run benchmark (2026-08-17) measured a 20% raw failure rate on
+      // this call (timeouts/API errors), independent of Pre-Flight — this
+      // used to throw straight out of `generateExerciseForConcept`'s retry
+      // loop, so one bad call killed the whole generation with no retry and
+      // no chance for the circuit-breaker fallback below to run. Retryable
+      // like a Pre-Flight failure instead: it costs one of the same
+      // `MAX_PREFLIGHT_ATTEMPTS` attempts. No Pre-Flight diagnostics exist
+      // for an attempt that never reached generation, so the next attempt's
+      // prompt carries none.
+      return { kind: 'failed', failureDiagnostics: undefined }
     }
     throw error
   }
